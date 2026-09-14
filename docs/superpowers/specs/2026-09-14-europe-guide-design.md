@@ -146,8 +146,12 @@ Steps:
 - Supabase: email/password, sign-ups disabled, RLS on all tables and storage,
   JWT expiry 1 h with refresh tokens valid 90 days, no anonymous access.
 - Google browser key: HTTP referrer restricted to the Pages origin and localhost;
-  APIs limited to Routes and Places (New) — the Maps JavaScript API is not used; daily
-  quota caps. Server key (import) restricted to Geocoding + Routes, never shipped.
+  APIs limited to Routes and Places (New) — the Maps JavaScript API is not used.
+- Google billing cap: Google offers no hard spend limit, so the cap is enforced
+  with per-API daily quotas set well inside each free allowance (Routes,
+  Places Nearby, Places Details, Geocoding) plus a Cloud Billing budget with
+  email alerts at 50% and 90% of the free tier. Quota exhaustion degrades the
+  app (no lines, no "!" markers) rather than costing money. Server key (import) restricted to Geocoding + Routes, never shipped.
 - PDFs: signed URLs (1 h), cached in the app's Cache Storage.
 - Location stays on device except as coordinates sent to Google Routes/Places.
 - No analytics, no third-party scripts beyond Google and MapLibre.
