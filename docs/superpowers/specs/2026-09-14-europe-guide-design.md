@@ -146,7 +146,7 @@ Steps:
 - Supabase: email/password, sign-ups disabled, RLS on all tables and storage,
   JWT expiry 1 h with refresh tokens valid 90 days, no anonymous access.
 - Google browser key: HTTP referrer restricted to the Pages origin and localhost;
-  APIs limited to Maps JavaScript (only if needed), Routes, Places (New); daily
+  APIs limited to Routes and Places (New) — the Maps JavaScript API is not used; daily
   quota caps. Server key (import) restricted to Geocoding + Routes, never shipped.
 - PDFs: signed URLs (1 h), cached in the app's Cache Storage.
 - Location stays on device except as coordinates sent to Google Routes/Places.
