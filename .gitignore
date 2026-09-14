@@ -1,0 +1,8 @@
+# Private trip data — never commit the real itinerary, tickets or bookings
+content/
+*.local.*
+.env
+.env.*
+node_modules/
+dist/
+.DS_Store
