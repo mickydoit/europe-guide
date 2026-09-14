@@ -44,7 +44,7 @@ RLS policy `owner = auth.uid()` for select/insert/update/delete. Storage bucket
 |---|---|---|
 | `trips` | `slug` (`lisbon`) | name, country, start_date, end_date, base, timezone, sort |
 | `days` | `(trip, date)` | title, status (`locked`, `locked_except_dinner`, null), intro (md) |
-| `items` | `id` = `<trip>/<date>/<HHMM or seq>/<slug(plan)>` | day, block (`morning`/`midday`/`evening`/null), time (nullable), plan (md), details (md), sort, kind (`stop`/`option`/`note`), parent_item (for options), place_name, address, lat, lng, route_id |
+| `items` | `id` = `<trip>/<date>/<HHMM or seq>/<slug(plan)>` | day, block (`morning`/`midday`/`evening`/null), time (nullable), plan (md), details (md), sort, kind (`stop`/`option`/`note`/`route_link`), parent_item (for options), url (route_link only), place_name, address, lat, lng, route_id |
 | `bookings` | `id` (B01, T01…) | kind (`booked`/`todo`/`walkin`), title, date, time, priority, book_by, decide_by, contact, address, notes, fallback, relates_to, options, status_from_file |
 | `routes` | `id` (W1, T1, S1…) | trip, date, title, distance_text, mode (`walking`/`driving`), covers[], note, google_url |
 | `legs` | `(route_id, seq)` | from_name, to_name, from_lat, from_lng, to_lat, to_lng, google_url (single hop), polyline (cached from Routes API), distance_m, duration_s |
