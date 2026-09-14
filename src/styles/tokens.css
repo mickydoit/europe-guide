@@ -1,0 +1,10 @@
+:root {
+  --bg: #202123; --bg-nav: #131313; --card: #252525; --card-alt: #2a2c2f;
+  --border: #434445; --muted: #5a5b5d; --pill: #3a3b3d; --bg-2: #303133;
+  --accent: #11da8f; --salmon: #ff7262; --banana: #fbdd40;
+  --granny: #bde9c9; --golden: #f8e08e; --columbia: #9ee1fe; --coral: #f8c1b8;
+  --text: #ffffff; --text-dim: rgba(255,255,255,.4); --text-soft: rgba(255,255,255,.8);
+  --radius-card: 8px; --radius-panel: 17px; --radius-pill: 9999px;
+  --font: -apple-system, "SF Pro Display", "SF Pro Text", Inter, system-ui, sans-serif;
+  --safe-top: env(safe-area-inset-top); --safe-bottom: env(safe-area-inset-bottom);
+}

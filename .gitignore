@@ -3,6 +3,7 @@ content/
 *.local.*
 .env
 .env.*
+!.env.example
 node_modules/
 dist/
 .DS_Store
@@ -10,3 +11,8 @@ dist/
 # SDD scratch
 .superpowers/
 .cache/
+
+# PWA / Supabase / map tiles
+dev-dist/
+supabase/.temp/
+*.pmtiles

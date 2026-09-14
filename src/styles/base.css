@@ -1,0 +1,9 @@
+@import './tokens.css';
+*, *::before, *::after { box-sizing: border-box; }
+html, body, #root { height: 100%; margin: 0; }
+body { background: var(--bg); color: var(--text); font-family: var(--font); -webkit-font-smoothing: antialiased; }
+a { color: var(--accent); }
+button { font: inherit; }
+.screen { padding: calc(var(--safe-top) + 16px) 16px calc(var(--safe-bottom) + 96px); min-height: 100%; }
+.h5 { font-size: 20px; font-weight: 700; line-height: 1; margin: 0 0 16px; }
+.caption { font-size: 14px; line-height: 16px; color: var(--text-dim); }
