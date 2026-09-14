@@ -6,3 +6,7 @@ content/
 node_modules/
 dist/
 .DS_Store
+
+# SDD scratch
+.superpowers/
+.cache/
