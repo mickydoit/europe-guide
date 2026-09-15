@@ -94,6 +94,12 @@ and is also reachable from Day). Placeholder styling uses the Figma tokens in
   movement. Bottom sheet on tap: name, rating, hours, photo, "Walk there", "Save
   to notes". Banner "Offline map" when `navigator.onLine` is false or tile
   fetches fail; disappears when back.
+- **Weather** (added 15 Sep 2026 at the owner's request). Google Maps Platform
+  Weather API via the browser key: a compact strip on the Day screen for the
+  selected date (condition, high/low, rain chance, and an hourly row for today)
+  and current conditions on Home. Forecasts cover ~10 days; beyond that the
+  strip says when the forecast opens. Responses are cached per city per hour in
+  IndexedDB and shown stale when offline.
 - **Bookings.** To Book (sorted by book_by, priority colour) and Booked (sorted by
   date). Detail sheet: all file fields, status toggle, confirmation ref, cost,
   attachments list with upload (Files or camera roll), open in browser viewer.
