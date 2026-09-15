@@ -12,6 +12,7 @@ import { OptionsCard } from '../components/OptionsCard'
 import { TileRow } from '../components/TileRow'
 import type { Tile, TileTone } from '../components/TileRow'
 import { ReminderChips } from '../components/ReminderChips'
+import { warmTripAttachments } from '../lib/attachmentsWarm'
 
 const NOW_TICK_MS = 30_000
 const TOUR_TONES: TileTone[] = ['granny', 'golden']
@@ -30,11 +31,19 @@ export function Home() {
   const { trips, slug, content, loading, error, setSlug, refresh } = useTrip()
   const { state } = useBookingState(content?.trip.slug ?? '')
   const [now, setNow] = useState(() => new Date())
+  const warmSlug = content?.trip.slug ?? null
 
   useEffect(() => {
     const id = setInterval(() => setNow(new Date()), NOW_TICK_MS)
     return () => clearInterval(id)
   }, [])
+
+  // Home is the screen the owner opens over breakfast, on hotel wifi — the best moment to
+  // get the day's tickets onto the phone. Once per trip per session, shared with More.
+  useEffect(() => {
+    if (!warmSlug) return
+    void warmTripAttachments(warmSlug).catch(() => {})
+  }, [warmSlug])
 
   if (loading && !content) {
     return <main className="screen"><p className="caption">Loading…</p></main>

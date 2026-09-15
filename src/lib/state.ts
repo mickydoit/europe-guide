@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { supabase } from './supabase'
-import { enqueue, listOutbox, removeOp, removeOpsByKey } from './outbox'
+import { enqueue, listOpsByKey, listOutbox, removeOp } from './outbox'
 import type { AttachmentUploadPayload, BookingStatePayload, CheckSetPayload, DayNotesPayload } from './outbox'
 import { flushOutbox, notify } from './sync'
-import { cacheAttachment, deleteCachedAttachment, enforceCacheLimit, getCachedAttachmentBlob, hasCachedAttachment } from './attachmentsCache'
+import { cacheAttachment, deleteCachedAttachment, getCachedAttachmentBlob, hasCachedAttachment } from './attachmentsCache'
+import { isNetworkFailure } from './net'
 
 export type BookingStatus = 'not_booked' | 'booked' | 'confirmed' | 'cancelled' | 'undecided'
 
@@ -44,27 +45,10 @@ function isOnline(): boolean {
   return typeof navigator === 'undefined' || navigator.onLine !== false
 }
 
-// Word-bounded on purpose: an unbounded /load failed/ also matches "upload failed", which is
-// a perfectly ordinary storage rejection and must still surface as an error, not a queued write.
-const NETWORK_MESSAGE = /\bfetch\b|\bnetwork\b|Failed to fetch|NetworkError|\bload failed\b/i
-/** Gateway-class statuses: the request never reached Postgres, so replaying it is safe. */
-const NETWORK_STATUS = new Set([0, 502, 503, 504])
+/** Postgres `unique_violation` — the row we were inserting is already there. */
+const DUPLICATE_KEY = '23505'
 
-/**
- * Did this failure mean "no signal" rather than "the server said no"?
- *
- * Supabase hands back fetch failures two different ways — a thrown `TypeError` from the
- * transport, or a `{ error }` object carrying the transport's message — so both shapes land here.
- */
-function isNetworkFailure(e: unknown): boolean {
-  if (e instanceof TypeError) return true
-  const o = e as { message?: unknown; status?: unknown } | null
-  if (o && typeof o.status === 'number' && NETWORK_STATUS.has(o.status)) return true
-  const m = typeof o?.message === 'string' ? o.message : ''
-  return NETWORK_MESSAGE.test(m)
-}
-
-type Failure = { ok: false; network: boolean; error: { message: string } }
+type Failure = { ok: false; network: boolean; code?: string; error: { message: string } }
 type Success<T> = { ok: true; data: T }
 
 /**
@@ -75,9 +59,11 @@ async function runWrite<T>(fn: () => PromiseLike<{ data?: T; error: unknown }>):
   try {
     const { data, error } = await fn()
     if (!error) return { ok: true, data }
-    return { ok: false, network: isNetworkFailure(error), error: { message: message(error as { message: string }) } }
+    // `code` rides along so callers can tell a duplicate row (which means the write is
+    // already done) from a rejection that actually needs reporting.
+    return { ok: false, network: isNetworkFailure(error), code: (error as { code?: string }).code, error: { message: message(error as { message: string }) } }
   } catch (e) {
-    return { ok: false, network: isNetworkFailure(e), error: { message: e instanceof Error ? e.message : String(e) } }
+    return { ok: false, network: isNetworkFailure(e), code: (e as { code?: string } | null)?.code, error: { message: e instanceof Error ? e.message : String(e) } }
   }
 }
 
@@ -89,12 +75,20 @@ async function queue(op: Parameters<typeof enqueue>[0]): Promise<WriteResult> {
 }
 
 /**
- * A live write for `key` just landed, so anything queued under it is older intent that the
- * server has already moved past — replaying it would undo the write we just made. Drop those
- * first, then drain whatever else is waiting now that there is signal.
+ * A live write for `key` just landed, so anything queued under it *from before that write
+ * started* is older intent the server has already moved past — replaying it would undo what
+ * we just made stick. Anything queued after `startedAt` is the owner's newer edit, made while
+ * this round trip was in flight, and dropping it would silently lose their last change — so
+ * only ops older than the write are cleared. Then drain the rest, now that there is signal.
  */
-async function settle(client: SupabaseClient, key: string) {
-  if (await removeOpsByKey(key)) notify()
+async function settle(client: SupabaseClient, key: string, startedAt: number) {
+  let removed = 0
+  for (const op of await listOpsByKey(key)) {
+    if (op.createdAt > startedAt) continue
+    await removeOp(op.id)
+    removed += 1
+  }
+  if (removed) notify()
   void flushOutbox(client).catch(() => {})
 }
 
@@ -160,10 +154,12 @@ export function useChecks(trip: string, client: SupabaseClient = supabase) {
     // Offline is not an error worth a round trip: queue it and keep the tick.
     if (!isOnline()) return enqueueIt()
 
+    // Read before the round trip so anything the owner queues *during* it survives settle().
+    const startedAt = Date.now()
     const outcome = await runWrite(() => (wasDone
       ? client.from('item_checks').delete().eq('item_id', itemId)
       : client.from('item_checks').insert({ item_id: itemId })) as PromiseLike<{ error: unknown }>)
-    if (outcome.ok) { await settle(client, `check:${itemId}`); return { queued: false } }
+    if (outcome.ok) { await settle(client, `check:${itemId}`, startedAt); return { queued: false } }
     if (outcome.network) return enqueueIt()
 
     const reverted = new Set(doneRef.current)
@@ -200,6 +196,10 @@ export function useBookingState(trip: string, client: SupabaseClient = supabase)
   useEffect(() => {
     let cancelled = false
     touched.current = new Set()
+    // Callers that render before the trip resolves (Home, on its first paint) pass ''.
+    // Querying on it returns nothing useful and still burns a round trip, so skip it —
+    // the same guard useDayNotes has for a missing day.
+    if (!trip) { setLoading(false); return }
     setLoading(true)
     void (async () => {
       try {
@@ -246,8 +246,9 @@ export function useBookingState(trip: string, client: SupabaseClient = supabase)
     const enqueueIt = () => queue({ key, kind: 'booking_state', payload: row })
     if (!isOnline()) return enqueueIt()
 
+    const startedAt = Date.now()
     const outcome = await runWrite(() => client.from('booking_state').upsert(row, { onConflict: 'trip,booking_id' }) as PromiseLike<{ error: unknown }>)
-    if (outcome.ok) { await settle(client, key); return { queued: false } }
+    if (outcome.ok) { await settle(client, key, startedAt); return { queued: false } }
     if (outcome.network) return enqueueIt()
 
     // Put back only this booking. A whole-map restore would wipe any save for another
@@ -314,19 +315,10 @@ export function useAttachments(trip: string, bookingId: string, ownerId: string,
           console.warn(e instanceof Error ? e.message : String(e))
         }
       }
-      if (cancelled) return
-      try {
-        const evicted = await enforceCacheLimit(rows)
-        if (evicted.length && !cancelled) {
-          setCached(prev => {
-            const next = new Set(prev)
-            for (const id of evicted) next.delete(id)
-            return next
-          })
-        }
-      } catch (e) {
-        console.warn(e instanceof Error ? e.message : String(e))
-      }
+      // No enforceCacheLimit() here on purpose. The cap is a whole-trip budget, and this
+      // prefetch only ever sees one booking's rows — enforcing against them would measure
+      // the ceiling against a fraction of what is cached and evict by the wrong yardstick.
+      // `warmTripAttachments` runs the cap once, over every row in the trip. (Fix I4.)
     }
 
     void (async () => {
@@ -413,16 +405,26 @@ export function useAttachments(trip: string, bookingId: string, ownerId: string,
       console.warn(up.error.message); setError(up.error.message); throw new Error(up.error.message)
     }
 
+    const startedAt = Date.now()
     const ins = await runWrite<AttachmentRow>(() => client.from('attachments')
       .insert({ trip, booking_id: bookingId, storage_path: path, filename: file.name, mime: file.type, size: file.size })
       .select().single() as PromiseLike<{ data?: AttachmentRow; error: unknown }>)
+    let row = ins.ok ? (ins.data as AttachmentRow | undefined) : undefined
     if (!ins.ok) {
       if (ins.network) return enqueueIt()
-      console.warn(ins.error.message); setError(ins.error.message); throw new Error(ins.error.message)
+      // `attachments.storage_path` is unique, so a duplicate here means the row is already
+      // there — a queued replay of this very file beat the live write. That is the outcome
+      // we wanted, so adopt the stored row instead of reporting a failure to the owner.
+      if (ins.code === DUPLICATE_KEY) {
+        const existing = await runWrite<AttachmentRow>(() => client.from('attachments')
+          .select('*').eq('storage_path', path).single() as PromiseLike<{ data?: AttachmentRow; error: unknown }>)
+        if (existing.ok && existing.data) row = existing.data as AttachmentRow
+      }
+      if (!row) { console.warn(ins.error.message); setError(ins.error.message); throw new Error(ins.error.message) }
     }
-    setList(prev => [...prev, ins.data as AttachmentRow])
+    if (row) setList(prev => (prev.some(r => r.storage_path === path && !r.pendingUpload) ? prev : [...prev, row as AttachmentRow]))
     setError(null)
-    await settle(client, path)
+    await settle(client, path, startedAt)
     return { queued: false }
   }
 
@@ -585,8 +587,9 @@ export function useDayNotes(trip: string, date: string, client: SupabaseClient =
     if (!isOnline()) return enqueueIt()
 
     const row: Record<string, unknown> = { trip, date, ...patch, updated_at: new Date().toISOString() }
+    const startedAt = Date.now()
     const outcome = await runWrite(() => client.from('day_notes').upsert(row, { onConflict: 'trip,date' }) as PromiseLike<{ error: unknown }>)
-    if (outcome.ok) { await settle(client, key); return { queued: false } }
+    if (outcome.ok) { await settle(client, key, startedAt); return { queued: false } }
     if (outcome.network) return enqueueIt()
     console.warn(outcome.error.message)
     throw new Error(outcome.error.message)

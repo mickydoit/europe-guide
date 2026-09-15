@@ -1,6 +1,6 @@
 import '../helpers/blobClone'
 import { resetDbForTests } from '../../src/lib/db'
-import { enqueue, listOutbox, removeOp, updateOp, countOutbox, clearOutboxForTests } from '../../src/lib/outbox'
+import { enqueue, listOutbox, listOpsByKey, removeOp, updateOp, countOutbox, clearOutboxForTests } from '../../src/lib/outbox'
 
 async function wipe() {
   await resetDbForTests()
@@ -97,4 +97,25 @@ test('clearOutboxForTests empties the store', async () => {
   await enqueue({ key: 'k:a', kind: 'check_set', payload: { itemId: 'a', done: true } })
   await clearOutboxForTests()
   expect(await listOutbox()).toEqual([])
+})
+
+test('listOpsByKey returns that key\'s ops oldest first, and nothing else', async () => {
+  const a = await enqueue({ key: 'notes:valle:2026-11-02:text', kind: 'day_notes', payload: { trip: 'valle', date: '2026-11-02', patch: { text: 'one' } } })
+  await updateOp(a.id, { createdAt: 200 })
+  // A second op under the same key survives only because this one is queued directly.
+  const b = await enqueue({ key: 'other', kind: 'check_set', payload: { itemId: 'x', done: true } })
+  await updateOp(b.id, { createdAt: 100 })
+
+  const mine = await listOpsByKey('notes:valle:2026-11-02:text')
+  expect(mine.map(o => o.id)).toEqual([a.id])
+  expect(await listOpsByKey('nothing-queued-here')).toEqual([])
+})
+
+test('countOutbox counts by status without loading the payloads', async () => {
+  const a = await enqueue({ key: 'check:a', kind: 'check_set', payload: { itemId: 'a', done: true } })
+  const b = await enqueue({ key: 'check:b', kind: 'check_set', payload: { itemId: 'b', done: true } })
+  await updateOp(b.id, { status: 'failed' })
+  expect(await countOutbox()).toEqual({ pending: 1, failed: 1 })
+  await removeOp(a.id)
+  expect(await countOutbox()).toEqual({ pending: 0, failed: 1 })
 })

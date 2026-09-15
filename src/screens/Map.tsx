@@ -207,7 +207,7 @@ export default function Map() {
 
   const [showAll, setShowAll] = useState(false)
   const [basemap, setBasemap] = useState<Basemap | null>(null)
-  const [status, setStatus] = useState<{ downloaded: number; total: number; bytes: number } | null>(null)
+  const [status, setStatus] = useState<{ downloaded: number; total: number; bytes: number; stale: boolean } | null>(null)
   const [ready, setReady] = useState(false)
   const [selected, setSelected] = useState<Selected | null>(null)
   const [position, setPosition] = useState<{ lat: number; lng: number } | null>(null)
@@ -645,9 +645,16 @@ export default function Map() {
     banner = { text: 'Offline map not downloaded — connect to wifi and download it from More' }
   } else if (!online || (tileError && basemap?.mode === 'signed')) {
     banner = { text: allCached ? 'Offline — showing saved map' : 'Offline — map tiles unavailable' }
-  } else if (basemap?.mode === 'signed' && status?.downloaded === 0 && !promptDismissed && areas.length > 0) {
+  } else if (!promptDismissed && areas.length > 0 && (status?.stale || (basemap?.mode === 'signed' && status?.downloaded === 0))) {
+    // A stale map counts as not downloaded here: the tiles on the phone are from a
+    // different cut of the city, so the prompt is the same offer with different words.
     const bytes = areas.reduce((sum, a) => sum + a.size_bytes, 0)
-    banner = { text: `Download the ${trip?.name ?? 'city'} offline map (${mb(bytes)} MB)?`, actions: 'download' }
+    banner = {
+      text: status?.stale
+        ? `Map data changed — update the offline map (${mb(bytes)} MB)?`
+        : `Download the ${trip?.name ?? 'city'} offline map (${mb(bytes)} MB)?`,
+      actions: 'download',
+    }
   }
 
   return (

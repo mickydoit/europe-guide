@@ -5,11 +5,13 @@ import { TripProvider } from '../../src/lib/trip'
 import { loadValle } from '../helpers/content'
 import type { CityContent } from '../../src/lib/types'
 
-const { useBookingStateMock, useChecksMock, getCurrentMock } = vi.hoisted(() => ({
+const { useBookingStateMock, useChecksMock, getCurrentMock, warmMock } = vi.hoisted(() => ({
   useBookingStateMock: vi.fn(),
   useChecksMock: vi.fn(),
   getCurrentMock: vi.fn(),
+  warmMock: vi.fn(async () => ({ cached: 0, total: 0 })),
 }))
+vi.mock('../../src/lib/attachmentsWarm', () => ({ warmTripAttachments: warmMock }))
 
 vi.mock('../../src/lib/state', () => ({
   useBookingState: useBookingStateMock,
@@ -63,6 +65,7 @@ beforeEach(async () => {
   useChecksMock.mockReturnValue({ done: new Set<string>(), loading: false, toggle: vi.fn() })
   getCurrentMock.mockReset()
   getCurrentMock.mockRejectedValue(new Error('no weather in tests'))
+  warmMock.mockClear()
 })
 
 afterEach(() => {
@@ -190,4 +193,10 @@ test('before the trip starts the header keeps today and a caption names the day 
   renderHome(content)
   expect(await screen.findByRole('heading', { name: /Tuesday 20 October/ })).toBeInTheDocument()
   expect(screen.getByText('Plans for Sunday 1 November')).toBeInTheDocument()
+})
+
+test('Home starts the ticket warm pass for the active trip', async () => {
+  renderHome(content)
+  await screen.findByRole('heading', { name: 'Tours' })
+  expect(warmMock).toHaveBeenCalledWith('valle')
 })

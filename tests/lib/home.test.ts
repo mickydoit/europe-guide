@@ -93,6 +93,26 @@ describe('toursToday', () => {
     expect(after[1].progress).toBeCloseTo(1 / 180, 5)
   })
 
+  it('floors the duration at 15 min so two bookings at the same time stay sane', () => {
+    const content: CityContent = {
+      trip, days: [], items: [], routes: [], legs: [], alerts: [], parked: [], notes: [], areas: [],
+      bookings: [
+        blankBooking('Z1', 'booked', 'Tour', '2026-11-02', '10:00'),
+        blankBooking('Z2', 'booked', 'Tour again', '2026-11-02', '10:00'),
+      ],
+    }
+    // Same start time: the gap is zero, which without a floor divides by zero — Infinity
+    // progress, and a tour that has not begun reported as done.
+    const r = toursToday(content, '2026-11-02', 10 * 60 + 5)
+    expect(r[0].status).toBe('live')
+    expect(r[0].progress).toBeCloseTo(5 / 15, 5)
+    expect(Number.isFinite(r[0].progress)).toBe(true)
+
+    const atStart = toursToday(content, '2026-11-02', 10 * 60)
+    expect(atStart[0].status).toBe('live')
+    expect(atStart[0].progress).toBe(0)
+  })
+
   it('excludes bookings without a time or of a different kind/date', () => {
     const content: CityContent = {
       trip, days: [], items: [], routes: [], legs: [], alerts: [], parked: [], notes: [], areas: [],

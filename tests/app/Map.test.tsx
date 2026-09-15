@@ -166,12 +166,17 @@ function lastStops(): GeoJSON.FeatureCollection {
   return call!.data as GeoJSON.FeatureCollection
 }
 
-async function seedCache(areas: OfflineAreaRow[]) {
+/**
+ * Cache each area's archive. `content-length` advertises the size the row claims (rather
+ * than the three stand-in bytes) so a seeded map reads as current, not as a re-cut city —
+ * cachedMapStatus compares the two to decide `stale`.
+ */
+async function seedCache(areas: OfflineAreaRow[], bytes?: number) {
   const cache = await cacheStorage.open('europe-guide-maps')
   for (const area of areas) {
     await cache.put(
       cacheKey('valle', area.seq),
-      new Response(new Uint8Array([1, 2, 3]).buffer, { headers: { 'content-length': '3' } }),
+      new Response(new Uint8Array([1, 2, 3]).buffer, { headers: { 'content-length': String(bytes ?? area.size_bytes) } }),
     )
   }
 }
@@ -664,4 +669,16 @@ test('deleting the offline map also invalidates the registry', async () => {
   renderMap(withAreas)
   await waitFor(() => expect(maplibreState.instances.length).toBe(2))
   await waitFor(() => expect(maplibreState.protocolAdds).toBe(4))
+})
+
+test('a re-cut city offers an update, in the download prompt\'s place', async () => {
+  const withAreas = await makeContent(true)
+  vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(true)
+  // Every area is cached, but not at the size the rows now advertise.
+  await seedCache(withAreas.areas, 1024)
+
+  renderMap(withAreas)
+
+  expect(await screen.findByText(/Map data changed — update the offline map \(12 MB\)\?/)).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Download' })).toBeInTheDocument()
 })

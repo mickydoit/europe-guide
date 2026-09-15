@@ -3,7 +3,7 @@ import { renderHook, waitFor } from '@testing-library/react'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { resetDbForTests } from '../../src/lib/db'
 import { enqueue, listOutbox, updateOp } from '../../src/lib/outbox'
-import { flushOutbox, retryFailed, startSync, useSync, notify, resetSyncForTests } from '../../src/lib/sync'
+import { flushOutbox, retryFailed, startSync, useSync, notify, resetSyncForTests, MAX_ATTEMPTS } from '../../src/lib/sync'
 
 type Err = { message: string; code?: string } | null
 type Call = { op: string; table?: string; bucket?: string; path?: string; payload?: unknown; filters?: Array<[string, unknown]>; upsertOpts?: unknown; body?: string }
@@ -55,7 +55,10 @@ function fakeClient(calls: Call[], fail: () => Err = () => null, opts: ClientOpt
   return { from, storage } as unknown as SupabaseClient
 }
 
-function failNTimes(n: number, err: Err = { message: 'network down' }) {
+// Deliberately NOT a network-class message: the backoff ladder only applies to errors the
+// server actually returned. A "no signal" failure holds the whole pass instead (see the
+// network-class tests below), so a fixture saying "network down" would exercise that path.
+function failNTimes(n: number, err: Err = { message: 'server refused' }) {
   let seen = 0
   return () => (seen++ < n ? err : null)
 }
@@ -210,7 +213,7 @@ test('backs off 4 s then 8 s and succeeds on the third attempt', async () => {
   let stored = (await listOutbox())[0]
   expect(stored.attempts).toBe(1)
   expect(stored.nextAt).toBe(1000 + 4000)
-  expect(stored.lastError).toBe('network down')
+  expect(stored.lastError).toBe('server refused')
 
   // Not due yet: no second call.
   const skipped = await flushOutbox(client, 2000, () => true)
@@ -352,3 +355,64 @@ async function until(fn: () => boolean, ms = 1000) {
     await new Promise(r => setTimeout(r, 5))
   }
 }
+
+// ---- network-class failures (fix I1) ---------------------------------------
+
+/** A client with no signal at all: every call throws the transport's own TypeError. */
+function offlineClient() {
+  return {
+    from() { throw new TypeError('Failed to fetch') },
+    storage: { from() { throw new TypeError('Failed to fetch') } },
+  } as unknown as SupabaseClient
+}
+
+test('a network-class failure charges no attempt and holds the rest of the pass', async () => {
+  const a = await enqueue({ key: 'check:a', kind: 'check_set', payload: { itemId: 'a', done: true } })
+  const b = await enqueue({ key: 'check:b', kind: 'check_set', payload: { itemId: 'b', done: true } })
+  await updateOp(a.id, { createdAt: 100, nextAt: 100 })
+  await updateOp(b.id, { createdAt: 200, nextAt: 200 })
+
+  // `online()` says yes — this is the case where the phone thinks it has signal and doesn't.
+  const res = await flushOutbox(offlineClient(), 1000, () => true)
+
+  expect(res).toEqual({ done: 0, remaining: 2, failed: 0 })
+  const [first, second] = await listOutbox()
+  // Not the op's fault: it stays pending with nothing charged against MAX_ATTEMPTS.
+  expect(first.attempts).toBe(0)
+  expect(first.status).toBe('pending')
+  expect(first.nextAt).toBe(1000 + 30_000)
+  // The pass broke out rather than failing every later op for the same missing network.
+  expect(second.attempts).toBe(0)
+  expect(second.nextAt).toBe(200)
+  expect(second.lastError).toBeUndefined()
+})
+
+test('a network-class failure never parks an op as failed, however often it is flushed', async () => {
+  const op = await enqueue({ key: 'check:a', kind: 'check_set', payload: { itemId: 'a', done: true } })
+  await updateOp(op.id, { createdAt: 0, nextAt: 0 })
+  const client = offlineClient()
+  for (let i = 0; i < MAX_ATTEMPTS + 5; i++) await flushOutbox(client, i * 60_000, () => true)
+  const [stored] = await listOutbox()
+  expect(stored.attempts).toBe(0)
+  expect(stored.status).toBe('pending')
+})
+
+test('a server-class failure still backs off, even in the same pass shape', async () => {
+  const calls: Call[] = []
+  const op = await enqueue({ key: 'check:a', kind: 'check_set', payload: { itemId: 'a', done: true } })
+  await updateOp(op.id, { createdAt: 0, nextAt: 0 })
+  await flushOutbox(fakeClient(calls, () => ({ message: 'permission denied' })), 1000, () => true)
+  const [stored] = await listOutbox()
+  expect(stored.attempts).toBe(1)
+  expect(stored.nextAt).toBe(1000 + 4000)
+})
+
+test('startSync flushes once immediately, without waiting for an event', async () => {
+  vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
+  const calls: Call[] = []
+  await enqueue({ key: 'check:a', kind: 'check_set', payload: { itemId: 'a', done: true } })
+  const stop = startSync(fakeClient(calls))
+  await until(() => calls.length === 1)
+  stop()
+  expect(await listOutbox()).toHaveLength(0)
+})

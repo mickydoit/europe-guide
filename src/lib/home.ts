@@ -48,7 +48,11 @@ export function toursToday(
   return bookings.map((booking, idx) => {
     const start = minutesOf(booking.time!)
     const next = bookings[idx + 1]
-    const duration = next ? minutesOf(next.time!) - start : 180
+    // Two tours booked at the same time (or out of order in the file) would otherwise give
+    // a zero or negative duration — and a division by zero puts the progress bar at Infinity
+    // and calls a tour that has not started "done". A quarter hour is the shortest tour worth
+    // drawing a bar for.
+    const duration = Math.max(15, next ? minutesOf(next.time!) - start : 180)
     const progress = Math.min(1, Math.max(0, (minutes - start) / duration))
     const status: 'upcoming' | 'live' | 'done' = minutes < start ? 'upcoming' : minutes >= start + duration ? 'done' : 'live'
     return { booking, start, progress, status }

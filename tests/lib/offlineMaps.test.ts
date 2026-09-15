@@ -5,6 +5,7 @@ import {
   getCachedMap,
   cachedMapStatus,
   deleteCityMaps,
+  purgeUnknownMaps,
   MemorySource,
 } from '../../src/lib/offlineMaps'
 import type { OfflineAreaRow } from '../../src/lib/types'
@@ -114,7 +115,7 @@ describe('offlineMaps', () => {
     const fetchImpl = vi.fn(async () => new Response(new Uint8Array([1, 2, 3, 4]).buffer, { status: 200 }))
 
     let status = await cachedMapStatus('valle', areas, cacheStorage as unknown as CacheStorage)
-    expect(status).toEqual({ downloaded: 0, total: 2, bytes: 0 })
+    expect(status).toEqual({ downloaded: 0, total: 2, bytes: 0, stale: false })
 
     await downloadCityMaps(
       'valle',
@@ -146,6 +147,74 @@ describe('offlineMaps', () => {
     await deleteCityMaps('valle', areas, cacheStorage as unknown as CacheStorage)
 
     const status = await cachedMapStatus('valle', areas, cacheStorage as unknown as CacheStorage)
-    expect(status).toEqual({ downloaded: 0, total: 2, bytes: 0 })
+    expect(status).toEqual({ downloaded: 0, total: 2, bytes: 0, stale: false })
+  })
+  // ---- stale archives left behind by a re-cut city (fix I5) ----------------
+
+  /** Put `n` bytes under one trip/seq key without going through the downloader. */
+  async function seed(trip: string, seq: number, bytes: number) {
+    const cache = await cacheStorage.open('europe-guide-maps')
+    await cache.put(cacheKey(trip, seq), new Response(new Uint8Array(bytes).buffer, { status: 200 }))
+  }
+
+  test('purgeUnknownMaps deletes every cached key the current areas do not name', async () => {
+    for (let seq = 1; seq <= 7; seq++) await seed('valle', seq, 4)
+    await seed('lisbon', 1, 4)
+
+    const removed = await purgeUnknownMaps('valle', [area(2), area(5)], cacheStorage as unknown as CacheStorage)
+
+    expect(removed).toBe(5)
+    const cache = await cacheStorage.open('europe-guide-maps')
+    for (const seq of [1, 3, 4, 6, 7]) expect(await cache.match(cacheKey('valle', seq))).toBeUndefined()
+    for (const seq of [2, 5]) expect(await cache.match(cacheKey('valle', seq))).toBeDefined()
+    // Another trip's map is not this trip's business.
+    expect(await cache.match(cacheKey('lisbon', 1))).toBeDefined()
+  })
+
+  test('downloadCityMaps purges the previous cut before caching the new one', async () => {
+    for (let seq = 1; seq <= 7; seq++) await seed('valle', seq, 4)
+    const fetchImpl = vi.fn(async () => new Response(new Uint8Array(4).buffer, { status: 200 }))
+
+    await downloadCityMaps(
+      'valle',
+      [area(1)],
+      async p => `https://signed.example/${p}`,
+      undefined,
+      fetchImpl as unknown as typeof fetch,
+      cacheStorage as unknown as CacheStorage,
+    )
+
+    const cache = await cacheStorage.open('europe-guide-maps')
+    expect(await cache.match(cacheKey('valle', 1))).toBeDefined()
+    for (const seq of [2, 3, 4, 5, 6, 7]) expect(await cache.match(cacheKey('valle', seq))).toBeUndefined()
+  })
+
+  test('deleteCityMaps also clears archives no area names any more', async () => {
+    for (let seq = 1; seq <= 7; seq++) await seed('valle', seq, 4)
+
+    await deleteCityMaps('valle', [area(1), area(2)], cacheStorage as unknown as CacheStorage)
+
+    const cache = await cacheStorage.open('europe-guide-maps')
+    for (let seq = 1; seq <= 7; seq++) expect(await cache.match(cacheKey('valle', seq))).toBeUndefined()
+  })
+
+  test('cachedMapStatus flags a cached area whose bytes no longer match size_bytes', async () => {
+    const areas = [area(1, { size_bytes: 1000 }), area(2, { size_bytes: 1000 })]
+    await seed('valle', 1, 1000)
+    await seed('valle', 2, 400)
+
+    const status = await cachedMapStatus('valle', areas, cacheStorage as unknown as CacheStorage)
+
+    expect(status.downloaded).toBe(2)
+    expect(status.stale).toBe(true)
+  })
+
+  test('cachedMapStatus tolerates a 1% difference and is not stale', async () => {
+    const areas = [area(1, { size_bytes: 1000 })]
+    await seed('valle', 1, 1005)
+
+    const status = await cachedMapStatus('valle', areas, cacheStorage as unknown as CacheStorage)
+
+    expect(status).toEqual({ downloaded: 1, total: 1, bytes: 1005, stale: false })
   })
 })

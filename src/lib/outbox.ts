@@ -1,4 +1,4 @@
-import { getOutboxAll, getOutboxDue, getOutboxIdsByKey, putOutbox, deleteOutbox, clearOutbox } from './db'
+import { countOutboxByStatus, getOutbox, getOutboxAll, getOutboxByKey, getOutboxDue, getOutboxIdsByKey, putOutbox, deleteOutbox, clearOutbox } from './db'
 
 /**
  * A write the app made that the server has not accepted yet.
@@ -72,6 +72,11 @@ export async function removeOp(id: string) {
   await deleteOutbox(id)
 }
 
+/** The ops queued under one key, oldest first — `createdAt` and all. */
+export async function listOpsByKey(key: string): Promise<OutboxOp[]> {
+  return (await getOutboxByKey(key)).sort((a, b) => a.createdAt - b.createdAt)
+}
+
 /**
  * Drop every op queued under one key and say how many went.
  *
@@ -85,16 +90,17 @@ export async function removeOpsByKey(key: string): Promise<number> {
 }
 
 export async function updateOp(id: string, patch: Partial<OutboxOp>) {
-  const current = (await getOutboxAll()).find(o => o.id === id)
+  const current = await getOutbox(id)
   if (!current) return null
   const next: OutboxOp = { ...current, ...patch, id: current.id }
   await putOutbox(next)
   return next
 }
 
+/** Counted in the `status` index: an attachment op's Blob is never read just to draw a badge. */
 export async function countOutbox(): Promise<{ pending: number; failed: number }> {
-  const all = await getOutboxAll()
-  return { pending: all.filter(o => o.status === 'pending').length, failed: all.filter(o => o.status === 'failed').length }
+  const [pending, failed] = await Promise.all([countOutboxByStatus('pending'), countOutboxByStatus('failed')])
+  return { pending, failed }
 }
 
 /** Test-only: empty the queue without touching the cached content stores. */

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { BUILD_ID, checkForUpdate } from '../lib/updates'
 import { useTrip } from '../lib/trip'
@@ -12,6 +12,7 @@ import { SyncBadge } from '../components/SyncBadge'
 import { useSync, useOutboxOps, flushOutbox } from '../lib/sync'
 import type { OutboxOp } from '../lib/outbox'
 import { buildIcs, downloadIcs } from '../lib/ics'
+import { warmTripAttachments, type WarmResult } from '../lib/attachmentsWarm'
 
 const NOTE_SECTIONS: Array<{ key: 'standing' | 'walkin' | 'routes'; heading: string }> = [
   { key: 'standing', heading: 'Standing notes' },
@@ -41,6 +42,20 @@ export function More() {
   const { session, signOut } = useAuth()
   const { pending, failed, lastError, retryFailed } = useSync()
   const ops = useOutboxOps()
+  const [tickets, setTickets] = useState<WarmResult | null>(null)
+  const [syncMsg, setSyncMsg] = useState<string | null>(null)
+  const warmSlug = content?.trip.slug ?? null
+
+  // Put every ticket in the trip on the phone, not just the ones whose booking sheet has
+  // been opened. Once per trip per session; nothing on screen waits for it.
+  useEffect(() => {
+    if (!warmSlug) return
+    let alive = true
+    void warmTripAttachments(warmSlug)
+      .then(r => { if (alive && r.total > 0) setTickets(r) })
+      .catch(() => {})
+    return () => { alive = false }
+  }, [warmSlug])
 
   if (loading && !content) {
     return <main className="screen"><p className="caption">Loading…</p></main>
@@ -77,9 +92,23 @@ export function More() {
               {failed} could not be sent{lastError ? ` — ${lastError}` : ''}
             </p>
           )}
-          <button type="button" className="btn btn--secondary" onClick={() => { void flushOutbox() }}>
+          <button
+            type="button"
+            className="btn btn--secondary"
+            onClick={() => {
+              // Saying "syncing…" at a phone with no bars is a lie the owner can see through.
+              if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+                setSyncMsg('Offline — will sync when connected')
+                return
+              }
+              setSyncMsg(null)
+              // An unhandled rejection here would take the screen down over a failed flush.
+              void flushOutbox().catch(() => setSyncMsg('Could not sync — try again in a moment'))
+            }}
+          >
             Sync now
           </button>
+          {syncMsg && <p className="caption">{syncMsg}</p>}
           {failed > 0 && (
             <button type="button" className="btn btn--secondary" onClick={() => { void retryFailed() }}>
               Retry failed
@@ -146,6 +175,7 @@ export function More() {
           Export {trip.name} calendar (.ics)
         </button>
         <p className="caption">{"Opens in Calendar on iPhone. Add all events to a new 'Europe 2026' calendar so you can hide it later."}</p>
+        {tickets && <p className="caption">Tickets saved for offline: {tickets.cached} of {tickets.total}</p>}
         {content.areas.length > 0
           ? <OfflineMapCard trip={content.trip.slug} areas={content.areas} />
           : <p className="caption">No offline map for this city yet</p>}

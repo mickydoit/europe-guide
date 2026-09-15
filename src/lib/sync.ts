@@ -3,12 +3,15 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { supabase } from './supabase'
 import { countOutbox, listDueOps, listOutbox, removeOp, updateOp } from './outbox'
 import type { AttachmentUploadPayload, CheckSetPayload, DayNotesPayload, OutboxOp } from './outbox'
+import { isNetworkFailure } from './net'
 
 /** Give up flushing an op after this many failures; it is kept and shown with a Retry. */
 export const MAX_ATTEMPTS = 20
 const BACKOFF_CAP_MS = 300_000
 const BASE_BACKOFF_MS = 2000
 const SYNC_INTERVAL_MS = 60_000
+/** How long a whole pass waits after losing signal mid-flush. Not a per-op backoff. */
+const NETWORK_RETRY_MS = 30_000
 /** Postgres `unique_violation` — the row is already there, which is exactly what we wanted. */
 const DUPLICATE_KEY = '23505'
 /** Storage's several ways of saying "that object is already at that path". */
@@ -80,7 +83,10 @@ export async function replay(client: SupabaseClient, op: OutboxOp): Promise<void
 
   if (op.kind === 'day_notes') {
     const { trip, date, patch } = op.payload as DayNotesPayload
-    // `updated_at` is the time the owner typed it, not the time we got signal back.
+    // `updated_at` comes from `op.createdAt` — the moment the owner typed it — not from the
+    // moment signal came back. A note queued on Tuesday and flushed on Friday must not look
+    // newer than an edit made from another device on Wednesday: last-write-wins is decided
+    // on this column, so it has to carry the author's clock, not the network's.
     const row = { trip, date, ...patch, updated_at: new Date(op.createdAt).toISOString() }
     const { error } = (await client.from('day_notes').upsert(row, { onConflict: 'trip,date' })) as { error: PgError }
     if (error) throw new Error(message(error))
@@ -133,8 +139,16 @@ export async function flushOutbox(
         done += 1
         lastErrorMessage = undefined
       } catch (e) {
-        const attempts = op.attempts + 1
         lastErrorMessage = message(e)
+        // No signal is not the op's fault. Charging it an attempt would march a perfectly
+        // good write towards `failed` for being queued through a long tunnel, and every
+        // later op in this pass would fail identically — so hold the whole queue, not just
+        // this one, and try the lot again in half a minute.
+        if (isNetworkFailure(e)) {
+          await updateOp(op.id, { nextAt: now + NETWORK_RETRY_MS, lastError: lastErrorMessage })
+          break
+        }
+        const attempts = op.attempts + 1
         await updateOp(op.id, {
           attempts,
           nextAt: backoffFrom(now, attempts),
@@ -176,6 +190,9 @@ export function startSync(client: SupabaseClient = supabase) {
   window.addEventListener('online', run)
   document.addEventListener('visibilitychange', onVisible)
   const timer = setInterval(run, SYNC_INTERVAL_MS)
+  // The queue may already hold writes from the last session; waiting a whole minute to find
+  // that out is a minute of a stale "1 waiting" badge on a phone that plainly has signal.
+  if (typeof navigator === 'undefined' || navigator.onLine !== false) run()
   return () => {
     window.removeEventListener('online', run)
     document.removeEventListener('visibilitychange', onVisible)

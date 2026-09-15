@@ -7,9 +7,10 @@ import { putCachedCity, resetDbForTests } from '../../src/lib/db'
 import type { CityContent } from '../../src/lib/types'
 
 function Probe() {
-  const { slug, content, offline, error, loading, setSlug } = useTrip()
+  const { slug, content, offline, error, loading, setSlug, refresh } = useTrip()
   return (
     <div>
+      <button onClick={() => { void refresh() }}>refresh</button>
       <div data-testid="slug">{slug ?? 'null'}</div>
       <div data-testid="items">{content ? content.items.length : 'none'}</div>
       <div data-testid="offline">{String(offline)}</div>
@@ -162,4 +163,22 @@ test('reports an error and no slug when the trips fetch fails with no cache', as
   render(<TripProvider client={mock.client}><Probe /></TripProvider>)
   await waitFor(() => expect(screen.getByTestId('error')).toHaveTextContent(/trips/))
   expect(screen.getByTestId('slug')).toHaveTextContent('null')
+})
+
+test('refresh() shows "Refreshing…" for as long as it runs', async () => {
+  const content = await loadValle()
+  // A slow city read, so `loading` can be observed true while the refresh is in flight.
+  const client = raceMock({ valle: content }, { valle: 60 })
+
+  render(
+    <TripProvider client={client} initial={{ trips: [content.trip], slug: 'valle', content }}>
+      <Probe />
+    </TripProvider>,
+  )
+  expect(screen.getByTestId('loading').textContent).toBe('false')
+
+  fireEvent.click(screen.getByText('refresh'))
+
+  await waitFor(() => expect(screen.getByTestId('loading').textContent).toBe('true'))
+  await waitFor(() => expect(screen.getByTestId('loading').textContent).toBe('false'))
 })

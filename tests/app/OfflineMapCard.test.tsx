@@ -124,3 +124,28 @@ test('a completed download records the watermark and says nothing about eviction
   await waitFor(() => expect(localStorage.getItem('europe-guide.mapsDownloaded.valle')).toBe('2'))
   expect(screen.queryByText(EVICTED)).toBeNull()
 })
+
+const STALE = 'Update needed — map data changed'
+
+test('cached bytes that no longer match size_bytes offer an Update, not a Download', async () => {
+  // Both areas present, but the city has been re-cut since: what is on the phone is a
+  // different map than the one the rows describe.
+  const cache = await cacheStorage.open('europe-guide-maps')
+  await cache.put('/__maps/valle/1.pmtiles', new Response(new Uint8Array(16).buffer, { status: 200 }))
+  await cache.put('/__maps/valle/2.pmtiles', new Response(new Uint8Array(16).buffer, { status: 200 }))
+
+  render(<OfflineMapCard trip="valle" areas={areas} cacheStorage={cacheStorage as unknown as CacheStorage} />)
+
+  expect(await screen.findByText(STALE)).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Update' })).toBeInTheDocument()
+})
+
+test('a freshly downloaded map says nothing about stale data', async () => {
+  const signer = vi.fn(async (path: string) => `https://signed.example/${path}`)
+  const sized = areas.map(a => ({ ...a, size_bytes: 3 }))
+  render(<OfflineMapCard trip="valle" areas={sized} signer={signer} cacheStorage={cacheStorage as unknown as CacheStorage} />)
+  fireEvent.click(await screen.findByRole('button', { name: 'Download' }))
+
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Update' })).toBeInTheDocument())
+  expect(screen.queryByText(STALE)).toBeNull()
+})

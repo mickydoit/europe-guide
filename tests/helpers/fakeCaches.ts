@@ -5,14 +5,18 @@
  */
 export class FakeCache {
   store = new Map<string, Response>()
+  /** The real Cache API stores every key as an absolute URL, whatever it was given. */
+  private norm(req: Request | string) {
+    return new URL(typeof req === 'string' ? req : req.url, 'http://localhost').toString()
+  }
   async put(req: Request | string, res: Response) {
-    this.store.set(typeof req === 'string' ? req : req.url, res.clone())
+    this.store.set(this.norm(req), res.clone())
   }
   async match(req: Request | string) {
-    return this.store.get(typeof req === 'string' ? req : req.url)
+    return this.store.get(this.norm(req))
   }
   async delete(req: Request | string) {
-    return this.store.delete(typeof req === 'string' ? req : req.url)
+    return this.store.delete(this.norm(req))
   }
   async keys() {
     return [...this.store.keys()].map(k => new Request(k))

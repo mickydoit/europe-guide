@@ -5,15 +5,17 @@ import { TripProvider, TripContext } from '../../src/lib/trip'
 import { loadValle } from '../helpers/content'
 import type { CityContent } from '../../src/lib/types'
 
-const { useAuthMock, downloadIcsMock, useSyncMock, useOutboxOpsMock, flushOutboxMock, retryFailedMock } = vi.hoisted(() => {
+const { useAuthMock, downloadIcsMock, useSyncMock, useOutboxOpsMock, flushOutboxMock, retryFailedMock, warmMock } = vi.hoisted(() => {
   const useAuthMock = vi.fn(() => ({ session: { user: { email: 'owner@example.com' } }, signOut: vi.fn() }))
   const downloadIcsMock = vi.fn()
   const retryFailedMock = vi.fn().mockResolvedValue(undefined)
   const useSyncMock = vi.fn(() => ({ pending: 0, failed: 0, syncing: false, lastError: undefined as string | undefined, retryFailed: retryFailedMock }))
   const useOutboxOpsMock = vi.fn(() => [] as Array<{ id: string; kind: string; status: string }>)
   const flushOutboxMock = vi.fn().mockResolvedValue({ done: 0, remaining: 0, failed: 0 })
-  return { useAuthMock, downloadIcsMock, useSyncMock, useOutboxOpsMock, flushOutboxMock, retryFailedMock }
+  const warmMock = vi.fn(async () => ({ cached: 0, total: 0 }))
+  return { useAuthMock, downloadIcsMock, useSyncMock, useOutboxOpsMock, flushOutboxMock, retryFailedMock, warmMock }
 })
+vi.mock('../../src/lib/attachmentsWarm', () => ({ warmTripAttachments: warmMock }))
 vi.mock('../../src/lib/auth', () => ({ useAuth: useAuthMock }))
 vi.mock('../../src/lib/sync', () => ({ useSync: useSyncMock, useOutboxOps: useOutboxOpsMock, flushOutbox: flushOutboxMock }))
 vi.mock('../../src/lib/ics', async importOriginal => {
@@ -43,6 +45,8 @@ beforeEach(async () => {
   useOutboxOpsMock.mockReturnValue([])
   flushOutboxMock.mockClear()
   retryFailedMock.mockClear()
+  warmMock.mockClear()
+  warmMock.mockResolvedValue({ cached: 0, total: 0 })
 })
 
 test('no Pending changes section when the outbox is empty', async () => {
@@ -136,4 +140,46 @@ test('has an enabled Export calendar button that calls downloadIcs with the trip
   const [filename, text] = downloadIcsMock.mock.calls[0]
   expect(filename).toBe('europe-2026-valle.ics')
   expect(text).toContain('BEGIN:VCALENDAR')
+})
+
+test('Sync now says so instead of pretending, when the phone is offline', async () => {
+  useSyncMock.mockReturnValue({ pending: 1, failed: 0, syncing: false, lastError: undefined, retryFailed: retryFailedMock })
+  useOutboxOpsMock.mockReturnValue([{ id: '1', kind: 'day_notes', status: 'pending' }])
+  Object.defineProperty(navigator, 'onLine', { value: false, configurable: true })
+  try {
+    renderMore(content)
+    await screen.findByRole('heading', { name: 'Pending changes' })
+    fireEvent.click(screen.getByRole('button', { name: 'Sync now' }))
+    expect(await screen.findByText('Offline — will sync when connected')).toBeInTheDocument()
+    expect(flushOutboxMock).not.toHaveBeenCalled()
+  } finally {
+    Object.defineProperty(navigator, 'onLine', { value: true, configurable: true })
+  }
+})
+
+test('a rejected flush is caught and reported, not left unhandled', async () => {
+  useSyncMock.mockReturnValue({ pending: 1, failed: 0, syncing: false, lastError: undefined, retryFailed: retryFailedMock })
+  useOutboxOpsMock.mockReturnValue([{ id: '1', kind: 'day_notes', status: 'pending' }])
+  flushOutboxMock.mockRejectedValueOnce(new Error('boom'))
+
+  renderMore(content)
+  await screen.findByRole('heading', { name: 'Pending changes' })
+  fireEvent.click(screen.getByRole('button', { name: 'Sync now' }))
+
+  expect(await screen.findByText('Could not sync — try again in a moment')).toBeInTheDocument()
+})
+
+test('Tools counts the tickets the warm pass has put on the phone', async () => {
+  warmMock.mockResolvedValue({ cached: 2, total: 3 })
+  renderMore(content)
+
+  expect(await screen.findByText('Tickets saved for offline: 2 of 3')).toBeInTheDocument()
+  expect(warmMock).toHaveBeenCalledWith('valle')
+})
+
+test('no ticket caption when the trip has no attachments at all', async () => {
+  warmMock.mockResolvedValue({ cached: 0, total: 0 })
+  renderMore(content)
+  await screen.findByRole('heading', { name: 'Tools' })
+  expect(screen.queryByText(/Tickets saved for offline/)).toBeNull()
 })

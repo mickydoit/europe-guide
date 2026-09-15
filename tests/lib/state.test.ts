@@ -1150,3 +1150,127 @@ test('useAttachments: remove() also evicts the offline cache entry', async () =>
   expect(await attachmentsCache.hasCachedAttachment('r1')).toBe(false)
   expect(result.current.cached.has('r1')).toBe(false)
 })
+
+// ---- settle only clears intent the write superseded (fix C1) ---------------
+
+/** A client whose writes hang on `gate`, so a test can queue an op mid-round-trip. */
+function gatedChecksClient(gate: Promise<void>): SupabaseClient {
+  return {
+    from() {
+      let mode = 'select'
+      const q: Record<string, unknown> = {
+        select() { return q },
+        order() { return q },
+        like() { return q },
+        eq() { return q },
+        insert() { mode = 'insert'; return q },
+        delete() { mode = 'delete'; return q },
+        then(resolve: (r: Res<unknown>) => void) {
+          if (mode === 'select') { resolve({ data: [], error: null }); return }
+          void gate.then(() => resolve({ data: null, error: null }))
+        },
+      }
+      return q
+    },
+    storage: { from: () => ({}) },
+  } as unknown as SupabaseClient
+}
+
+test('settle drops the op the landed write superseded', async () => {
+  const { client } = makeFakeClient()
+  const { result } = renderHook(() => useChecks('valle', client))
+  await waitFor(() => expect(result.current.loading).toBe(false))
+
+  // Queued before the write started, so the server has already moved past it. nextAt is
+  // parked in the future so settle's fire-and-forget flush cannot be what removes it.
+  const older = await enqueue({ key: 'check:valle/T01', kind: 'check_set', payload: { itemId: 'valle/T01', done: true } })
+  await outbox.updateOp(older.id, { createdAt: Date.now() - 60_000, nextAt: Date.now() + 60_000 })
+
+  await act(async () => { await result.current.toggle('valle/T01') })
+
+  expect(await listOutbox()).toHaveLength(0)
+})
+
+test('settle keeps an op the owner queued while the write was still in flight', async () => {
+  let release!: () => void
+  const gate = new Promise<void>(resolve => { release = resolve })
+  // Built once: a fresh client per render would re-fire the hook's load effect forever.
+  const client = gatedChecksClient(gate)
+  const { result } = renderHook(() => useChecks('valle', client))
+  await waitFor(() => expect(result.current.loading).toBe(false))
+
+  await act(async () => {
+    const inFlight = result.current.toggle('valle/T01')
+    // The owner unticks it again before the first write comes back. `createdAt` is pushed
+    // past the write's `startedAt` explicitly: same millisecond would be a coin toss.
+    const newer = await enqueue({ key: 'check:valle/T01', kind: 'check_set', payload: { itemId: 'valle/T01', done: false } })
+    await outbox.updateOp(newer.id, { createdAt: Date.now() + 1000, nextAt: Date.now() + 60_000 })
+    release()
+    await inFlight
+  })
+
+  const left = await listOutbox()
+  expect(left).toHaveLength(1)
+  expect((left[0].payload as CheckSetPayload).done).toBe(false)
+})
+
+// ---- a duplicate storage_path is success, not a failure (fix I2) -----------
+
+test('useAttachments: a 23505 on insert adopts the row that is already there', async () => {
+  const stored = {
+    id: 'att-existing', trip: 'valle', booking_id: 'B1', filename: 'ticket.pdf',
+    mime: 'application/pdf', size: 3, uploaded_at: '2026-01-01T00:00:00.000Z',
+  }
+  let inserts = 0
+  const client = {
+    from() {
+      let mode = 'select'
+      const filters: Array<[string, unknown]> = []
+      const q: Record<string, unknown> = {
+        select() { return q },
+        order() { return q },
+        single() { return q },
+        eq(col: string, val: unknown) { filters.push([col, val]); return q },
+        insert() { mode = 'insert'; return q },
+        then(resolve: (r: Res<unknown>) => void) {
+          if (mode === 'insert') {
+            inserts += 1
+            resolve({ data: null, error: { message: 'duplicate key value violates unique constraint "attachments_storage_path_key"', code: '23505' } as never })
+            return
+          }
+          const path = filters.find(([c]) => c === 'storage_path')?.[1]
+          resolve(path ? { data: { ...stored, storage_path: path }, error: null } : { data: [], error: null })
+        },
+      }
+      return q
+    },
+    storage: {
+      from: () => ({
+        async upload(path: string) { return { data: { path }, error: null } },
+        async createSignedUrl(path: string) { return { data: { signedUrl: `https://signed.example/${path}` }, error: null } },
+      }),
+    },
+  } as unknown as SupabaseClient
+
+  const { result } = renderHook(() => useAttachments('valle', 'B1', 'owner-1', client))
+  await waitFor(() => expect(result.current.loading).toBe(false))
+
+  const file = new File([new Uint8Array([1, 2, 3])], 'ticket.pdf', { type: 'application/pdf' })
+  let outcome: { queued: boolean } | undefined
+  await act(async () => { outcome = await result.current.upload(file) })
+
+  expect(inserts).toBe(1)
+  expect(outcome).toEqual({ queued: false })
+  expect(result.current.error).toBeNull()
+  expect(result.current.list).toHaveLength(1)
+  expect(result.current.list[0].id).toBe('att-existing')
+})
+
+test('useBookingState: an empty trip reads nothing and stops loading', async () => {
+  const { client, calls } = makeFakeClient()
+  const { result } = renderHook(() => useBookingState('', client))
+
+  await waitFor(() => expect(result.current.loading).toBe(false))
+  expect(calls).toEqual([])
+  expect(result.current.state).toEqual({})
+})
