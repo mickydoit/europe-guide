@@ -71,6 +71,7 @@ export async function nearbyPlaces(
   fetchImpl: typeof fetch = fetch,
 ): Promise<Place[]> {
   const res = await fetchImpl(SEARCH_URL, {
+    referrerPolicy: 'no-referrer-when-downgrade',
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',

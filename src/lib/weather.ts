@@ -140,7 +140,7 @@ async function cachedFetch<T extends object>(
 }
 
 async function fetchJson(fetchImpl: typeof fetch, url: string, label: string): Promise<unknown> {
-  const res = await fetchImpl(url)
+  const res = await fetchImpl(url, { referrerPolicy: 'no-referrer-when-downgrade' })
   if (!res.ok) throw new Error(`weather ${label} fetch failed: HTTP ${res.status}`)
   return res.json()
 }

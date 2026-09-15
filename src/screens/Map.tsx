@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useLocation, useNavigate, useParams } from 'react-router-dom'
 // maplibre-gl@6 ships named exports only (no default export), so this is a namespace import.
 import * as maplibregl from 'maplibre-gl'
+// The bundler does not emit MapLibre's module worker; serve the copies in public/map/ instead.
+maplibregl.setWorkerUrl(new URL('/europe-guide/map/maplibre-gl-worker.mjs', typeof location !== 'undefined' ? location.origin : 'https://mickydoit.github.io').href)
 import 'maplibre-gl/dist/maplibre-gl.css'
 import { PMTiles, Protocol } from 'pmtiles'
 import { useTrip } from '../lib/trip'

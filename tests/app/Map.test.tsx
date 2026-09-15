@@ -51,7 +51,7 @@ vi.mock('maplibre-gl', () => {
     getCanvas() { return { style: {} } }
     remove() { maplibreState.removed += 1 }
   }
-  return { Map: MapStub, addProtocol: vi.fn(), removeProtocol: vi.fn(), Marker: class {} }
+  return { Map: MapStub, addProtocol: vi.fn(), removeProtocol: vi.fn(), setWorkerUrl: vi.fn(), Marker: class {} }
 })
 
 // A counting wrapper, not a stub: the real cache read still runs, so the registry is

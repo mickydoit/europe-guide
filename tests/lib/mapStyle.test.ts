@@ -47,12 +47,12 @@ test('buildStyle points every non-background layer at one of the given source id
   }
 })
 
-test('buildStyle sets exact glyph and sprite paths', () => {
+test('buildStyle sets absolute glyph and sprite URLs (MapLibre rejects relative ones)', () => {
   const style = buildStyle(sources)
-  expect(style.glyphs).toBe('/europe-guide/map/fonts/{fontstack}/{range}.pbf')
-  expect(style.sprite).toBe('/europe-guide/map/sprites/v4/dark')
-  expect(GLYPHS).toBe('/europe-guide/map/fonts/{fontstack}/{range}.pbf')
-  expect(SPRITE).toBe('/europe-guide/map/sprites/v4/dark')
+  expect(style.glyphs).toMatch(/^https?:\/\/[^/]+\/europe-guide\/map\/fonts\/\{fontstack\}\/\{range\}\.pbf$/)
+  expect(style.sprite).toMatch(/^https?:\/\/[^/]+\/europe-guide\/map\/sprites\/v4\/dark$/)
+  expect(GLYPHS).toBe(style.glyphs)
+  expect(SPRITE).toBe(style.sprite)
 })
 
 test('buildStyle version is 8', () => {
