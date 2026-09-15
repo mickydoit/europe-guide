@@ -12,6 +12,7 @@ import { cachedMapStatus, defaultSigner, downloadCityMaps, getCachedMap, MemoryS
 import { fmtTime, todayInTrip } from '../lib/time'
 import { walkLink } from '../lib/links'
 import { MapSheet, type MapFeatureKind } from '../components/MapSheet'
+import { nearbyPlaces, nearestN, photoUrl, shouldRefetch, type Place } from '../lib/places'
 import type { OfflineAreaRow } from '../lib/types'
 
 const ACCENT = '#11da8f'
@@ -39,6 +40,17 @@ interface Selected { kind: MapFeatureKind; id: string; properties: Record<string
 function sourceId(area: OfflineAreaRow): string { return `area-${area.seq}` }
 function promptKey(trip: string): string { return `europe-guide.mapPromptDismissed.${trip}` }
 function mb(bytes: number): string { return (bytes / (1024 * 1024)).toFixed(0) }
+
+const PLACES_ENABLED_KEY = 'europe-guide.places'
+
+function loadPlacesEnabled(): boolean {
+  try {
+    const raw = localStorage.getItem(PLACES_ENABLED_KEY)
+    return raw === null ? true : raw === '1'
+  } catch {
+    return true
+  }
+}
 
 function userGeoJSON(pos: { lat: number; lng: number } | null): GeoJSON.FeatureCollection {
   if (!pos) return EMPTY
@@ -87,6 +99,25 @@ function addLayers(map: maplibregl.Map) {
     paint: { 'text-color': ['case', isDone, '#ffffff', COAL] },
   } as maplibregl.AddLayerObject)
   map.addLayer({
+    id: 'places-circle', type: 'circle', source: 'places',
+    paint: {
+      'circle-radius': 9,
+      'circle-color': '#f8c1b8',
+      'circle-stroke-color': COAL,
+      'circle-stroke-width': 1.5,
+    },
+  })
+  map.addLayer({
+    id: 'places-label', type: 'symbol', source: 'places',
+    layout: {
+      'text-field': '!',
+      'text-font': ['Noto Sans Medium'],
+      'text-size': 13,
+      'text-allow-overlap': true,
+    },
+    paint: { 'text-color': COAL },
+  })
+  map.addLayer({
     id: 'user-accuracy', type: 'circle', source: 'user',
     paint: { 'circle-radius': 24, 'circle-color': COLUMBIA, 'circle-opacity': 0.15 },
   })
@@ -129,12 +160,20 @@ export default function Map() {
   const [promptDismissed, setPromptDismissed] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
+  const [placesEnabled, setPlacesEnabled] = useState(loadPlacesEnabled)
 
   const mountedRef = useRef(true)
   const containerRef = useRef<HTMLDivElement | null>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
   const followRef = useRef(false)
   const fittedRef = useRef(false)
+  // Session cache of Places results, keyed by place id: never persisted, never
+  // refetched more than shouldRefetch allows, and the sheet's source of truth
+  // for a tapped place (the GeoJSON feature only carries the marker fields).
+  const placesRef = useRef<globalThis.Map<string, Place>>(new globalThis.Map())
+  const lastPlacesQueryRef = useRef<{ lat: number; lng: number; at: number } | null>(null)
+
+  const placesKey = (import.meta.env.VITE_GOOGLE_BROWSER_KEY as string | undefined) || null
 
   const notes = useDayNotes(slug, date ?? '')
 
@@ -300,6 +339,43 @@ export default function Map() {
     return () => { geo.clearWatch?.(id) }
   }, [])
 
+  // ---- places toggle persistence -------------------------------------------
+  useEffect(() => {
+    try { localStorage.setItem(PLACES_ENABLED_KEY, placesEnabled ? '1' : '0') } catch { /* private mode */ }
+  }, [placesEnabled])
+
+  // Toggled off: clear the layer immediately and let the fetch effect below skip
+  // fetching until it's back on.
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !ready || placesEnabled) return
+    setData(map, 'places', placesGeoJSON([]))
+  }, [placesEnabled, ready])
+
+  // ---- places fetch ---------------------------------------------------------
+  useEffect(() => {
+    if (!placesKey || !placesEnabled || !position) return
+    const map = mapRef.current
+    if (!map || !ready) return
+    const now = { lat: position.lat, lng: position.lng, at: Date.now() }
+    if (!shouldRefetch(lastPlacesQueryRef.current, now)) return
+    // Set before the await so a fast follow-up position tick doesn't fire a second
+    // in-flight request while this one is still resolving.
+    lastPlacesQueryRef.current = now
+
+    let cancelled = false
+    nearbyPlaces(position.lat, position.lng, placesKey)
+      .then(found => {
+        if (cancelled) return
+        for (const place of found) placesRef.current.set(place.id, place)
+        const all = nearestN([...placesRef.current.values()], position.lat, position.lng)
+        const m = mapRef.current
+        if (m) setData(m, 'places', placesGeoJSON(all))
+      })
+      .catch(e => console.warn(e instanceof Error ? e.message : String(e)))
+    return () => { cancelled = true }
+  }, [position, placesEnabled, placesKey, ready])
+
   useEffect(() => {
     const goOnline = () => { setOnline(true); setTileError(false) }
     const goOffline = () => setOnline(false)
@@ -372,6 +448,7 @@ export default function Map() {
         title: (item.place_name ?? item.plan).replace(/\*\*/g, ''),
         subtitle: fmtTime(item.time, item.time_text),
         details: item.details,
+        photoSrc: null,
         walkHref: walkLink({ lat: item.lat, lng: item.lng, name: item.place_name ?? item.plan, address: item.address }, trip.name),
         place: null,
       }
@@ -385,29 +462,29 @@ export default function Map() {
         title: row.name,
         subtitle: row.what,
         details: row.why,
+        photoSrc: null,
         walkHref: walkLink({ lat: row.lat, lng: row.lng, name: row.name, address: row.address }, trip.name),
         place: null,
       }
     }
-    const props = selected.properties
-    const name = String(props.title ?? props.name ?? 'Place')
-    const rating = props.rating == null ? null : `★ ${props.rating}`
-    const open = props.open == null ? null : props.open ? 'Open now' : 'Closed'
-    const lngLat = selected.lngLat
+    // Full detail (rating count, address, photo) lives only in the session
+    // Places cache; the GeoJSON feature carries just the marker fields.
+    const place = placesRef.current.get(selected.id)
+    if (!place) return null
+    const rating = place.rating == null
+      ? null
+      : `★ ${place.rating}${place.ratingCount == null ? '' : ` (${place.ratingCount.toLocaleString()})`}`
+    const open = place.openNow == null ? null : place.openNow ? 'Open now' : 'Closed'
     return {
       kind: 'place' as const,
-      title: name,
+      title: place.name,
       subtitle: [rating, open].filter(Boolean).join(' · ') || null,
-      details: props.address == null ? null : String(props.address),
-      walkHref: walkLink(
-        { lat: lngLat ? lngLat[1] : null, lng: lngLat ? lngLat[0] : null, name },
-        trip.name,
-      ),
-      place: lngLat
-        ? { id: selected.id, name, lat: lngLat[1], lng: lngLat[0] } satisfies Omit<SavedPlace, 'saved_at'>
-        : null,
+      details: place.address,
+      photoSrc: place.photoName && placesKey ? photoUrl(place.photoName, placesKey) : null,
+      walkHref: walkLink({ lat: place.lat, lng: place.lng, name: place.name, address: place.address }, trip.name),
+      place: { id: place.id, name: place.name, lat: place.lat, lng: place.lng } satisfies Omit<SavedPlace, 'saved_at'>,
     }
-  }, [selected, content, trip])
+  }, [selected, content, trip, placesKey])
 
   const alreadySaved = !!sheet?.place && notes.savedPlaces.some(p => p.id === sheet.place!.id)
 
@@ -478,6 +555,16 @@ export default function Map() {
         </div>
       )}
 
+      <button
+        type="button"
+        className={`map-places-toggle${placesEnabled ? '' : ' is-off'}`}
+        aria-label="Toggle nearby places"
+        aria-pressed={placesEnabled}
+        onClick={() => setPlacesEnabled(v => !v)}
+      >
+        !
+      </button>
+
       <button type="button" className="map-locate" aria-label="Locate me" onClick={locate}>◎</button>
 
       {geoDenied && (
@@ -491,6 +578,7 @@ export default function Map() {
           title={sheet.title}
           subtitle={sheet.subtitle}
           details={sheet.details}
+          photoSrc={sheet.photoSrc}
           walkHref={sheet.walkHref}
           onClose={() => { setSelected(null); setSaveError(null) }}
           onSave={sheet.place ? () => { void handleSave() } : undefined}

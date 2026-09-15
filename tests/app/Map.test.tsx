@@ -1,4 +1,4 @@
-import { render, screen, act, waitFor } from '@testing-library/react'
+import { render, screen, act, waitFor, fireEvent } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { vi, beforeEach, afterEach, test, expect } from 'vitest'
 import { TripProvider } from '../../src/lib/trip'
@@ -71,7 +71,16 @@ vi.mock('../../src/lib/state', () => ({
   useDayNotes: () => notesStub,
 }))
 
+// nearbyPlaces is network; shouldRefetch/nearestN/photoUrl stay real so the merge and
+// distance-sort logic gets exercised for real.
+const { nearbyPlacesMock } = vi.hoisted(() => ({ nearbyPlacesMock: vi.fn() }))
+vi.mock('../../src/lib/places', async importOriginal => {
+  const actual = await importOriginal<typeof import('../../src/lib/places')>()
+  return { ...actual, nearbyPlaces: nearbyPlacesMock }
+})
+
 import MapScreen from '../../src/screens/Map'
+import type { Place } from '../../src/lib/places'
 
 // ---------------------------------------------------------------- cache polyfill
 class FakeCache {
@@ -156,13 +165,24 @@ beforeEach(async () => {
   maplibreState.removed = 0
   maplibreState.protocolAdds = 0
   localStorage.clear()
+  nearbyPlacesMock.mockReset()
+  nearbyPlacesMock.mockResolvedValue([])
   content = await makeContent(false)
 })
 
 afterEach(() => {
   vi.unstubAllGlobals()
+  vi.unstubAllEnvs()
   vi.restoreAllMocks()
 })
+
+function place(overrides: Partial<Place> = {}): Place {
+  return {
+    id: 'pl1', name: 'Café X', lat: 38.7101, lng: -9.1401,
+    rating: 4.5, ratingCount: 200, openNow: true, types: ['cafe'], photoName: null, address: '1 Rua X',
+    ...overrides,
+  }
+}
 
 function fire(ev: string, arg?: unknown) {
   const handlers = maplibreState.handlers.filter(h => h.ev === ev)
@@ -225,7 +245,8 @@ test('tapping a stop opens the sheet with its title and a Walk there link', asyn
 
   fire('load')
   expect(maplibreState.layers.map(l => l.id)).toEqual([
-    'legs-line', 'parked-circle', 'stops-circle', 'stops-label', 'user-accuracy', 'user-dot',
+    'legs-line', 'parked-circle', 'stops-circle', 'stops-label',
+    'places-circle', 'places-label', 'user-accuracy', 'user-dot',
   ])
 
   const stop = content.items.find(i => i.kind === 'stop' && i.date === MONDAY && i.time === '11:00')!
@@ -274,4 +295,71 @@ test('a GPS tick updates only the user source, not the itinerary sources', async
   act(() => { onPosition({ coords: { latitude: 38.71, longitude: -9.14 } }) })
 
   expect(maplibreState.setDataCalls.map(c => c.id)).toEqual(['user'])
+})
+
+test('a position tick with a places key fetches nearby places and updates the places source', async () => {
+  vi.stubEnv('VITE_GOOGLE_BROWSER_KEY', 'k')
+  nearbyPlacesMock.mockResolvedValue([place()])
+
+  renderMap(content)
+  await waitFor(() => expect(maplibreState.instances.length).toBe(1))
+  fire('load')
+
+  const geo = navigator.geolocation as unknown as { watchPosition: ReturnType<typeof vi.fn> }
+  const onPosition = geo.watchPosition.mock.calls[0][0] as (p: unknown) => void
+  maplibreState.setDataCalls = []
+
+  act(() => { onPosition({ coords: { latitude: 38.71, longitude: -9.14 } }) })
+
+  await waitFor(() => expect(nearbyPlacesMock).toHaveBeenCalledWith(38.71, -9.14, 'k'))
+  await waitFor(() => {
+    const call = maplibreState.setDataCalls.filter(c => c.id === 'places').at(-1)
+    expect(call).toBeDefined()
+    const fc = call!.data as GeoJSON.FeatureCollection
+    expect(fc.features).toHaveLength(1)
+    expect(fc.features[0].properties?.title).toBe('Café X')
+  })
+})
+
+test('toggling the "!" button off clears the places source and skips fetching', async () => {
+  vi.stubEnv('VITE_GOOGLE_BROWSER_KEY', 'k')
+  renderMap(content)
+  await waitFor(() => expect(maplibreState.instances.length).toBe(1))
+  fire('load')
+
+  const toggle = screen.getByRole('button', { name: 'Toggle nearby places' })
+  maplibreState.setDataCalls = []
+  fireEvent.click(toggle)
+
+  await waitFor(() => {
+    const call = maplibreState.setDataCalls.filter(c => c.id === 'places').at(-1)
+    expect(call).toBeDefined()
+    expect((call!.data as GeoJSON.FeatureCollection).features).toEqual([])
+  })
+
+  const geo = navigator.geolocation as unknown as { watchPosition: ReturnType<typeof vi.fn> }
+  const onPosition = geo.watchPosition.mock.calls[0][0] as (p: unknown) => void
+  act(() => { onPosition({ coords: { latitude: 38.71, longitude: -9.14 } }) })
+
+  expect(nearbyPlacesMock).not.toHaveBeenCalled()
+})
+
+test('tapping a places-circle feature opens the sheet with the place name', async () => {
+  vi.stubEnv('VITE_GOOGLE_BROWSER_KEY', 'k')
+  const p = place({ id: 'pl-1', name: 'Miradouro X' })
+  nearbyPlacesMock.mockResolvedValue([p])
+
+  renderMap(content)
+  await waitFor(() => expect(maplibreState.instances.length).toBe(1))
+  fire('load')
+
+  const geo = navigator.geolocation as unknown as { watchPosition: ReturnType<typeof vi.fn> }
+  const onPosition = geo.watchPosition.mock.calls[0][0] as (p: unknown) => void
+  act(() => { onPosition({ coords: { latitude: 38.71, longitude: -9.14 } }) })
+  await waitFor(() => expect(maplibreState.setDataCalls.some(c => c.id === 'places')).toBe(true))
+
+  fire('click', { features: [{ layer: { id: 'places-circle' }, properties: { id: p.id, kind: 'place' } }] })
+
+  const dialog = await screen.findByRole('dialog')
+  expect(dialog).toHaveAttribute('aria-label', p.name)
 })

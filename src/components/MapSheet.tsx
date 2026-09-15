@@ -11,6 +11,8 @@ export interface MapSheetProps {
   details: string | null
   walkHref: string | null
   onClose: () => void
+  /** Places only (Task 5): a lazily-loaded Places photo. */
+  photoSrc?: string | null
   /** Places only (Task 5): saves the place onto the selected day's notes. */
   onSave?: () => void
   saved?: boolean
@@ -19,10 +21,11 @@ export interface MapSheetProps {
 }
 
 export function MapSheet({
-  open, kind, title, subtitle, details, walkHref, onClose, onSave, saved, saving, error,
+  open, kind, title, subtitle, details, walkHref, onClose, photoSrc, onSave, saved, saving, error,
 }: MapSheetProps) {
   return (
     <Sheet open={open} title={title} onClose={onClose}>
+      {kind === 'place' && photoSrc && <img className="sheet__photo" loading="lazy" src={photoSrc} alt="" />}
       {subtitle && <p className="sheet__meta">{subtitle}</p>}
       {details && <Md text={details} className="sheet__meta" />}
       {walkHref && (
