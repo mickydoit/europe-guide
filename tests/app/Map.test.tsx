@@ -9,7 +9,7 @@ import type { CityContent, OfflineAreaRow } from '../../src/lib/types'
 // ---------------------------------------------------------------- maplibre stub
 interface Recorded { ev: string; layers: string[] | null; fn: (arg?: unknown) => void }
 
-const { maplibreState, savePlace } = vi.hoisted(() => ({
+const { maplibreState, savePlace, doneSet, notesStub } = vi.hoisted(() => ({
   maplibreState: {
     instances: [] as { style: unknown }[],
     handlers: [] as Recorded[],
@@ -22,6 +22,10 @@ const { maplibreState, savePlace } = vi.hoisted(() => ({
     protocolsRegistered: 0,
   },
   savePlace: vi.fn(),
+  // Stable identities, as the real hooks return: a fresh Set per render would
+  // recompute every GeoJSON memo and hide the per-source update split.
+  doneSet: new Set<string>(),
+  notesStub: {},
 }))
 
 vi.mock('maplibre-gl', () => {
@@ -60,9 +64,11 @@ vi.mock('pmtiles', () => {
   return { Protocol: ProtocolStub, PMTiles: PMTilesStub }
 })
 
+const checksStub = { done: doneSet, loading: false, toggle: vi.fn() }
+Object.assign(notesStub, { note: '', savedPlaces: [], loading: false, setNote: vi.fn(), savePlace, removePlace: vi.fn() })
 vi.mock('../../src/lib/state', () => ({
-  useChecks: () => ({ done: new Set<string>(), loading: false, toggle: vi.fn() }),
-  useDayNotes: () => ({ note: '', savedPlaces: [], loading: false, setNote: vi.fn(), savePlace, removePlace: vi.fn() }),
+  useChecks: () => checksStub,
+  useDayNotes: () => notesStub,
 }))
 
 import MapScreen from '../../src/screens/Map'
@@ -139,7 +145,7 @@ beforeEach(async () => {
   vi.stubGlobal('caches', cacheStorage as unknown as CacheStorage)
   Object.defineProperty(navigator, 'geolocation', {
     configurable: true,
-    value: { watchPosition: vi.fn(() => 7), clearWatch: vi.fn() },
+    value: { watchPosition: vi.fn(() => 7), clearWatch: vi.fn(), getCurrentPosition: vi.fn() },
   })
   maplibreState.instances = []
   maplibreState.handlers = []
@@ -242,4 +248,30 @@ test('geolocation is watched on mount and cleared on unmount, and the map is rem
   unmount()
   expect(geo.clearWatch).toHaveBeenCalledWith(7)
   expect(maplibreState.removed).toBe(1)
+})
+
+test('the map container is a .map-canvas inside .map-screen (maplibre sets position:relative on it)', async () => {
+  const { container } = renderMap(content)
+  await screen.findByRole('button', { name: 'Close map' })
+
+  const screenEl = container.querySelector('.map-screen')
+  expect(screenEl).not.toBeNull()
+  const canvas = screenEl!.querySelector(':scope > .map-canvas')
+  expect(canvas).not.toBeNull()
+  expect(canvas).toBe(screen.getByTestId('map-canvas'))
+})
+
+test('a GPS tick updates only the user source, not the itinerary sources', async () => {
+  renderMap(content)
+  await waitFor(() => expect(maplibreState.instances.length).toBe(1))
+  fire('load')
+  expect(new Set(maplibreState.setDataCalls.map(c => c.id))).toEqual(new Set(['stops', 'legs', 'parked', 'user']))
+
+  const geo = navigator.geolocation as unknown as { watchPosition: ReturnType<typeof vi.fn> }
+  const onPosition = geo.watchPosition.mock.calls[0][0] as (p: unknown) => void
+  maplibreState.setDataCalls = []
+
+  act(() => { onPosition({ coords: { latitude: 38.71, longitude: -9.14 } }) })
+
+  expect(maplibreState.setDataCalls.map(c => c.id)).toEqual(['user'])
 })

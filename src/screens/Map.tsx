@@ -64,20 +64,28 @@ function addLayers(map: maplibregl.Map) {
     id: 'parked-circle', type: 'circle', source: 'parked',
     paint: { 'circle-radius': 5, 'circle-color': MUTED, 'circle-stroke-color': COAL, 'circle-stroke-width': 1 },
   })
+  // ['get','done'] is untyped to the style spec, so wrap it: a bare get in a `case`
+  // test throws "Expected boolean but found value" at style-validation time.
+  const isDone: unknown = ['boolean', ['get', 'done'], false]
   map.addLayer({
     id: 'stops-circle', type: 'circle', source: 'stops',
     paint: {
       'circle-radius': 9,
-      'circle-color': ['case', ['get', 'done'], MUTED, ACCENT],
+      'circle-color': ['case', isDone, MUTED, ACCENT],
       'circle-stroke-color': '#ffffff',
       'circle-stroke-width': 2,
     },
-  })
+  } as maplibregl.AddLayerObject)
   map.addLayer({
     id: 'stops-label', type: 'symbol', source: 'stops',
-    layout: { 'text-field': ['get', 'n'], 'text-font': ['Noto Sans Medium'], 'text-size': 12 },
-    paint: { 'text-color': COAL },
-  })
+    layout: {
+      'text-field': ['get', 'n'],
+      'text-font': ['Noto Sans Medium'],
+      'text-size': 12,
+      'text-allow-overlap': true,
+    },
+    paint: { 'text-color': ['case', isDone, '#ffffff', COAL] },
+  } as maplibregl.AddLayerObject)
   map.addLayer({
     id: 'user-accuracy', type: 'circle', source: 'user',
     paint: { 'circle-radius': 24, 'circle-color': COLUMBIA, 'circle-opacity': 0.15 },
@@ -122,12 +130,18 @@ export default function Map() {
   const [saveError, setSaveError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
 
+  const mountedRef = useRef(true)
   const containerRef = useRef<HTMLDivElement | null>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
   const followRef = useRef(false)
   const fittedRef = useRef(false)
 
   const notes = useDayNotes(slug, date ?? '')
+
+  useEffect(() => {
+    mountedRef.current = true
+    return () => { mountedRef.current = false }
+  }, [])
 
   useEffect(() => {
     if (!slug) return
@@ -202,7 +216,13 @@ export default function Map() {
 
     map.on('load', () => { addLayers(map); setReady(true) })
     map.on('dragstart', () => { followRef.current = false })
-    map.on('error', () => { setTileError(true) })
+    map.on('error', (e: { error?: unknown }) => {
+      console.warn('map error', e?.error ?? e)
+      setTileError(true)
+    })
+    map.on('sourcedata', (e: { isSourceLoaded?: boolean }) => {
+      if (e?.isSourceLoaded) setTileError(false)
+    })
     map.on('click', TAP_LAYERS, (e: maplibregl.MapLayerMouseEvent) => {
       const feature = e.features?.[0]
       if (!feature) return
@@ -240,8 +260,14 @@ export default function Map() {
     setData(map, 'stops', stops)
     setData(map, 'legs', legs)
     setData(map, 'parked', parked)
+  }, [ready, stops, legs, parked])
+
+  // Its own effect: a GPS tick arrives every second or two and must not redraw the itinerary.
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !ready) return
     setData(map, 'user', user)
-  }, [ready, stops, legs, parked, user])
+  }, [ready, user])
 
   useEffect(() => {
     const map = mapRef.current
@@ -285,12 +311,27 @@ export default function Map() {
     }
   }, [])
 
-  function locate() {
+  function centreOn(lat: number, lng: number) {
     const map = mapRef.current
-    if (!map || !position) return
-    followRef.current = true
+    if (!map) return
     const zoom = Math.max(typeof map.getZoom === 'function' ? map.getZoom() : 0, 16)
-    map.easeTo({ center: [position.lng, position.lat], zoom, duration: 400 })
+    map.easeTo({ center: [lng, lat], zoom, duration: 400 })
+  }
+
+  function locate() {
+    followRef.current = true
+    if (position) { centreOn(position.lat, position.lng); return }
+    // No fix yet (the watch can take a while on a cold start): ask for one directly.
+    navigator.geolocation?.getCurrentPosition?.(
+      pos => {
+        if (!mountedRef.current) return
+        setGeoDenied(false)
+        setPosition({ lat: pos.coords.latitude, lng: pos.coords.longitude })
+        centreOn(pos.coords.latitude, pos.coords.longitude)
+      },
+      err => { if (err.code === 1 && mountedRef.current) setGeoDenied(true) },
+      { enableHighAccuracy: true, maximumAge: 5000, timeout: 15000 },
+    )
   }
 
   function close() {
@@ -304,12 +345,14 @@ export default function Map() {
     setDownloadError(null)
     setProgress({ done: 0, total: areas.length })
     try {
-      await downloadCityMaps(slug, areas, defaultSigner, (d, t) => setProgress({ done: d, total: t }))
-      await resolveBasemap(() => false)
+      await downloadCityMaps(slug, areas, defaultSigner, (d, t) => {
+        if (mountedRef.current) setProgress({ done: d, total: t })
+      })
+      await resolveBasemap(() => !mountedRef.current)
     } catch (e) {
-      setDownloadError(e instanceof Error ? e.message : String(e))
+      if (mountedRef.current) setDownloadError(e instanceof Error ? e.message : String(e))
     } finally {
-      setDownloading(false)
+      if (mountedRef.current) setDownloading(false)
     }
   }
 

@@ -175,72 +175,85 @@ export function useDayNotes(trip: string, date: string, client: SupabaseClient =
   const noteRef = useRef('')
   const placesRef = useRef<SavedPlace[]>([])
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const pendingNote = useRef<(() => Promise<void>) | null>(null)
+  // Set as soon as the user edits this day, so a slow initial load cannot overwrite their work.
+  const dirty = useRef(false)
 
   useEffect(() => {
     let cancelled = false
+    dirty.current = false
     setLoading(true)
     void (async () => {
       const { data, error } = await client.from('day_notes').select('*').eq('trip', trip).eq('date', date)
       if (cancelled) return
       if (error) { console.warn(message(error)); setLoading(false); return }
       const row = ((data ?? []) as DayNoteRow[])[0]
-      noteRef.current = row?.text ?? ''
-      placesRef.current = row?.saved_places ?? []
-      setNoteState(noteRef.current)
-      setSavedPlaces(placesRef.current)
+      if (!dirty.current) {
+        noteRef.current = row?.text ?? ''
+        placesRef.current = row?.saved_places ?? []
+        setNoteState(noteRef.current)
+        setSavedPlaces(placesRef.current)
+      }
       setLoading(false)
     })()
     return () => { cancelled = true }
   }, [trip, date, client])
 
-  // The debounce timer outlives a single render; drop it if the day (or the hook) goes away.
-  useEffect(() => () => { if (timer.current) clearTimeout(timer.current) }, [trip, date])
+  // The debounce timer outlives a single render: on unmount, or when the day changes,
+  // flush whatever the user last typed rather than dropping it on the floor.
+  useEffect(() => () => {
+    if (timer.current) { clearTimeout(timer.current); timer.current = null }
+    const flush = pendingNote.current
+    pendingNote.current = null
+    if (flush) void flush().catch(() => {})
+  }, [trip, date])
 
-  async function upsert(text: string, places: SavedPlace[]) {
-    const row = { trip, date, text, saved_places: places, updated_at: new Date().toISOString() }
+  // Only ever send the columns being changed. `upsert` compiles to ON CONFLICT DO UPDATE SET
+  // <provided columns>, so omitting `text` from a place write leaves the stored note intact —
+  // which matters because noteRef is still '' until the initial load resolves.
+  async function upsert(patch: { text: string } | { saved_places: SavedPlace[] }) {
+    const row: Record<string, unknown> = { trip, date, ...patch, updated_at: new Date().toISOString() }
     const { error } = await client.from('day_notes').upsert(row, { onConflict: 'trip,date' })
     if (error) { console.warn(message(error)); throw new Error(message(error)) }
   }
 
   function setNote(text: string) {
+    dirty.current = true
     noteRef.current = text
     setNoteState(text)
     if (timer.current) clearTimeout(timer.current)
+    // Nothing awaits a debounced save, so the warn inside upsert is the whole report.
+    const flush = () => upsert({ text })
+    pendingNote.current = flush
     timer.current = setTimeout(() => {
       timer.current = null
-      // Nothing awaits a debounced save, so the warn inside upsert is the whole report.
-      void upsert(noteRef.current, placesRef.current).catch(() => {})
+      pendingNote.current = null
+      void flush().catch(() => {})
     }, NOTE_DEBOUNCE_MS)
+  }
+
+  async function writePlaces(next: SavedPlace[]) {
+    const previous = placesRef.current
+    dirty.current = true
+    placesRef.current = next
+    setSavedPlaces(next)
+    try {
+      await upsert({ saved_places: next })
+    } catch (e) {
+      placesRef.current = previous
+      setSavedPlaces(previous)
+      throw e
+    }
   }
 
   async function savePlace(place: SavedPlace) {
     if (placesRef.current.some(p => p.id === place.id)) return
-    const previous = placesRef.current
-    const next = [...previous, place]
-    placesRef.current = next
-    setSavedPlaces(next)
-    try {
-      await upsert(noteRef.current, next)
-    } catch (e) {
-      placesRef.current = previous
-      setSavedPlaces(previous)
-      throw e
-    }
+    await writePlaces([...placesRef.current, place])
   }
 
   async function removePlace(id: string) {
-    const previous = placesRef.current
-    if (!previous.some(p => p.id === id)) return
-    const next = previous.filter(p => p.id !== id)
-    placesRef.current = next
-    setSavedPlaces(next)
-    try {
-      await upsert(noteRef.current, next)
-    } catch (e) {
-      placesRef.current = previous
-      setSavedPlaces(previous)
-      throw e
-    }
+    if (!placesRef.current.some(p => p.id === id)) return
+    await writePlaces(placesRef.current.filter(p => p.id !== id))
   }
 
   return { note, savedPlaces, loading, setNote, savePlace, removePlace }

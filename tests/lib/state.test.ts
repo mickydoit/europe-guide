@@ -320,3 +320,111 @@ test('useDayNotes: setNote is optimistic and upserts once after the 800 ms debou
     vi.useRealTimers()
   }
 })
+
+// A client whose day_notes SELECT stays pending until released, so a write can be
+// observed while the hook is still loading.
+function makeSlowDayNotesClient(existing: Row) {
+  const upserts: Record<string, unknown>[] = []
+  let release!: () => void
+  const gate = new Promise<void>(resolve => { release = resolve })
+  const client = {
+    from() {
+      let mode: 'select' | 'upsert' = 'select'
+      let payload: Record<string, unknown> | undefined
+      const q: Record<string, unknown> = {
+        select() { return q },
+        eq() { return q },
+        upsert(p: Record<string, unknown>) { mode = 'upsert'; payload = p; return q },
+        then(resolve: (r: Res<unknown>) => void) {
+          if (mode === 'upsert') { upserts.push(payload!); resolve({ data: null, error: null }); return }
+          void gate.then(() => resolve({ data: [existing], error: null }))
+        },
+      }
+      return q
+    },
+  }
+  return { client: client as unknown as SupabaseClient, upserts, release }
+}
+
+test('useDayNotes: savePlace before the initial load resolves never sends text', async () => {
+  const { client, upserts, release } = makeSlowDayNotesClient({
+    trip: 'valle', date: '2026-11-02', text: 'do not clobber me', saved_places: [],
+  })
+  const { result } = renderHook(() => useDayNotes('valle', '2026-11-02', client))
+  expect(result.current.loading).toBe(true)
+
+  const place: SavedPlace = { id: 'p9', name: 'Pasticceria', lat: 1, lng: 2, saved_at: 'now' }
+  await act(async () => { await result.current.savePlace(place) })
+
+  expect(upserts).toHaveLength(1)
+  expect(upserts[0]).not.toHaveProperty('text')
+  expect(upserts[0].saved_places).toEqual([place])
+
+  // The late load must not overwrite the edit the user already made.
+  await act(async () => { release(); await Promise.resolve() })
+  expect(result.current.savedPlaces).toEqual([place])
+})
+
+test('useDayNotes: setNote upserts only text, never saved_places', async () => {
+  vi.useFakeTimers()
+  try {
+    const { client, calls } = makeFakeClient({
+      dayNotes: [{ trip: 'valle', date: '2026-11-02', text: '', saved_places: [{ id: 'p1', name: 'A', lat: 1, lng: 2, saved_at: 'x' }] }],
+    })
+    const { result } = renderHook(() => useDayNotes('valle', '2026-11-02', client))
+    await act(async () => { await vi.advanceTimersByTimeAsync(0) })
+
+    act(() => { result.current.setNote('ferry at 9') })
+    await act(async () => { await vi.advanceTimersByTimeAsync(800) })
+
+    const upsert = calls.find(c => c.table === 'day_notes' && c.mode === 'upsert')!
+    expect(upsert.payload).not.toHaveProperty('saved_places')
+    expect((upsert.payload as { text: string }).text).toBe('ferry at 9')
+  } finally {
+    vi.useRealTimers()
+  }
+})
+
+test('useDayNotes: unmounting with a pending note flushes it instead of dropping it', async () => {
+  vi.useFakeTimers()
+  try {
+    const { client, calls } = makeFakeClient()
+    const { result, unmount } = renderHook(() => useDayNotes('valle', '2026-11-02', client))
+    await act(async () => { await vi.advanceTimersByTimeAsync(0) })
+
+    act(() => { result.current.setNote('half typed') })
+    expect(calls.filter(c => c.table === 'day_notes' && c.mode === 'upsert')).toHaveLength(0)
+
+    await act(async () => { unmount(); await vi.advanceTimersByTimeAsync(0) })
+
+    const upserts = calls.filter(c => c.table === 'day_notes' && c.mode === 'upsert')
+    expect(upserts).toHaveLength(1)
+    expect((upserts[0].payload as { text: string }).text).toBe('half typed')
+  } finally {
+    vi.useRealTimers()
+  }
+})
+
+test('useDayNotes: changing the date flushes the previous day’s pending note once', async () => {
+  vi.useFakeTimers()
+  try {
+    const { client, calls } = makeFakeClient()
+    const { result, rerender } = renderHook(({ date }) => useDayNotes('valle', date, client), {
+      initialProps: { date: '2026-11-02' },
+    })
+    await act(async () => { await vi.advanceTimersByTimeAsync(0) })
+
+    act(() => { result.current.setNote('monday note') })
+    await act(async () => { rerender({ date: '2026-11-03' }); await vi.advanceTimersByTimeAsync(0) })
+
+    const upserts = calls.filter(c => c.table === 'day_notes' && c.mode === 'upsert')
+    expect(upserts).toHaveLength(1)
+    expect(upserts[0].payload).toMatchObject({ date: '2026-11-02', text: 'monday note' })
+
+    // The flushed timer must not fire a second time.
+    await act(async () => { await vi.advanceTimersByTimeAsync(800) })
+    expect(calls.filter(c => c.table === 'day_notes' && c.mode === 'upsert')).toHaveLength(1)
+  } finally {
+    vi.useRealTimers()
+  }
+})

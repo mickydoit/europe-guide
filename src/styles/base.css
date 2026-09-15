@@ -184,7 +184,7 @@ button { font: inherit; }
   min-height: 40px; padding: 0 16px; border-radius: var(--radius-pill); border: 1px solid var(--border);
   background: var(--card); color: var(--text); font-size: 14px; font-weight: 600; cursor: pointer; }
 .map-close:active { filter: brightness(.92); }
-.map-canvas { position: absolute; inset: 0; }
+.map-screen .map-canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
 
 .map-seg { position: absolute; top: calc(var(--safe-top) + 12px); left: 50%; transform: translateX(-50%); z-index: 5;
   display: flex; gap: 2px; padding: 2px; border-radius: var(--radius-pill); border: 1px solid var(--border); background: var(--card); }

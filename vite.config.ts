@@ -13,7 +13,7 @@ export default defineConfig({
       workbox: {
         skipWaiting: true,
         clientsClaim: true,
-        globPatterns: ['**/*.{js,css,html,ico,png,svg,webmanifest,pbf}'],
+        globPatterns: ['**/*.{js,css,html,ico,png,svg,webmanifest,pbf,json}'],
         cleanupOutdatedCaches: true,
         navigateFallback: '/europe-guide/index.html',
       },
