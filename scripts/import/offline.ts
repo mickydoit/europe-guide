@@ -110,7 +110,8 @@ export async function buildOfflineAreas(
 
     const size_bytes = await upload(local, pmtilesPath)
 
-    rows.push({ trip, seq, name, ...bbox, pmtiles_path: pmtilesPath, size_bytes })
+    rows.push({ trip, seq, name, ...bbox, pmtiles_path: pmtilesPath,
+      built_at: new Date().toISOString(), size_bytes })
   }
 
   return rows

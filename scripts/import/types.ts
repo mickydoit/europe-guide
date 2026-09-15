@@ -9,5 +9,5 @@ export interface LegRow { trip: string; route_id: string; seq: number; from_name
 export interface AlertRow { trip: string; date: string; seq: number; time: string | null; text: string }
 export interface ParkedRow { trip: string; seq: number; name: string; what: string | null; why: string | null; address: string | null; lat: number | null; lng: number | null }
 export interface NoteRow { trip: string; seq: number; section: string; text: string }
-export interface OfflineAreaRow { trip: string; seq: number; name: string; min_lng: number; min_lat: number; max_lng: number; max_lat: number; pmtiles_path: string; size_bytes: number }
+export interface OfflineAreaRow { trip: string; seq: number; name: string; min_lng: number; min_lat: number; max_lng: number; max_lat: number; pmtiles_path: string; size_bytes: number; built_at: string }
 export interface CityContent { trip: TripRow; days: DayRow[]; items: ItemRow[]; bookings: BookingRow[]; routes: RouteRow[]; legs: LegRow[]; alerts: AlertRow[]; parked: ParkedRow[]; notes: NoteRow[]; areas: OfflineAreaRow[] }
