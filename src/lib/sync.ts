@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { supabase } from './supabase'
-import { countOutbox, listOutbox, removeOp, updateOp } from './outbox'
+import { countOutbox, listDueOps, listOutbox, removeOp, updateOp } from './outbox'
 import type { AttachmentUploadPayload, CheckSetPayload, DayNotesPayload, OutboxOp } from './outbox'
 
 /** Give up flushing an op after this many failures; it is kept and shown with a Retry. */
@@ -11,13 +11,21 @@ const BASE_BACKOFF_MS = 2000
 const SYNC_INTERVAL_MS = 60_000
 /** Postgres `unique_violation` — the row is already there, which is exactly what we wanted. */
 const DUPLICATE_KEY = '23505'
+/** Storage's several ways of saying "that object is already at that path". */
+const ALREADY_EXISTS = /already exists|duplicate|409/i
 
 type PgError = { message?: string; code?: string } | null
-type FlushResult = { done: number; remaining: number; failed: number }
+type FlushResult = { done: number; remaining: number; failed: number; skipped?: boolean }
 
 function message(e: unknown) {
   const m = (e as { message?: unknown } | null)?.message
   return typeof m === 'string' && m ? m : String(e)
+}
+
+/** True when a storage upload failed only because the bytes are already at that path. */
+function isAlreadyExists(e: unknown) {
+  const err = e as { message?: unknown; statusCode?: unknown; status?: unknown; error?: unknown } | null
+  return ALREADY_EXISTS.test([err?.message, err?.statusCode, err?.status, err?.error].map(v => (v == null ? '' : String(v))).join(' '))
 }
 
 function backoffFrom(now: number, attempts: number) {
@@ -80,11 +88,14 @@ export async function replay(client: SupabaseClient, op: OutboxOp): Promise<void
   }
 
   const a = op.payload as AttachmentUploadPayload
-  const { error: upErr } = await client.storage.from('tickets').upload(a.path, a.blob, { contentType: a.mime, upsert: false })
-  if (upErr) throw new Error(message(upErr))
+  // Both halves must be safe to repeat: a retry after a half-finished attempt (object
+  // uploaded, row insert failed) would otherwise wedge the op forever on "already exists".
+  // Re-uploading the same bytes to the same path is harmless, so overwrite rather than refuse.
+  const { error: upErr } = await client.storage.from('tickets').upload(a.path, a.blob, { contentType: a.mime, upsert: true })
+  if (upErr && !isAlreadyExists(upErr)) throw new Error(message(upErr))
   const { error: insErr } = (await client.from('attachments')
     .insert({ trip: a.trip, booking_id: a.bookingId, storage_path: a.path, filename: a.filename, mime: a.mime, size: a.size })) as { error: PgError }
-  if (insErr) throw new Error(message(insErr))
+  if (insErr && insErr.code !== DUPLICATE_KEY) throw new Error(message(insErr))
 }
 
 // ---- flush ----------------------------------------------------------------
@@ -92,13 +103,19 @@ export async function replay(client: SupabaseClient, op: OutboxOp): Promise<void
 /**
  * Replay every due op in FIFO order. A failure backs the op off exponentially
  * (capped at five minutes) and, past MAX_ATTEMPTS, parks it as `failed` — stored,
- * never dropped. Returns the counts left behind.
+ * never dropped. Returns the counts left behind; `skipped` marks a call that did
+ * nothing because a flush was already in flight.
  */
 export async function flushOutbox(
   client: SupabaseClient = supabase,
   now: number = Date.now(),
   online: () => boolean = () => navigator.onLine,
 ): Promise<FlushResult> {
+  // One flush at a time: overlapping passes would replay the same op twice.
+  if (flushing) {
+    const { pending, failed } = await countOutbox()
+    return { done: 0, remaining: pending, failed, skipped: true }
+  }
   if (!online()) {
     const { pending, failed } = await countOutbox()
     return { done: 0, remaining: pending, failed }
@@ -108,9 +125,8 @@ export async function flushOutbox(
   notify()
   let done = 0
   try {
-    for (const op of await listOutbox()) {
+    for (const op of await listDueOps(now)) {
       if (!online()) break
-      if (op.status !== 'pending' || op.nextAt > now) continue
       try {
         await replay(client, op)
         await removeOp(op.id)
@@ -155,10 +171,7 @@ export async function retryFailed(
  * function that removes every listener and the interval.
  */
 export function startSync(client: SupabaseClient = supabase) {
-  const run = () => {
-    if (flushing) return
-    void flushOutbox(client).catch(e => { lastErrorMessage = message(e); notify() })
-  }
+  const run = () => { void flushOutbox(client).catch(e => { lastErrorMessage = message(e); notify() }) }
   const onVisible = () => { if (document.visibilityState === 'visible') run() }
   window.addEventListener('online', run)
   document.addEventListener('visibilitychange', onVisible)

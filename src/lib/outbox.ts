@@ -1,4 +1,4 @@
-import { getOutboxAll, putOutbox, deleteOutbox, clearOutbox } from './db'
+import { getOutboxAll, getOutboxDue, getOutboxIdsByKey, putOutbox, deleteOutbox, clearOutbox } from './db'
 
 /**
  * A write the app made that the server has not accepted yet.
@@ -48,9 +48,7 @@ function newId() {
  */
 export async function enqueue(partial: Pick<OutboxOp, 'key' | 'kind' | 'payload'>): Promise<OutboxOp> {
   if (!UNIQUE_KINDS.has(partial.kind)) {
-    for (const existing of await getOutboxAll()) {
-      if (existing.key === partial.key) await deleteOutbox(existing.id)
-    }
+    for (const id of await getOutboxIdsByKey(partial.key)) await deleteOutbox(id)
   }
   const createdAt = Date.now()
   const op: OutboxOp = { id: newId(), key: partial.key, kind: partial.kind, payload: partial.payload, createdAt, attempts: 0, nextAt: createdAt, status: 'pending' }
@@ -61,6 +59,11 @@ export async function enqueue(partial: Pick<OutboxOp, 'key' | 'kind' | 'payload'
 /** Every queued op, oldest first — the order they are replayed in. */
 export async function listOutbox(): Promise<OutboxOp[]> {
   return (await getOutboxAll()).sort((a, b) => a.createdAt - b.createdAt)
+}
+
+/** Pending ops whose backoff has elapsed, oldest first — exactly what a flush should replay. */
+export async function listDueOps(now: number): Promise<OutboxOp[]> {
+  return (await getOutboxDue(now)).filter(o => o.status === 'pending').sort((a, b) => a.createdAt - b.createdAt)
 }
 
 export async function removeOp(id: string) {

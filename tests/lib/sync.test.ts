@@ -8,8 +8,15 @@ import { flushOutbox, retryFailed, startSync, useSync, notify, resetSyncForTests
 type Err = { message: string; code?: string } | null
 type Call = { op: string; table?: string; bucket?: string; path?: string; payload?: unknown; filters?: Array<[string, unknown]>; upsertOpts?: unknown; body?: string }
 
+type ClientOpts = {
+  /** Fails storage uploads independently of table calls. */
+  storageFail?: () => Err
+  /** Holds every table call open until it resolves, so two flushes can overlap in a test. */
+  gate?: Promise<unknown>
+}
+
 /** A Supabase stand-in that records every call and can be told to fail the first N of them. */
-function fakeClient(calls: Call[], fail: () => Err = () => null) {
+function fakeClient(calls: Call[], fail: () => Err = () => null, opts: ClientOpts = {}) {
   function from(table: string) {
     let op = 'select'
     let payload: unknown
@@ -24,8 +31,12 @@ function fakeClient(calls: Call[], fail: () => Err = () => null) {
       eq(c: string, v: unknown) { filters.push([c, v]); return q },
       then(resolve: (r: { data: unknown; error: Err }) => void) {
         calls.push({ op, table, payload, filters, upsertOpts })
-        const error = fail()
-        resolve({ data: error ? null : payload, error })
+        const finish = () => {
+          const error = fail()
+          resolve({ data: error ? null : payload, error })
+        }
+        if (opts.gate) void opts.gate.then(finish, finish)
+        else finish()
       },
     }
     return q
@@ -33,9 +44,9 @@ function fakeClient(calls: Call[], fail: () => Err = () => null) {
   const storage = {
     from(bucket: string) {
       return {
-        async upload(path: string, blob: Blob, opts: unknown) {
-          calls.push({ op: 'upload', bucket, path, payload: opts, body: await blob.text() })
-          const error = fail()
+        async upload(path: string, blob: Blob, uploadOpts: unknown) {
+          calls.push({ op: 'upload', bucket, path, payload: uploadOpts, body: await blob.text() })
+          const error = (opts.storageFail ?? fail)()
           return { data: error ? null : { path }, error }
         },
       }
@@ -120,9 +131,60 @@ test('replays an attachment_upload as a storage upload then a row insert, with t
   expect(res.done).toBe(1)
   expect(calls).toHaveLength(2)
   expect(calls[0]).toMatchObject({ op: 'upload', bucket: 'tickets', path: 'own/valle/b1/t.pdf', body: 'ticket bytes' })
-  expect(calls[0].payload).toEqual({ contentType: 'application/pdf', upsert: false })
+  expect(calls[0].payload).toEqual({ contentType: 'application/pdf', upsert: true })
   expect(calls[1]).toMatchObject({ op: 'insert', table: 'attachments' })
   expect(calls[1].payload).toEqual({ trip: 'valle', booking_id: 'b1', storage_path: 'own/valle/b1/t.pdf', filename: 't.pdf', mime: 'application/pdf', size: blob.size })
+})
+
+test('an attachment whose object already landed still inserts its row', async () => {
+  const calls: Call[] = []
+  const blob = new Blob(['ticket bytes'], { type: 'application/pdf' })
+  await enqueue({
+    key: 'own/valle/b1/t.pdf', kind: 'attachment_upload',
+    payload: { trip: 'valle', bookingId: 'b1', ownerId: 'own', path: 'own/valle/b1/t.pdf', filename: 't.pdf', mime: 'application/pdf', size: blob.size, blob },
+  })
+  // A previous attempt uploaded the object and then died before the row insert.
+  const client = fakeClient(calls, () => null, { storageFail: () => ({ message: 'The resource already exists', code: '409' }) })
+  const res = await flushOutbox(client, soon(), () => true)
+  expect(res.done).toBe(1)
+  expect(calls.map(c => c.op)).toEqual(['upload', 'insert'])
+  expect(await listOutbox()).toEqual([])
+})
+
+test('a duplicate-key on the attachments insert counts as success', async () => {
+  const calls: Call[] = []
+  const blob = new Blob(['ticket bytes'], { type: 'application/pdf' })
+  await enqueue({
+    key: 'own/valle/b1/t.pdf', kind: 'attachment_upload',
+    payload: { trip: 'valle', bookingId: 'b1', ownerId: 'own', path: 'own/valle/b1/t.pdf', filename: 't.pdf', mime: 'application/pdf', size: blob.size, blob },
+  })
+  const client = fakeClient(calls, () => ({ message: 'duplicate key value violates unique constraint', code: '23505' }), { storageFail: () => null })
+  const res = await flushOutbox(client, soon(), () => true)
+  expect(res.done).toBe(1)
+  expect(await listOutbox()).toEqual([])
+})
+
+test('a second flush while one is in flight is skipped, and the queue still drains', async () => {
+  const calls: Call[] = []
+  let release!: () => void
+  const gate = new Promise<void>(r => { release = r })
+  const client = fakeClient(calls, () => null, { gate })
+  const a = await enqueue({ key: 'check:a', kind: 'check_set', payload: { itemId: 'a', done: true } })
+  const b = await enqueue({ key: 'check:b', kind: 'check_set', payload: { itemId: 'b', done: true } })
+  await updateOp(a.id, { createdAt: 100, nextAt: 100 })
+  await updateOp(b.id, { createdAt: 200, nextAt: 200 })
+
+  const inFlight = flushOutbox(client, 1000, () => true)
+  await until(() => calls.length === 1)
+
+  const second = await flushOutbox(client, 1000, () => true)
+  expect(second).toEqual({ done: 0, remaining: 2, failed: 0, skipped: true })
+  expect(calls).toHaveLength(1)
+
+  release()
+  expect(await inFlight).toEqual({ done: 2, remaining: 0, failed: 0 })
+  expect(calls.map(c => (c.payload as { item_id: string }).item_id)).toEqual(['a', 'b'])
+  expect(await listOutbox()).toEqual([])
 })
 
 test('processes ops FIFO by createdAt', async () => {
