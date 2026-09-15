@@ -177,21 +177,26 @@ export function useDayNotes(trip: string, date: string, client: SupabaseClient =
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const pendingNote = useRef<(() => Promise<void>) | null>(null)
   // Set as soon as the user edits this day, so a slow initial load cannot overwrite their work.
-  const dirty = useRef(false)
+  // Tracked per field: an unsent note must not also suppress the server's saved places.
+  const dirtyText = useRef(false)
+  const dirtyPlaces = useRef(false)
 
   useEffect(() => {
     let cancelled = false
-    dirty.current = false
+    dirtyText.current = false
+    dirtyPlaces.current = false
     setLoading(true)
     void (async () => {
       const { data, error } = await client.from('day_notes').select('*').eq('trip', trip).eq('date', date)
       if (cancelled) return
       if (error) { console.warn(message(error)); setLoading(false); return }
       const row = ((data ?? []) as DayNoteRow[])[0]
-      if (!dirty.current) {
+      if (!dirtyText.current) {
         noteRef.current = row?.text ?? ''
-        placesRef.current = row?.saved_places ?? []
         setNoteState(noteRef.current)
+      }
+      if (!dirtyPlaces.current) {
+        placesRef.current = row?.saved_places ?? []
         setSavedPlaces(placesRef.current)
       }
       setLoading(false)
@@ -218,7 +223,9 @@ export function useDayNotes(trip: string, date: string, client: SupabaseClient =
   }
 
   function setNote(text: string) {
-    dirty.current = true
+    // Stays set even if the save fails: unsent text is the user's, and losing it is worse
+    // than showing a stale server note. It never gates saved_places.
+    dirtyText.current = true
     noteRef.current = text
     setNoteState(text)
     if (timer.current) clearTimeout(timer.current)
@@ -234,12 +241,16 @@ export function useDayNotes(trip: string, date: string, client: SupabaseClient =
 
   async function writePlaces(next: SavedPlace[]) {
     const previous = placesRef.current
-    dirty.current = true
+    const wasDirty = dirtyPlaces.current
+    dirtyPlaces.current = true
     placesRef.current = next
     setSavedPlaces(next)
     try {
       await upsert({ saved_places: next })
     } catch (e) {
+      // The write is gone, so this list is no longer a local edit worth defending —
+      // let a still-pending load replace it with server truth.
+      dirtyPlaces.current = wasDirty
       placesRef.current = previous
       setSavedPlaces(previous)
       throw e

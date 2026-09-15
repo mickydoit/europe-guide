@@ -323,7 +323,7 @@ test('useDayNotes: setNote is optimistic and upserts once after the 800 ms debou
 
 // A client whose day_notes SELECT stays pending until released, so a write can be
 // observed while the hook is still loading.
-function makeSlowDayNotesClient(existing: Row) {
+function makeSlowDayNotesClient(existing: Row, opts: { failUpsert?: boolean } = {}) {
   const upserts: Record<string, unknown>[] = []
   let release!: () => void
   const gate = new Promise<void>(resolve => { release = resolve })
@@ -336,7 +336,11 @@ function makeSlowDayNotesClient(existing: Row) {
         eq() { return q },
         upsert(p: Record<string, unknown>) { mode = 'upsert'; payload = p; return q },
         then(resolve: (r: Res<unknown>) => void) {
-          if (mode === 'upsert') { upserts.push(payload!); resolve({ data: null, error: null }); return }
+          if (mode === 'upsert') {
+            upserts.push(payload!)
+            resolve(opts.failUpsert ? { data: null, error: { message: 'upsert failed' } } : { data: null, error: null })
+            return
+          }
           void gate.then(() => resolve({ data: [existing], error: null }))
         },
       }
@@ -427,4 +431,41 @@ test('useDayNotes: changing the date flushes the previous day’s pending note o
   } finally {
     vi.useRealTimers()
   }
+})
+
+test('useDayNotes: a savePlace that fails mid-load lets the pending select apply server places', async () => {
+  const serverPlace = { id: 'server-1', name: 'From the server', lat: 5, lng: 6, saved_at: 's' }
+  const { client, release } = makeSlowDayNotesClient(
+    { trip: 'valle', date: '2026-11-02', text: 'server note', saved_places: [serverPlace] },
+    { failUpsert: true },
+  )
+  const { result } = renderHook(() => useDayNotes('valle', '2026-11-02', client))
+  expect(result.current.loading).toBe(true)
+
+  const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+  await act(async () => {
+    await expect(result.current.savePlace({ id: 'p9', name: 'X', lat: 1, lng: 2, saved_at: 'now' })).rejects.toThrow()
+  })
+  expect(result.current.savedPlaces).toEqual([])
+
+  await act(async () => { release(); await Promise.resolve() })
+
+  expect(result.current.savedPlaces).toEqual([serverPlace])
+  expect(warn).toHaveBeenCalled()
+  warn.mockRestore()
+})
+
+test('useDayNotes: an unsent note survives the load while server places still land', async () => {
+  const serverPlace = { id: 'server-1', name: 'From the server', lat: 5, lng: 6, saved_at: 's' }
+  const { client, release } = makeSlowDayNotesClient({
+    trip: 'valle', date: '2026-11-02', text: 'server', saved_places: [serverPlace],
+  })
+  const { result } = renderHook(() => useDayNotes('valle', '2026-11-02', client))
+  expect(result.current.loading).toBe(true)
+
+  act(() => { result.current.setNote('draft') })
+  await act(async () => { release(); await Promise.resolve() })
+
+  expect(result.current.note).toBe('draft')
+  expect(result.current.savedPlaces).toEqual([serverPlace])
 })
