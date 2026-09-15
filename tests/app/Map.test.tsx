@@ -682,3 +682,52 @@ test('a re-cut city offers an update, in the download prompt\'s place', async ()
   expect(await screen.findByText(/Map data changed — update the offline map \(12 MB\)\?/)).toBeInTheDocument()
   expect(screen.getByRole('button', { name: 'Download' })).toBeInTheDocument()
 })
+
+const STALE_KEY = 'europe-guide.mapStalePromptDismissed.valle.12582912'
+
+test('an old Later on the download offer does not silence the stale-map prompt', async () => {
+  const withAreas = await makeContent(true)
+  vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(true)
+  // The owner tapped Later on the very first download offer, months and one re-cut ago.
+  localStorage.setItem('europe-guide.mapPromptDismissed.valle', '1')
+  await seedCache(withAreas.areas, 1024)
+
+  renderMap(withAreas)
+
+  expect(await screen.findByText(/Map data changed — update the offline map/)).toBeInTheDocument()
+})
+
+test('Later on the stale prompt is remembered against that cut of the city', async () => {
+  const withAreas = await makeContent(true)
+  vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(true)
+  await seedCache(withAreas.areas, 1024)
+
+  renderMap(withAreas)
+  await screen.findByText(/Map data changed/)
+  fireEvent.click(screen.getByRole('button', { name: 'Later' }))
+
+  await waitFor(() => expect(screen.queryByText(/Map data changed/)).toBeNull())
+  expect(localStorage.getItem(STALE_KEY)).toBe('1')
+  // The download offer's own dismissal is untouched.
+  expect(localStorage.getItem('europe-guide.mapPromptDismissed.valle')).toBeNull()
+})
+
+test('a dismissed stale prompt comes back when the city is re-cut to a new size', async () => {
+  localStorage.setItem(STALE_KEY, '1')
+  const withAreas = await makeContent(true)
+  vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(true)
+  await seedCache(withAreas.areas, 1024)
+
+  const { unmount } = renderMap(withAreas)
+  await waitFor(() => expect(screen.queryByText(/Map data changed/)).toBeNull())
+  unmount()
+
+  // A new cut: different total size_bytes, so the old dismissal no longer applies.
+  const recut = await makeContent(true)
+  recut.areas = recut.areas.map(a => ({ ...a, size_bytes: a.size_bytes + 1024 }))
+  await seedCache(recut.areas, 1024)
+
+  renderMap(recut)
+
+  expect(await screen.findByText(/Map data changed — update the offline map/)).toBeInTheDocument()
+})

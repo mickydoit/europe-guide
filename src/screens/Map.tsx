@@ -74,6 +74,14 @@ interface Selected { kind: MapFeatureKind; id: string; properties: Record<string
 
 function sourceId(area: OfflineAreaRow): string { return `area-${area.seq}` }
 function promptKey(trip: string): string { return `europe-guide.mapPromptDismissed.${trip}` }
+/**
+ * The stale-map offer gets its own dismissal, keyed by the size the rows advertise: a "Later"
+ * tapped months ago on the first download offer must not silence "the map you saved is out of
+ * date", and a fresh re-cut (a new total size) re-arms the offer it was dismissed for.
+ */
+function stalePromptKey(trip: string, bytes: number): string {
+  return `europe-guide.mapStalePromptDismissed.${trip}.${bytes}`
+}
 function mb(bytes: number): string { return (bytes / (1024 * 1024)).toFixed(0) }
 
 const PLACES_ENABLED_KEY = 'europe-guide.places'
@@ -218,6 +226,7 @@ export default function Map() {
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null)
   const [downloadError, setDownloadError] = useState<string | null>(null)
   const [promptDismissed, setPromptDismissed] = useState(false)
+  const [staleDismissed, setStaleDismissed] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
   const [saveQueued, setSaveQueued] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
@@ -244,10 +253,15 @@ export default function Map() {
     return () => { mountedRef.current = false }
   }, [])
 
+  const areasBytes = useMemo(() => areas.reduce((sum, a) => sum + a.size_bytes, 0), [areas])
+
   useEffect(() => {
     if (!slug) return
-    try { setPromptDismissed(localStorage.getItem(promptKey(slug)) === '1') } catch { /* private mode */ }
-  }, [slug])
+    try {
+      setPromptDismissed(localStorage.getItem(promptKey(slug)) === '1')
+      setStaleDismissed(localStorage.getItem(stalePromptKey(slug, areasBytes)) === '1')
+    } catch { /* private mode */ }
+  }, [slug, areasBytes])
 
   // ---- basemap resolution -------------------------------------------------
   // Every storage read in here can throw outright — Safari private mode denies the
@@ -532,7 +546,12 @@ export default function Map() {
     }
   }
 
-  function dismissPrompt() {
+  function dismissPrompt(kind: 'download' | 'stale') {
+    if (kind === 'stale') {
+      setStaleDismissed(true)
+      try { localStorage.setItem(stalePromptKey(slug, areasBytes), '1') } catch { /* private mode */ }
+      return
+    }
     setPromptDismissed(true)
     try { localStorage.setItem(promptKey(slug), '1') } catch { /* private mode */ }
   }
@@ -636,7 +655,11 @@ export default function Map() {
 
   // ---- banner -------------------------------------------------------------
   const allCached = !!status && status.total > 0 && status.downloaded === status.total
-  let banner: { text: string; actions?: 'download' | null } | null = null
+  // A stale map counts as not downloaded for the prompt: the tiles on the phone are from a
+  // different cut of the city. Each offer carries its own dismissal.
+  const staleOffer = areas.length > 0 && !!status?.stale && !staleDismissed
+  const downloadOffer = areas.length > 0 && basemap?.mode === 'signed' && status?.downloaded === 0 && !promptDismissed
+  let banner: { text: string; actions?: 'download' | null; dismiss?: 'download' | 'stale' } | null = null
   if (basemap?.reason === 'storage') {
     banner = { text: 'Map storage unavailable — markers still shown' }
   } else if (basemap?.mode === 'none' && areas.length === 0) {
@@ -645,15 +668,13 @@ export default function Map() {
     banner = { text: 'Offline map not downloaded — connect to wifi and download it from More' }
   } else if (!online || (tileError && basemap?.mode === 'signed')) {
     banner = { text: allCached ? 'Offline — showing saved map' : 'Offline — map tiles unavailable' }
-  } else if (!promptDismissed && areas.length > 0 && (status?.stale || (basemap?.mode === 'signed' && status?.downloaded === 0))) {
-    // A stale map counts as not downloaded here: the tiles on the phone are from a
-    // different cut of the city, so the prompt is the same offer with different words.
-    const bytes = areas.reduce((sum, a) => sum + a.size_bytes, 0)
+  } else if (staleOffer || downloadOffer) {
     banner = {
-      text: status?.stale
-        ? `Map data changed — update the offline map (${mb(bytes)} MB)?`
-        : `Download the ${trip?.name ?? 'city'} offline map (${mb(bytes)} MB)?`,
+      text: staleOffer
+        ? `Map data changed — update the offline map (${mb(areasBytes)} MB)?`
+        : `Download the ${trip?.name ?? 'city'} offline map (${mb(areasBytes)} MB)?`,
       actions: 'download',
+      dismiss: staleOffer ? 'stale' : 'download',
     }
   }
 
@@ -690,7 +711,7 @@ export default function Map() {
           {banner.actions === 'download' && !downloading && (
             <div className="map-banner__actions">
               <button type="button" className="btn--text" onClick={() => { void handleDownload() }}>Download</button>
-              <button type="button" className="btn--text" onClick={dismissPrompt}>Later</button>
+              <button type="button" className="btn--text" onClick={() => dismissPrompt(banner?.dismiss ?? 'download')}>Later</button>
             </div>
           )}
           {downloadError && <p className="form__msg form__msg--error">{downloadError}</p>}

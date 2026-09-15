@@ -2,8 +2,8 @@ import '../helpers/blobClone'
 import { renderHook, waitFor } from '@testing-library/react'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { resetDbForTests } from '../../src/lib/db'
-import { enqueue, listOutbox, updateOp } from '../../src/lib/outbox'
-import { flushOutbox, retryFailed, startSync, useSync, notify, resetSyncForTests, MAX_ATTEMPTS } from '../../src/lib/sync'
+import { enqueue, listOutbox, updateOp, countOutbox } from '../../src/lib/outbox'
+import { flushOutbox, retryFailed, startSync, useSync, notify, resetSyncForTests, MAX_ATTEMPTS, MAX_NETWORK_HOLDS, OFFLINE_TOO_LONG } from '../../src/lib/sync'
 
 type Err = { message: string; code?: string } | null
 type Call = { op: string; table?: string; bucket?: string; path?: string; payload?: unknown; filters?: Array<[string, unknown]>; upsertOpts?: unknown; body?: string }
@@ -415,4 +415,99 @@ test('startSync flushes once immediately, without waiting for an event', async (
   await until(() => calls.length === 1)
   stop()
   expect(await listOutbox()).toHaveLength(0)
+})
+
+// ---- the queue must not wedge behind one bad op ----------------------------
+
+/** A client whose replay blows up on the op's own shape, not on the network. */
+function brokenOpClient() {
+  return {
+    from() { throw new TypeError("Cannot read properties of null (reading 'itemId')") },
+    storage: { from() { throw new TypeError('Cannot read properties of null') } },
+  } as unknown as SupabaseClient
+}
+
+test('a TypeError that is not a transport failure is an ordinary failure, not a hold', async () => {
+  const a = await enqueue({ key: 'check:a', kind: 'check_set', payload: { itemId: 'a', done: true } })
+  const b = await enqueue({ key: 'check:b', kind: 'check_set', payload: { itemId: 'b', done: true } })
+  await updateOp(a.id, { createdAt: 100, nextAt: 100 })
+  await updateOp(b.id, { createdAt: 200, nextAt: 200 })
+
+  await flushOutbox(brokenOpClient(), 1000, () => true)
+
+  const [first, second] = await listOutbox()
+  expect(first.attempts).toBe(1)
+  expect(first.nextAt).toBe(1000 + 4000)
+  // No break: the pass carried on to the op behind it.
+  expect(second.attempts).toBe(1)
+})
+
+test('a transport TypeError still holds the op without charging an attempt', async () => {
+  const op = await enqueue({ key: 'check:a', kind: 'check_set', payload: { itemId: 'a', done: true } })
+  await updateOp(op.id, { createdAt: 0, nextAt: 0 })
+
+  await flushOutbox(offlineClient(), 1000, () => true)
+
+  const [stored] = await listOutbox()
+  expect(stored.attempts).toBe(0)
+  expect(stored.networkHolds).toBe(1)
+  expect(stored.nextAt).toBe(1000 + 30_000)
+})
+
+test('after MAX_NETWORK_HOLDS the op parks with something the owner can act on', async () => {
+  const op = await enqueue({ key: 'check:a', kind: 'check_set', payload: { itemId: 'a', done: true } })
+  await updateOp(op.id, { createdAt: 0, nextAt: 0 })
+  const client = offlineClient()
+
+  // Each hold pushes nextAt 30 s out, so a pass per 30 s is exactly the real cadence.
+  for (let i = 1; i <= MAX_NETWORK_HOLDS; i++) {
+    const res = await flushOutbox(client, i * 30_000, () => true)
+    if (i < MAX_NETWORK_HOLDS) expect(res.failed).toBe(0)
+  }
+
+  const [stored] = await listOutbox()
+  expect(stored.status).toBe('failed')
+  expect(stored.lastError).toBe(OFFLINE_TOO_LONG)
+  expect(stored.attempts).toBe(0)
+  expect(await countOutbox()).toEqual({ pending: 0, failed: 1 })
+})
+
+test('a run of network holds is forgotten once the server answers', async () => {
+  const calls: Call[] = []
+  const op = await enqueue({ key: 'check:a', kind: 'check_set', payload: { itemId: 'a', done: true } })
+  await updateOp(op.id, { createdAt: 0, nextAt: 0 })
+
+  await flushOutbox(offlineClient(), 1000, () => true)
+  expect((await listOutbox())[0].networkHolds).toBe(1)
+
+  await flushOutbox(fakeClient(calls, () => ({ message: 'permission denied' })), 31_000, () => true)
+  const [stored] = await listOutbox()
+  expect(stored.networkHolds).toBe(0)
+  expect(stored.attempts).toBe(1)
+})
+
+test('retryFailed clears the network holds along with the attempts', async () => {
+  const calls: Call[] = []
+  const op = await enqueue({ key: 'check:a', kind: 'check_set', payload: { itemId: 'a', done: true } })
+  await updateOp(op.id, { createdAt: 0, nextAt: 0, status: 'failed', networkHolds: MAX_NETWORK_HOLDS - 1, lastError: OFFLINE_TOO_LONG })
+
+  await retryFailed(fakeClient(calls), 1000, () => true)
+
+  expect(await listOutbox()).toEqual([])
+  expect(calls).toHaveLength(1)
+})
+
+test('replay keeps the error status, so a 503 from the server reads as no signal', async () => {
+  const op = await enqueue({ key: 'check:a', kind: 'check_set', payload: { itemId: 'a', done: true } })
+  await updateOp(op.id, { createdAt: 0, nextAt: 0 })
+  // A gateway error arrives as a PostgREST `{ error }`, not a thrown TypeError: without the
+  // status riding along on the rethrow, the flush would charge the op for the gateway's fault.
+  const gateway = fakeClient([], () => ({ message: 'gateway', status: 503 } as never))
+
+  await flushOutbox(gateway, 1000, () => true)
+
+  const [stored] = await listOutbox()
+  expect(stored.attempts).toBe(0)
+  expect(stored.networkHolds).toBe(1)
+  expect(stored.nextAt).toBe(1000 + 30_000)
 })

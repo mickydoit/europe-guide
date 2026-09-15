@@ -19,6 +19,12 @@ export type OutboxOp = {
   nextAt: number
   status: 'pending' | 'failed'
   lastError?: string
+  /**
+   * Consecutive times a flush held this op for "no signal" instead of charging an attempt.
+   * Network holds cost no `attempts` — but a queue that can never drain must still say so
+   * rather than sit silent forever, so enough of them in a row park the op.
+   */
+  networkHolds?: number
 }
 
 export type CheckSetPayload = { itemId: string; done: boolean }

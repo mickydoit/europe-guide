@@ -24,7 +24,16 @@ const NOTHING: WarmResult = { cached: 0, total: 0 }
 // result is kept so a later mount can still draw the caption without re-fetching.
 const runs = new Map<string, Promise<WarmResult>>()
 
-/** Test-only: forget which trips have been warmed this session. */
+/**
+ * Forget that `trip` has been warmed, so the next mount runs the pass again.
+ *
+ * Called after a ticket is uploaded live: the trip now has a file the last pass never saw,
+ * and More's "Tickets saved for offline" would otherwise keep quoting the old count until
+ * the app is reloaded.
+ */
+export function resetWarm(trip: string) { runs.delete(trip) }
+
+/** Test-only: forget every trip warmed this session. */
 export function resetWarmForTests() { runs.clear() }
 
 function warn(e: unknown) { console.warn(e instanceof Error ? e.message : String(e)) }

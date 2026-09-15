@@ -1,4 +1,4 @@
-import { render, screen, fireEvent, within } from '@testing-library/react'
+import { render, screen, fireEvent, within, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { vi } from 'vitest'
 import { TripProvider, TripContext } from '../../src/lib/trip'
@@ -182,4 +182,23 @@ test('no ticket caption when the trip has no attachments at all', async () => {
   renderMore(content)
   await screen.findByRole('heading', { name: 'Tools' })
   expect(screen.queryByText(/Tickets saved for offline/)).toBeNull()
+})
+
+test('the offline sync notice clears itself when the phone comes back', async () => {
+  useSyncMock.mockReturnValue({ pending: 1, failed: 0, syncing: false, lastError: undefined, retryFailed: retryFailedMock })
+  useOutboxOpsMock.mockReturnValue([{ id: '1', kind: 'day_notes', status: 'pending' }])
+  Object.defineProperty(navigator, 'onLine', { value: false, configurable: true })
+  try {
+    renderMore(content)
+    await screen.findByRole('heading', { name: 'Pending changes' })
+    fireEvent.click(screen.getByRole('button', { name: 'Sync now' }))
+    await screen.findByText('Offline — will sync when connected')
+
+    Object.defineProperty(navigator, 'onLine', { value: true, configurable: true })
+    fireEvent(window, new Event('online'))
+
+    await waitFor(() => expect(screen.queryByText('Offline — will sync when connected')).toBeNull())
+  } finally {
+    Object.defineProperty(navigator, 'onLine', { value: true, configurable: true })
+  }
 })

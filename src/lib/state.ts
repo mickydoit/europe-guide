@@ -6,6 +6,7 @@ import type { AttachmentUploadPayload, BookingStatePayload, CheckSetPayload, Day
 import { flushOutbox, notify } from './sync'
 import { cacheAttachment, deleteCachedAttachment, getCachedAttachmentBlob, hasCachedAttachment } from './attachmentsCache'
 import { isNetworkFailure } from './net'
+import { resetWarm } from './attachmentsWarm'
 
 export type BookingStatus = 'not_booked' | 'booked' | 'confirmed' | 'cancelled' | 'undecided'
 
@@ -424,6 +425,9 @@ export function useAttachments(trip: string, bookingId: string, ownerId: string,
     }
     if (row) setList(prev => (prev.some(r => r.storage_path === path && !r.pendingUpload) ? prev : [...prev, row as AttachmentRow]))
     setError(null)
+    // The trip has a ticket the warm pass never saw, so let it run again on the next mount
+    // (this also gets the new file into Cache Storage and re-counts the caption in More).
+    resetWarm(trip)
     await settle(client, path, startedAt)
     return { queued: false }
   }

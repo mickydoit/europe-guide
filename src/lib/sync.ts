@@ -12,12 +12,16 @@ const BASE_BACKOFF_MS = 2000
 const SYNC_INTERVAL_MS = 60_000
 /** How long a whole pass waits after losing signal mid-flush. Not a per-op backoff. */
 const NETWORK_RETRY_MS = 30_000
+/** Consecutive 30 s network holds (≈30 minutes) before an op is parked rather than held again. */
+export const MAX_NETWORK_HOLDS = 60
+/** What a parked-for-no-signal op says. Plain words: the owner can act on this one. */
+export const OFFLINE_TOO_LONG = 'Offline for too long — tap Retry when connected'
 /** Postgres `unique_violation` — the row is already there, which is exactly what we wanted. */
 const DUPLICATE_KEY = '23505'
 /** Storage's several ways of saying "that object is already at that path". */
 const ALREADY_EXISTS = /already exists|duplicate|409/i
 
-type PgError = { message?: string; code?: string } | null
+type PgError = { message?: string; code?: string; status?: number } | null
 type FlushResult = { done: number; remaining: number; failed: number; skipped?: boolean }
 
 function message(e: unknown) {
@@ -29,6 +33,26 @@ function message(e: unknown) {
 function isAlreadyExists(e: unknown) {
   const err = e as { message?: unknown; statusCode?: unknown; status?: unknown; error?: unknown } | null
   return ALREADY_EXISTS.test([err?.message, err?.statusCode, err?.status, err?.error].map(v => (v == null ? '' : String(v))).join(' '))
+}
+
+/**
+ * Rethrow a PostgREST/storage error as an Error that still carries its `code` and `status`.
+ *
+ * The flush classifies failures on those fields (a 503 is a gateway, not a rejection), and a
+ * bare `new Error(message)` throws that away — which is how a gateway error ends up counted
+ * as the op's own fault.
+ */
+function asError(e: unknown): Error & { code?: string; status?: number } {
+  const o = e as { code?: unknown; status?: unknown; statusCode?: unknown } | null
+  const err: Error & { code?: string; status?: number } = new Error(message(e))
+  if (typeof o?.code === 'string') err.code = o.code
+  // Storage reports its status as `statusCode`, sometimes as a string.
+  const raw = o?.status ?? o?.statusCode
+  const status = typeof raw === 'number' ? raw
+    : typeof raw === 'string' && raw.trim() !== '' && Number.isFinite(Number(raw)) ? Number(raw)
+    : undefined
+  if (status !== undefined) err.status = status
+  return err
 }
 
 function backoffFrom(now: number, attempts: number) {
@@ -67,17 +91,17 @@ export async function replay(client: SupabaseClient, op: OutboxOp): Promise<void
     if (done) {
       const { error } = (await client.from('item_checks').insert({ item_id: itemId })) as { error: PgError }
       // The check is already recorded — an earlier attempt landed after all.
-      if (error && error.code !== DUPLICATE_KEY) throw new Error(message(error))
+      if (error && error.code !== DUPLICATE_KEY) throw asError(error)
     } else {
       const { error } = (await client.from('item_checks').delete().eq('item_id', itemId)) as { error: PgError }
-      if (error) throw new Error(message(error))
+      if (error) throw asError(error)
     }
     return
   }
 
   if (op.kind === 'booking_state') {
     const { error } = (await client.from('booking_state').upsert(op.payload as Record<string, unknown>, { onConflict: 'trip,booking_id' })) as { error: PgError }
-    if (error) throw new Error(message(error))
+    if (error) throw asError(error)
     return
   }
 
@@ -89,7 +113,7 @@ export async function replay(client: SupabaseClient, op: OutboxOp): Promise<void
     // on this column, so it has to carry the author's clock, not the network's.
     const row = { trip, date, ...patch, updated_at: new Date(op.createdAt).toISOString() }
     const { error } = (await client.from('day_notes').upsert(row, { onConflict: 'trip,date' })) as { error: PgError }
-    if (error) throw new Error(message(error))
+    if (error) throw asError(error)
     return
   }
 
@@ -98,10 +122,10 @@ export async function replay(client: SupabaseClient, op: OutboxOp): Promise<void
   // uploaded, row insert failed) would otherwise wedge the op forever on "already exists".
   // Re-uploading the same bytes to the same path is harmless, so overwrite rather than refuse.
   const { error: upErr } = await client.storage.from('tickets').upload(a.path, a.blob, { contentType: a.mime, upsert: true })
-  if (upErr && !isAlreadyExists(upErr)) throw new Error(message(upErr))
+  if (upErr && !isAlreadyExists(upErr)) throw asError(upErr)
   const { error: insErr } = (await client.from('attachments')
     .insert({ trip: a.trip, booking_id: a.bookingId, storage_path: a.path, filename: a.filename, mime: a.mime, size: a.size })) as { error: PgError }
-  if (insErr && insErr.code !== DUPLICATE_KEY) throw new Error(message(insErr))
+  if (insErr && insErr.code !== DUPLICATE_KEY) throw asError(insErr)
 }
 
 // ---- flush ----------------------------------------------------------------
@@ -145,12 +169,28 @@ export async function flushOutbox(
         // later op in this pass would fail identically — so hold the whole queue, not just
         // this one, and try the lot again in half a minute.
         if (isNetworkFailure(e)) {
-          await updateOp(op.id, { nextAt: now + NETWORK_RETRY_MS, lastError: lastErrorMessage })
+          const holds = (op.networkHolds ?? 0) + 1
+          // Held this long and the phone is not coming back on its own. Park it so the badge
+          // and the Pending changes list say something the owner can act on, and carry on
+          // with the pass rather than leaving the queue wedged behind one silent op.
+          if (holds >= MAX_NETWORK_HOLDS) {
+            lastErrorMessage = OFFLINE_TOO_LONG
+            await updateOp(op.id, {
+              networkHolds: 0,
+              status: 'failed',
+              lastError: OFFLINE_TOO_LONG,
+              nextAt: now + NETWORK_RETRY_MS,
+            })
+            continue
+          }
+          await updateOp(op.id, { networkHolds: holds, nextAt: now + NETWORK_RETRY_MS, lastError: lastErrorMessage })
           break
         }
         const attempts = op.attempts + 1
         await updateOp(op.id, {
           attempts,
+          // The server answered, so whatever run of network holds this op was on is over.
+          networkHolds: 0,
           nextAt: backoffFrom(now, attempts),
           lastError: lastErrorMessage,
           status: attempts >= MAX_ATTEMPTS ? 'failed' : 'pending',
@@ -172,7 +212,7 @@ export async function retryFailed(
   online: () => boolean = () => navigator.onLine,
 ): Promise<FlushResult> {
   for (const op of await listOutbox()) {
-    if (op.status === 'failed') await updateOp(op.id, { attempts: 0, nextAt: now, status: 'pending', lastError: undefined })
+    if (op.status === 'failed') await updateOp(op.id, { attempts: 0, networkHolds: 0, nextAt: now, status: 'pending', lastError: undefined })
   }
   lastErrorMessage = undefined
   notify()

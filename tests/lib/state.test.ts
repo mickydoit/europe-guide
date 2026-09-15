@@ -10,6 +10,7 @@ import type { AttachmentUploadPayload, CheckSetPayload, DayNotesPayload } from '
 import { resetSyncForTests } from '../../src/lib/sync'
 import * as attachmentsCache from '../../src/lib/attachmentsCache'
 import { FakeCacheStorage } from '../helpers/fakeCaches'
+import { warmTripAttachments, resetWarmForTests } from '../../src/lib/attachmentsWarm'
 
 // cacheAttachment is spied (not replaced) so useAttachments' offline-cache prefetch keeps
 // working against the FakeCacheStorage stubbed in below, while tests can assert it ran.
@@ -1273,4 +1274,34 @@ test('useBookingState: an empty trip reads nothing and stops loading', async () 
   await waitFor(() => expect(result.current.loading).toBe(false))
   expect(calls).toEqual([])
   expect(result.current.state).toEqual({})
+})
+
+test('useAttachments: a live upload lets the ticket warm pass run again for that trip', async () => {
+  const { client } = makeFakeClient()
+  let warmSelects = 0
+  const warmClient = {
+    from() {
+      const q: Record<string, unknown> = {
+        select() { return q },
+        eq() { return q },
+        then(resolve: (r: Res<unknown>) => void) { warmSelects += 1; resolve({ data: [], error: null }) },
+      }
+      return q
+    },
+    storage: { from: () => ({}) },
+  } as unknown as SupabaseClient
+
+  resetWarmForTests()
+  await warmTripAttachments('valle', warmClient, fakeCaches as unknown as CacheStorage)
+  await warmTripAttachments('valle', warmClient, fakeCaches as unknown as CacheStorage)
+  // Once per trip per session, until something changes what the trip holds.
+  expect(warmSelects).toBe(1)
+
+  const { result } = renderHook(() => useAttachments('valle', 'B1', 'owner-1', client))
+  await waitFor(() => expect(result.current.loading).toBe(false))
+  const file = new File([new Uint8Array([1, 2, 3])], 'ticket.pdf', { type: 'application/pdf' })
+  await act(async () => { await result.current.upload(file) })
+
+  await warmTripAttachments('valle', warmClient, fakeCaches as unknown as CacheStorage)
+  expect(warmSelects).toBe(2)
 })

@@ -18,9 +18,13 @@ const NETWORK_STATUS = new Set([0, 502, 503, 504])
  *
  * Supabase hands back fetch failures two different ways — a thrown `TypeError` from the
  * transport, or a `{ error }` object carrying the transport's message — so both shapes land here.
+ *
+ * The judgement is made on the message (and status), never on the constructor. `fetch` does
+ * throw a `TypeError`, but so does ordinary broken code: "Cannot read properties of null"
+ * inside a replay is a bug in an op, not a tunnel. Calling that one "no signal" would hold
+ * the whole queue behind an op that can never succeed and never parks.
  */
 export function isNetworkFailure(e: unknown): boolean {
-  if (e instanceof TypeError) return true
   const o = e as { message?: unknown; status?: unknown } | null
   if (o && typeof o.status === 'number' && NETWORK_STATUS.has(o.status)) return true
   const m = typeof o?.message === 'string' ? o.message : ''

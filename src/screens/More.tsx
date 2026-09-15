@@ -46,6 +46,14 @@ export function More() {
   const [syncMsg, setSyncMsg] = useState<string | null>(null)
   const warmSlug = content?.trip.slug ?? null
 
+  // "Offline — will sync when connected" is only true until it isn't: drop it the moment
+  // the phone says it has signal, rather than leaving a stale excuse on screen.
+  useEffect(() => {
+    const clear = () => setSyncMsg(null)
+    window.addEventListener('online', clear)
+    return () => { window.removeEventListener('online', clear) }
+  }, [])
+
   // Put every ticket in the trip on the phone, not just the ones whose booking sheet has
   // been opened. Once per trip per session; nothing on screen waits for it.
   useEffect(() => {
