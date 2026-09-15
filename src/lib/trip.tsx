@@ -125,7 +125,15 @@ export function TripProvider({ children, client, initial }: {
   }
 
   async function refresh() {
-    if (slug) await loadCity(slug)
+    if (!slug) return
+    // loadCity only ever clears `loading`; without setting it here the Refresh button never
+    // says "Refreshing…" and the owner has nothing telling them the tap did anything.
+    setLoading(true)
+    try {
+      await loadCity(slug)
+    } finally {
+      if (mounted.current) setLoading(false)
+    }
   }
 
   const value: Trip = { trips, slug, content, loading, offline, error, setSlug, refresh }

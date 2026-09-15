@@ -39,6 +39,18 @@ test('V2 shows a Taxi pill', async () => {
   expect(within(card).getByText('Taxi')).toBeInTheDocument()
 })
 
+test('an undated route group sorts last, under an "Undated" heading', async () => {
+  content.routes.push({
+    id: 'V-undated', trip: content.trip.slug, date: null, title: 'Someday walk',
+    distance_text: null, mode: 'walking', covers: [], note: null,
+    google_url: 'https://maps.google.com/undated', sort: 999,
+  })
+  renderRoutes(content)
+  await screen.findByText('Someday walk')
+  const headings = screen.getAllByRole('heading', { level: 2 }).map(h => h.textContent)
+  expect(headings[headings.length - 1]).toBe('Undated')
+})
+
 test('whole-route link href equals the fixture url', async () => {
   renderRoutes(content)
   const heading = await screen.findByText('Piazza to the belvedere', { exact: false })

@@ -1,6 +1,6 @@
 import { describe, test, expect, vi } from 'vitest'
 import {
-  nearbyPlaces, shouldRefetch, photoUrl, nearestN, INCLUDED_TYPES, EXCLUDED_TYPES,
+  nearbyPlaces, placePhoto, shouldRefetch, photoUrl, nearestN, INCLUDED_TYPES, EXCLUDED_TYPES,
 } from '../../src/lib/places'
 
 function rawPlace(overrides: Record<string, unknown> = {}) {
@@ -35,10 +35,12 @@ describe('nearbyPlaces request shape', () => {
     const headers = captured!.init.headers as Record<string, string>
     expect(headers['Content-Type']).toBe('application/json')
     expect(headers['X-Goog-Api-Key']).toBe('test-key')
-    expect(headers['X-Goog-FieldMask']).toBe(
+    const mask = headers['X-Goog-FieldMask']
+    expect(mask).toBe(
       'places.id,places.displayName,places.location,places.rating,places.userRatingCount,'
-      + 'places.currentOpeningHours.openNow,places.types,places.photos,places.formattedAddress',
+      + 'places.currentOpeningHours.openNow,places.types,places.formattedAddress',
     )
+    expect(mask).not.toContain('places.photos')
 
     const body = JSON.parse(captured!.init.body as string)
     expect(body.rankPreference).toBe('DISTANCE')
@@ -76,6 +78,10 @@ describe('nearbyPlaces filtering', () => {
     const landmark = places.find(p => p.id === 'landmark')!
     expect(landmark.rating).toBeNull()
     expect(landmark.photoName).toBeNull()
+    // Photos are dropped from the search field mask, so photoName is always null from
+    // search even when the raw payload happens to carry a photos array.
+    const goodCafe = places.find(p => p.id === 'good-cafe')!
+    expect(goodCafe.photoName).toBeNull()
   })
 
   test('drops a rated place below the 50-review floor', async () => {
@@ -109,6 +115,50 @@ describe('shouldRefetch', () => {
     const prev = { lat: 38.71, lng: -9.14, at: 0 }
     const now = { lat: 38.7118, lng: -9.14, at: 90_000 }
     expect(shouldRefetch(prev, now)).toBe(true)
+  })
+})
+
+describe('placePhoto', () => {
+  test('GETs Place Details with the photos field mask, id form without the "places/" prefix', async () => {
+    let captured: { url: string; init: RequestInit } | null = null
+    const fetchImpl = vi.fn(async (url: string, init: RequestInit) => {
+      captured = { url, init }
+      return new Response(JSON.stringify({ photos: [{ name: 'places/abc/photos/1' }] }), { status: 200 })
+    })
+
+    const name = await placePhoto('ChIJabc', 'test-key', fetchImpl as unknown as typeof fetch)
+
+    expect(captured).not.toBeNull()
+    expect(captured!.url).toBe('https://places.googleapis.com/v1/places/ChIJabc')
+    expect(captured!.init.method).toBe('GET')
+    const headers = captured!.init.headers as Record<string, string>
+    expect(headers['X-Goog-Api-Key']).toBe('test-key')
+    expect(headers['X-Goog-FieldMask']).toBe('photos')
+    expect(name).toBe('places/abc/photos/1')
+  })
+
+  test('GETs Place Details with the id form that already carries the "places/" prefix', async () => {
+    let captured: { url: string } | null = null
+    const fetchImpl = vi.fn(async (url: string) => {
+      captured = { url }
+      return new Response(JSON.stringify({ photos: [{ name: 'places/abc/photos/1' }] }), { status: 200 })
+    })
+
+    await placePhoto('places/ChIJabc', 'test-key', fetchImpl as unknown as typeof fetch)
+
+    expect(captured!.url).toBe('https://places.googleapis.com/v1/places/ChIJabc')
+  })
+
+  test('returns null when the place has no photos', async () => {
+    const fetchImpl = vi.fn(async () => new Response(JSON.stringify({}), { status: 200 }))
+    const name = await placePhoto('places/ChIJabc', 'k', fetchImpl as unknown as typeof fetch)
+    expect(name).toBeNull()
+  })
+
+  test('rejects with the HTTP status on a non-OK response', async () => {
+    const fetchImpl = vi.fn(async () => new Response('Forbidden', { status: 403 }))
+    await expect(placePhoto('places/ChIJabc', 'k', fetchImpl as unknown as typeof fetch))
+      .rejects.toThrow(/HTTP 403/)
   })
 })
 

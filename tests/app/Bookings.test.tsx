@@ -12,11 +12,15 @@ const { saveMock, uploadMock, urlMock, removeMock, useBookingStateMock, useAttac
   const urlMock = vi.fn().mockResolvedValue('https://signed.example/file.pdf')
   const removeMock = vi.fn().mockResolvedValue(undefined)
   const useBookingStateMock = vi.fn(() => ({ state: {}, loading: false, save: saveMock }))
-  const useAttachmentsMock = vi.fn(() => ({ list: [] as AttachmentRow[], loading: false, upload: uploadMock, url: urlMock, remove: removeMock, error: null as string | null }))
+  const useAttachmentsMock = vi.fn(() => ({ list: [] as AttachmentRow[], loading: false, upload: uploadMock, url: urlMock, remove: removeMock, error: null as string | null, cached: new Set<string>() }))
   const useAuthMock = vi.fn(() => ({ session: { user: { id: 'owner-1' } } }))
   return { saveMock, uploadMock, urlMock, removeMock, useBookingStateMock, useAttachmentsMock, useAuthMock }
 })
-vi.mock('../../src/lib/state', () => ({ useBookingState: useBookingStateMock, useAttachments: useAttachmentsMock }))
+vi.mock('../../src/lib/state', () => ({
+  useBookingState: useBookingStateMock,
+  useAttachments: useAttachmentsMock,
+  QUEUED_COPY: 'Saved on this phone — will sync when online',
+}))
 vi.mock('../../src/lib/auth', () => ({ useAuth: useAuthMock }))
 
 import { Bookings } from '../../src/screens/Bookings'
@@ -38,7 +42,7 @@ let content: CityContent
 beforeEach(async () => {
   content = await loadValle()
   useBookingStateMock.mockReturnValue({ state: {}, loading: false, save: saveMock })
-  useAttachmentsMock.mockReturnValue({ list: [], loading: false, upload: uploadMock, url: urlMock, remove: removeMock, error: null })
+  useAttachmentsMock.mockReturnValue({ list: [], loading: false, upload: uploadMock, url: urlMock, remove: removeMock, error: null, cached: new Set<string>() })
   useAuthMock.mockReturnValue({ session: { user: { id: 'owner-1' } } })
   saveMock.mockClear()
   uploadMock.mockClear()
@@ -99,7 +103,7 @@ test('opening an attachment opens the window synchronously before the signed url
     id: 'a1', trip: 'valle', booking_id: 'T01', storage_path: 'p/ticket.pdf',
     filename: 'ticket.pdf', mime: 'application/pdf', size: 1234, uploaded_at: '2026-01-01',
   }
-  useAttachmentsMock.mockReturnValue({ list: [attachment], loading: false, upload: uploadMock, url: urlMock, remove: removeMock, error: null })
+  useAttachmentsMock.mockReturnValue({ list: [attachment], loading: false, upload: uploadMock, url: urlMock, remove: removeMock, error: null, cached: new Set<string>() })
   const fakeWindow = { location: { href: '' }, close: vi.fn() }
   const openSpy = vi.spyOn(window, 'open').mockReturnValue(fakeWindow as unknown as Window)
 
@@ -129,7 +133,7 @@ test('a rejected attachment delete surfaces an inline error in the sheet', async
     id: 'a1', trip: 'valle', booking_id: 'T01', storage_path: 'p/ticket.pdf',
     filename: 'ticket.pdf', mime: 'application/pdf', size: 1234, uploaded_at: '2026-01-01',
   }
-  useAttachmentsMock.mockReturnValue({ list: [attachment], loading: false, upload: uploadMock, url: urlMock, remove: removeMock, error: null })
+  useAttachmentsMock.mockReturnValue({ list: [attachment], loading: false, upload: uploadMock, url: urlMock, remove: removeMock, error: null, cached: new Set<string>() })
   vi.spyOn(window, 'confirm').mockReturnValue(true)
 
   renderBookings(content)
@@ -157,4 +161,96 @@ test('choosing a file calls upload with that file', async () => {
   fireEvent.change(input, { target: { files: [file] } })
 
   await waitFor(() => expect(uploadMock).toHaveBeenCalledWith(file))
+})
+
+test('a queued save shows the accent "saved on this phone" message instead of "Saved"', async () => {
+  saveMock.mockResolvedValueOnce({ queued: true })
+  renderBookings(content)
+  const section = screen.getByRole('heading', { name: 'To book' }).closest('section') as HTMLElement
+  fireEvent.click(within(section).getByText(/Trattoria Alba/, { exact: false }).closest('button') as HTMLElement)
+
+  const dialog = screen.getByRole('dialog')
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Save' }))
+
+  const msg = await within(dialog).findByText('Saved on this phone — will sync when online')
+  expect(msg).toHaveClass('form__msg--queued')
+})
+
+test('a queued upload shows the same message and the file input stays usable', async () => {
+  uploadMock.mockResolvedValueOnce({ queued: true })
+  renderBookings(content)
+  const section = screen.getByRole('heading', { name: 'To book' }).closest('section') as HTMLElement
+  fireEvent.click(within(section).getByText(/Trattoria Alba/, { exact: false }).closest('button') as HTMLElement)
+
+  const dialog = screen.getByRole('dialog')
+  const input = within(dialog).getByLabelText('Add PDF or photo') as HTMLInputElement
+  fireEvent.change(input, { target: { files: [new File(['hi'], 'ticket.pdf', { type: 'application/pdf' })] } })
+
+  expect(await within(dialog).findByText('Saved on this phone — will sync when online')).toBeInTheDocument()
+  expect(input.disabled).toBe(false)
+})
+
+test('a pending attachment row is tagged "waiting to upload"', async () => {
+  useAttachmentsMock.mockReturnValue({
+    list: [{
+      id: 'pending:owner-1/valle/T01/1-ticket.pdf', trip: 'valle', booking_id: 'T01',
+      storage_path: 'owner-1/valle/T01/1-ticket.pdf', filename: 'ticket.pdf',
+      mime: 'application/pdf', size: 1234, uploaded_at: '2026-01-01', pendingUpload: true,
+    }],
+    loading: false, upload: uploadMock, url: urlMock, remove: removeMock, error: null, cached: new Set<string>(),
+  })
+  renderBookings(content)
+  const section = screen.getByRole('heading', { name: 'To book' }).closest('section') as HTMLElement
+  fireEvent.click(within(section).getByText(/Trattoria Alba/, { exact: false }).closest('button') as HTMLElement)
+
+  const dialog = screen.getByRole('dialog')
+  expect(within(dialog).getByText('waiting to upload')).toBeInTheDocument()
+})
+
+test('a cached attachment row is tagged "offline"', async () => {
+  const attachment = {
+    id: 'a1', trip: 'valle', booking_id: 'T01', storage_path: 'p/ticket.pdf',
+    filename: 'ticket.pdf', mime: 'application/pdf', size: 1234, uploaded_at: '2026-01-01',
+  }
+  useAttachmentsMock.mockReturnValue({
+    list: [attachment], loading: false, upload: uploadMock, url: urlMock, remove: removeMock, error: null,
+    cached: new Set(['a1']),
+  })
+  renderBookings(content)
+  const section = screen.getByRole('heading', { name: 'To book' }).closest('section') as HTMLElement
+  fireEvent.click(within(section).getByText(/Trattoria Alba/, { exact: false }).closest('button') as HTMLElement)
+
+  const dialog = screen.getByRole('dialog')
+  expect(within(dialog).getByText('offline')).toBeInTheDocument()
+})
+
+test('a row not yet cached shows no "offline" pill', async () => {
+  const attachment = {
+    id: 'a1', trip: 'valle', booking_id: 'T01', storage_path: 'p/ticket.pdf',
+    filename: 'ticket.pdf', mime: 'application/pdf', size: 1234, uploaded_at: '2026-01-01',
+  }
+  useAttachmentsMock.mockReturnValue({
+    list: [attachment], loading: false, upload: uploadMock, url: urlMock, remove: removeMock, error: null,
+    cached: new Set<string>(),
+  })
+  renderBookings(content)
+  const section = screen.getByRole('heading', { name: 'To book' }).closest('section') as HTMLElement
+  fireEvent.click(within(section).getByText(/Trattoria Alba/, { exact: false }).closest('button') as HTMLElement)
+
+  const dialog = screen.getByRole('dialog')
+  expect(within(dialog).queryByText('offline')).toBeNull()
+})
+
+test('the file input is disabled while attachments are loading, with a caption', async () => {
+  useAttachmentsMock.mockReturnValue({
+    list: [], loading: true, upload: uploadMock, url: urlMock, remove: removeMock, error: null, cached: new Set<string>(),
+  })
+  renderBookings(content)
+  const section = screen.getByRole('heading', { name: 'To book' }).closest('section') as HTMLElement
+  fireEvent.click(within(section).getByText(/Trattoria Alba/, { exact: false }).closest('button') as HTMLElement)
+
+  const dialog = screen.getByRole('dialog')
+  const input = within(dialog).getByLabelText('Add PDF or photo') as HTMLInputElement
+  expect(input.disabled).toBe(true)
+  expect(within(dialog).getByText('Loading attachments…')).toBeInTheDocument()
 })

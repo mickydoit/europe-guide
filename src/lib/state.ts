@@ -1,6 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { supabase } from './supabase'
+import { enqueue, listOpsByKey, listOutbox, removeOp } from './outbox'
+import type { AttachmentUploadPayload, BookingStatePayload, CheckSetPayload, DayNotesPayload } from './outbox'
+import { flushOutbox, notify } from './sync'
+import { cacheAttachment, deleteCachedAttachment, getCachedAttachmentBlob, hasCachedAttachment } from './attachmentsCache'
+import { isNetworkFailure } from './net'
+import { resetWarm } from './attachmentsWarm'
 
 export type BookingStatus = 'not_booked' | 'booked' | 'confirmed' | 'cancelled' | 'undecided'
 
@@ -24,47 +30,145 @@ export interface AttachmentRow {
   mime: string
   size: number
   uploaded_at: string
+  /** Set on rows that only exist in the outbox: the file has not reached storage yet. */
+  pendingUpload?: boolean
 }
 
+/** Every write resolves with this. `queued` means the outbox has it, not the server. */
+export type WriteResult = { queued: boolean }
+
+/** What the UI says when a write went to the outbox instead of the server. One copy, one place. */
+export const QUEUED_COPY = 'Saved on this phone — will sync when online'
+
 function message(e: { message: string } | null): string { return e?.message ?? 'unknown error' }
+
+function isOnline(): boolean {
+  return typeof navigator === 'undefined' || navigator.onLine !== false
+}
+
+/** Postgres `unique_violation` — the row we were inserting is already there. */
+const DUPLICATE_KEY = '23505'
+
+type Failure = { ok: false; network: boolean; code?: string; error: { message: string } }
+type Success<T> = { ok: true; data: T }
+
+/**
+ * Run one Supabase write and classify the outcome. Callers decide what a network-class
+ * failure means for their own optimistic state; nothing is queued or reverted in here.
+ */
+async function runWrite<T>(fn: () => PromiseLike<{ data?: T; error: unknown }>): Promise<Success<T | undefined> | Failure> {
+  try {
+    const { data, error } = await fn()
+    if (!error) return { ok: true, data }
+    // `code` rides along so callers can tell a duplicate row (which means the write is
+    // already done) from a rejection that actually needs reporting.
+    return { ok: false, network: isNetworkFailure(error), code: (error as { code?: string }).code, error: { message: message(error as { message: string }) } }
+  } catch (e) {
+    return { ok: false, network: isNetworkFailure(e), code: (e as { code?: string } | null)?.code, error: { message: e instanceof Error ? e.message : String(e) } }
+  }
+}
+
+/** Queue a write and wake every `useSync()`. `enqueue` deliberately does not notify itself. */
+async function queue(op: Parameters<typeof enqueue>[0]): Promise<WriteResult> {
+  await enqueue(op)
+  notify()
+  return { queued: true }
+}
+
+/**
+ * A live write for `key` just landed, so anything queued under it *from before that write
+ * started* is older intent the server has already moved past — replaying it would undo what
+ * we just made stick. Anything queued after `startedAt` is the owner's newer edit, made while
+ * this round trip was in flight, and dropping it would silently lose their last change — so
+ * only ops older than the write are cleared. Then drain the rest, now that there is signal.
+ */
+async function settle(client: SupabaseClient, key: string, startedAt: number) {
+  let removed = 0
+  for (const op of await listOpsByKey(key)) {
+    if (op.createdAt > startedAt) continue
+    await removeOp(op.id)
+    removed += 1
+  }
+  if (removed) notify()
+  void flushOutbox(client).catch(() => {})
+}
 
 export function useChecks(trip: string, client: SupabaseClient = supabase) {
   const [done, setDone] = useState<Set<string>>(new Set())
   const doneRef = useRef<Set<string>>(done)
   const [loading, setLoading] = useState(true)
+  // Items the owner toggled while the initial read was still in flight. The read must not
+  // land on top of them — with the outbox round trip in the way, that window is real.
+  const touched = useRef(new Set<string>())
 
   useEffect(() => {
     let cancelled = false
+    touched.current = new Set()
     setLoading(true)
     void (async () => {
-      const { data, error } = await client.from('item_checks').select('*').like('item_id', `${trip}/%`)
-      if (cancelled) return
-      if (error) { console.warn(message(error)); setLoading(false); return }
-      const next = new Set(((data ?? []) as { item_id: string }[]).map(r => r.item_id))
-      doneRef.current = next
-      setDone(next)
-      setLoading(false)
+      try {
+        const { data, error } = await client.from('item_checks').select('*').like('item_id', `${trip}/%`)
+        if (cancelled) return
+        if (error) console.warn(message(error))
+        // A failed read is exactly when the overlay matters most — the phone has no signal,
+        // so the only record of the owner's ticks is the outbox. Start from what we already
+        // have rather than throwing the queued ops away with the failed response.
+        const next = error
+          ? new Set(doneRef.current)
+          : new Set(((data ?? []) as { item_id: string }[]).map(r => r.item_id))
+        // Anything still in the outbox is newer than what the server just told us: the owner's
+        // pending tick (or untick) wins until it has actually been accepted.
+        for (const op of await listOutbox()) {
+          if (op.kind !== 'check_set') continue
+          const p = op.payload as CheckSetPayload
+          if (!p.itemId.startsWith(`${trip}/`)) continue
+          if (p.done) next.add(p.itemId); else next.delete(p.itemId)
+        }
+        // Last, because a toggle can land during the outbox read above as easily as during
+        // the fetch: read `touched` at the moment of the commit, not before the last await.
+        for (const itemId of touched.current) {
+          if (doneRef.current.has(itemId)) next.add(itemId); else next.delete(itemId)
+        }
+        if (cancelled) return
+        doneRef.current = next
+        setDone(next)
+      } catch (e) {
+        console.warn(e instanceof Error ? e.message : String(e))
+      } finally {
+        // In `finally` so a rejected read (IndexedDB included) cannot wedge the screen on "Loading…".
+        if (!cancelled) setLoading(false)
+      }
     })()
     return () => { cancelled = true }
   }, [trip, client])
 
-  async function toggle(itemId: string) {
+  async function toggle(itemId: string): Promise<WriteResult> {
     const wasDone = doneRef.current.has(itemId)
+    touched.current.add(itemId)
     const next = new Set(doneRef.current)
     if (wasDone) next.delete(itemId); else next.add(itemId)
     doneRef.current = next
     setDone(next)
-    const { error } = wasDone
-      ? await client.from('item_checks').delete().eq('item_id', itemId)
-      : await client.from('item_checks').insert({ item_id: itemId })
-    if (error) {
-      const reverted = new Set(doneRef.current)
-      if (wasDone) reverted.add(itemId); else reverted.delete(itemId)
-      doneRef.current = reverted
-      setDone(reverted)
-      console.warn(message(error))
-      throw new Error(message(error))
-    }
+
+    const payload: CheckSetPayload = { itemId, done: !wasDone }
+    const enqueueIt = () => queue({ key: `check:${itemId}`, kind: 'check_set', payload })
+    // Offline is not an error worth a round trip: queue it and keep the tick.
+    if (!isOnline()) return enqueueIt()
+
+    // Read before the round trip so anything the owner queues *during* it survives settle().
+    const startedAt = Date.now()
+    const outcome = await runWrite(() => (wasDone
+      ? client.from('item_checks').delete().eq('item_id', itemId)
+      : client.from('item_checks').insert({ item_id: itemId })) as PromiseLike<{ error: unknown }>)
+    if (outcome.ok) { await settle(client, `check:${itemId}`, startedAt); return { queued: false } }
+    if (outcome.network) return enqueueIt()
+
+    const reverted = new Set(doneRef.current)
+    if (wasDone) reverted.add(itemId); else reverted.delete(itemId)
+    doneRef.current = reverted
+    setDone(reverted)
+    console.warn(outcome.error.message)
+    throw new Error(outcome.error.message)
   }
 
   return { done, loading, toggle }
@@ -72,29 +176,87 @@ export function useChecks(trip: string, client: SupabaseClient = supabase) {
 
 export function useBookingState(trip: string, client: SupabaseClient = supabase) {
   const [state, setState] = useState<Record<string, BookingStateRow>>({})
+  const stateRef = useRef<Record<string, BookingStateRow>>({})
   const [loading, setLoading] = useState(true)
+  // Bookings saved while the initial read was still in flight; the read must not undo them.
+  const touched = useRef(new Set<string>())
+
+  function commit(next: Record<string, BookingStateRow>) {
+    stateRef.current = next
+    setState(next)
+  }
+
+  /** The map with one booking rolled back to `previousRow` (removed if it had none). */
+  function restoreOne(map: Record<string, BookingStateRow>, bookingId: string, previousRow: BookingStateRow | undefined) {
+    const next = { ...map }
+    if (previousRow) next[bookingId] = previousRow
+    else delete next[bookingId]
+    return next
+  }
 
   useEffect(() => {
     let cancelled = false
+    touched.current = new Set()
+    // Callers that render before the trip resolves (Home, on its first paint) pass ''.
+    // Querying on it returns nothing useful and still burns a round trip, so skip it —
+    // the same guard useDayNotes has for a missing day.
+    if (!trip) { setLoading(false); return }
     setLoading(true)
     void (async () => {
-      const { data, error } = await client.from('booking_state').select('*').eq('trip', trip)
-      if (cancelled) return
-      if (error) { console.warn(message(error)); setLoading(false); return }
-      const map: Record<string, BookingStateRow> = {}
-      for (const row of (data ?? []) as BookingStateRow[]) map[row.booking_id] = row
-      setState(map)
-      setLoading(false)
+      try {
+        const { data, error } = await client.from('booking_state').select('*').eq('trip', trip)
+        if (cancelled) return
+        if (error) console.warn(message(error))
+        // Keep what we had when the read fails, then lay the queued edits back over it.
+        const map: Record<string, BookingStateRow> = error ? { ...stateRef.current } : {}
+        if (!error) for (const row of (data ?? []) as BookingStateRow[]) map[row.booking_id] = row
+        // Merge rather than replace: a queued op only carries the fields the owner edited.
+        for (const op of await listOutbox()) {
+          if (op.kind !== 'booking_state') continue
+          const p = op.payload as BookingStatePayload
+          if (p.trip !== trip) continue
+          map[p.booking_id] = { ...map[p.booking_id], ...p } as BookingStateRow
+        }
+        // Last, for the same reason as in useChecks: a save can land during the outbox read.
+        for (const id of touched.current) {
+          const local = stateRef.current[id]
+          if (local) map[id] = local
+        }
+        if (cancelled) return
+        commit(map)
+      } catch (e) {
+        console.warn(e instanceof Error ? e.message : String(e))
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
     })()
     return () => { cancelled = true }
   }, [trip, client])
 
-  async function save(bookingId: string, patch: Partial<Omit<BookingStateRow, 'trip' | 'booking_id' | 'updated_at'>>) {
+  async function save(
+    bookingId: string,
+    patch: Partial<Omit<BookingStateRow, 'trip' | 'booking_id' | 'updated_at'>>,
+  ): Promise<WriteResult> {
     const updated_at = new Date().toISOString()
     const row = { trip, booking_id: bookingId, ...patch, updated_at }
-    const { error } = await client.from('booking_state').upsert(row, { onConflict: 'trip,booking_id' })
-    if (error) { console.warn(message(error)); throw new Error(message(error)) }
-    setState(prev => ({ ...prev, [bookingId]: { ...prev[bookingId], ...row } as BookingStateRow }))
+    const key = `booking:${trip}:${bookingId}`
+    touched.current.add(bookingId)
+    const previousRow = stateRef.current[bookingId]
+    commit({ ...stateRef.current, [bookingId]: { ...previousRow, ...row } as BookingStateRow })
+
+    const enqueueIt = () => queue({ key, kind: 'booking_state', payload: row })
+    if (!isOnline()) return enqueueIt()
+
+    const startedAt = Date.now()
+    const outcome = await runWrite(() => client.from('booking_state').upsert(row, { onConflict: 'trip,booking_id' }) as PromiseLike<{ error: unknown }>)
+    if (outcome.ok) { await settle(client, key, startedAt); return { queued: false } }
+    if (outcome.network) return enqueueIt()
+
+    // Put back only this booking. A whole-map restore would wipe any save for another
+    // booking that landed while this one was in flight.
+    commit(restoreOne(stateRef.current, bookingId, previousRow))
+    console.warn(outcome.error.message)
+    throw new Error(outcome.error.message)
   }
 
   return { state, loading, save }
@@ -104,21 +266,116 @@ export function useAttachments(trip: string, bookingId: string, ownerId: string,
   const [list, setList] = useState<AttachmentRow[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  // Real (non-pending) attachment ids currently held in Cache Storage — drives the offline
+  // pill and lets `url()` skip the network when a cached copy is already on the phone.
+  const [cached, setCached] = useState<Set<string>>(new Set())
+  // Blob URLs handed out for queued uploads, by storage path. They are held (not revoked
+  // straight after use) because `handleOpenAttachment` opens the window before awaiting the
+  // URL, so the tab may not have navigated yet; unmount is the safe moment to let them go.
+  const objectUrls = useRef(new Map<string, string>())
+  // Storage paths uploaded directly (not queued) while the initial read was still in
+  // flight. The read's success path replaces `list` with what the SELECT returned, which
+  // was captured before the insert landed on the server, so the new row must be put back.
+  const touched = useRef(new Set<string>())
+
+  useEffect(() => () => {
+    for (const url of objectUrls.current.values()) URL.revokeObjectURL(url)
+    objectUrls.current.clear()
+  }, [])
+
+  function markCached(id: string) {
+    setCached(prev => (prev.has(id) ? prev : new Set(prev).add(id)))
+  }
+
+  function unmarkCached(id: string) {
+    setCached(prev => {
+      if (!prev.has(id)) return prev
+      const next = new Set(prev)
+      next.delete(id)
+      return next
+    })
+  }
 
   useEffect(() => {
     let cancelled = false
+    touched.current = new Set()
     setLoading(true)
+
+    // Fire-and-forget: warms Cache Storage so tickets open offline. Runs after `loading`
+    // has already been allowed to clear — nothing on screen waits for this.
+    async function prefetch(rows: AttachmentRow[]) {
+      for (const row of rows) {
+        if (cancelled) return
+        try {
+          if (await hasCachedAttachment(row.id)) { if (!cancelled) markCached(row.id); continue }
+          const { data, error: sErr } = await client.storage.from('tickets').createSignedUrl(row.storage_path, 3600)
+          if (sErr) throw new Error(message(sErr))
+          await cacheAttachment(row.id, (data as { signedUrl: string }).signedUrl)
+          if (!cancelled) markCached(row.id)
+        } catch (e) {
+          console.warn(e instanceof Error ? e.message : String(e))
+        }
+      }
+      // No enforceCacheLimit() here on purpose. The cap is a whole-trip budget, and this
+      // prefetch only ever sees one booking's rows — enforcing against them would measure
+      // the ceiling against a fraction of what is cached and evict by the wrong yardstick.
+      // `warmTripAttachments` runs the cap once, over every row in the trip. (Fix I4.)
+    }
+
     void (async () => {
-      const { data, error: err } = await client.from('attachments').select('*').eq('trip', trip).eq('booking_id', bookingId).order('uploaded_at')
-      if (cancelled) return
-      if (err) { console.warn(message(err)); setError(message(err)); setLoading(false); return }
-      setList((data ?? []) as AttachmentRow[])
-      setLoading(false)
+      try {
+        const { data, error: err } = await client.from('attachments').select('*').eq('trip', trip).eq('booking_id', bookingId).order('uploaded_at')
+        if (cancelled) return
+        if (err) { console.warn(message(err)); setError(message(err)) }
+        const rows = err ? null : (data ?? []) as AttachmentRow[]
+        const pending = (await listOutbox())
+          .filter(op => op.kind === 'attachment_upload')
+          .map(op => op.payload as AttachmentUploadPayload)
+          .filter(p => p.trip === trip && p.bookingId === bookingId)
+          .map(pendingRow)
+        if (cancelled) return
+        // On a failed read, keep the rows already on screen (minus their stale pending
+        // entries) so the queued ticket is still listed with no signal.
+        setList(prev => {
+          const base = rows ?? prev.filter(r => !r.pendingUpload)
+          const paths = new Set(base.map(r => r.storage_path))
+          const merged = [...base, ...pending.filter(p => !paths.has(p.storage_path))]
+          const mergedPaths = new Set(merged.map(r => r.storage_path))
+          // Read at commit time (`prev`, not a value captured before the last await): a
+          // direct upload can land at any point during this read.
+          const reapplied = prev.filter(r => touched.current.has(r.storage_path) && !mergedPaths.has(r.storage_path))
+          return [...merged, ...reapplied]
+        })
+        if (rows && rows.length) void prefetch(rows).catch(e => console.warn(e instanceof Error ? e.message : String(e)))
+      } catch (e) {
+        console.warn(e instanceof Error ? e.message : String(e))
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
     })()
     return () => { cancelled = true }
   }, [trip, bookingId, client])
 
-  async function upload(file: File) {
+  /** The row shown for a file that is still only in the outbox. */
+  function pendingRow(p: AttachmentUploadPayload): AttachmentRow {
+    return {
+      id: `pending:${p.path}`,
+      trip: p.trip,
+      booking_id: p.bookingId,
+      storage_path: p.path,
+      filename: p.filename,
+      mime: p.mime,
+      size: p.size,
+      uploaded_at: new Date().toISOString(),
+      pendingUpload: true,
+    }
+  }
+
+  async function findPendingOp(a: AttachmentRow) {
+    return (await listOutbox()).find(op => op.kind === 'attachment_upload' && op.key === a.storage_path) ?? null
+  }
+
+  async function upload(file: File): Promise<WriteResult> {
     const validType = file.type === 'application/pdf' || file.type.startsWith('image/')
     if (!validType || file.size > 25 * 1024 * 1024) {
       const msg = 'Only PDF or image files up to 25 MB'
@@ -128,32 +385,110 @@ export function useAttachments(trip: string, bookingId: string, ownerId: string,
 
     const safeName = `${Date.now()}-${file.name.replace(/[^A-Za-z0-9._-]/g, '_')}`
     const path = `${ownerId}/${trip}/${bookingId}/${safeName}`
-    const { error: upErr } = await client.storage.from('tickets').upload(path, file, { contentType: file.type, upsert: false })
-    if (upErr) { console.warn(message(upErr)); setError(message(upErr)); throw new Error(message(upErr)) }
+    // Marked as soon as the upload starts (queued or direct): if the initial read is still
+    // in flight, its success path must not overwrite this row when it lands.
+    touched.current.add(path)
+    const payload: AttachmentUploadPayload = {
+      trip, bookingId, ownerId, path, filename: file.name, mime: file.type, size: file.size, blob: file,
+    }
+    // The Blob rides along in IndexedDB, so the ticket survives a reload with no signal.
+    const enqueueIt = async () => {
+      const result = await queue({ key: path, kind: 'attachment_upload', payload })
+      setList(prev => [...prev, pendingRow(payload)])
+      setError(null)
+      return result
+    }
+    if (!isOnline()) return enqueueIt()
 
-    const { data, error: insErr } = await client.from('attachments')
+    const up = await runWrite(() => client.storage.from('tickets').upload(path, file, { contentType: file.type, upsert: false }))
+    if (!up.ok) {
+      if (up.network) return enqueueIt()
+      console.warn(up.error.message); setError(up.error.message); throw new Error(up.error.message)
+    }
+
+    const startedAt = Date.now()
+    const ins = await runWrite<AttachmentRow>(() => client.from('attachments')
       .insert({ trip, booking_id: bookingId, storage_path: path, filename: file.name, mime: file.type, size: file.size })
-      .select().single()
-    if (insErr) { console.warn(message(insErr)); setError(message(insErr)); throw new Error(message(insErr)) }
-    setList(prev => [...prev, data as AttachmentRow])
+      .select().single() as PromiseLike<{ data?: AttachmentRow; error: unknown }>)
+    let row = ins.ok ? (ins.data as AttachmentRow | undefined) : undefined
+    if (!ins.ok) {
+      if (ins.network) return enqueueIt()
+      // `attachments.storage_path` is unique, so a duplicate here means the row is already
+      // there — a queued replay of this very file beat the live write. That is the outcome
+      // we wanted, so adopt the stored row instead of reporting a failure to the owner.
+      if (ins.code === DUPLICATE_KEY) {
+        const existing = await runWrite<AttachmentRow>(() => client.from('attachments')
+          .select('*').eq('storage_path', path).single() as PromiseLike<{ data?: AttachmentRow; error: unknown }>)
+        if (existing.ok && existing.data) row = existing.data as AttachmentRow
+      }
+      if (!row) { console.warn(ins.error.message); setError(ins.error.message); throw new Error(ins.error.message) }
+    }
+    if (row) setList(prev => (prev.some(r => r.storage_path === path && !r.pendingUpload) ? prev : [...prev, row as AttachmentRow]))
     setError(null)
+    // The trip has a ticket the warm pass never saw, so let it run again on the next mount
+    // (this also gets the new file into Cache Storage and re-counts the caption in More).
+    resetWarm(trip)
+    await settle(client, path, startedAt)
+    return { queued: false }
   }
 
   async function url(a: AttachmentRow) {
+    if (a.pendingUpload) {
+      const held = objectUrls.current.get(a.storage_path)
+      if (held) return held
+      const op = await findPendingOp(a)
+      if (!op) throw new Error('That file is no longer queued')
+      const url = URL.createObjectURL((op.payload as AttachmentUploadPayload).blob)
+      objectUrls.current.set(a.storage_path, url)
+      return url
+    }
+
+    // With no signal, or a copy already on the phone, serve the cached bytes — this is
+    // what makes a ticket openable in airplane mode.
+    if (!isOnline() || cached.has(a.id)) {
+      const held = objectUrls.current.get(a.storage_path)
+      if (held) return held
+      const blob = await getCachedAttachmentBlob(a.id)
+      if (blob) {
+        const objUrl = URL.createObjectURL(blob)
+        objectUrls.current.set(a.storage_path, objUrl)
+        return objUrl
+      }
+      if (!isOnline()) throw new Error('No offline copy of this file yet')
+    }
+
     const { data, error: sErr } = await client.storage.from('tickets').createSignedUrl(a.storage_path, 3600)
     if (sErr) { console.warn(message(sErr)); throw new Error(message(sErr)) }
-    return (data as { signedUrl: string }).signedUrl
+    const signedUrl = (data as { signedUrl: string }).signedUrl
+    // Warm the cache for next time; nothing on screen waits for this.
+    void cacheAttachment(a.id, signedUrl)
+      .then(() => markCached(a.id))
+      .catch(e => console.warn(e instanceof Error ? e.message : String(e)))
+    return signedUrl
   }
 
   async function remove(a: AttachmentRow) {
+    // Nothing was ever uploaded, so deleting it means dropping the queued op.
+    if (a.pendingUpload) {
+      const op = await findPendingOp(a)
+      if (op) { await removeOp(op.id); notify() }
+      const held = objectUrls.current.get(a.storage_path)
+      if (held) { URL.revokeObjectURL(held); objectUrls.current.delete(a.storage_path) }
+      setList(prev => prev.filter(x => x.id !== a.id))
+      return
+    }
     const { error: rmErr } = await client.storage.from('tickets').remove([a.storage_path])
     if (rmErr) { console.warn(message(rmErr)); throw new Error(message(rmErr)) }
     const { error: delErr } = await client.from('attachments').delete().eq('id', a.id)
     if (delErr) { console.warn(message(delErr)); throw new Error(message(delErr)) }
+    await deleteCachedAttachment(a.id).catch(e => console.warn(e instanceof Error ? e.message : String(e)))
+    unmarkCached(a.id)
+    const held = objectUrls.current.get(a.storage_path)
+    if (held) { URL.revokeObjectURL(held); objectUrls.current.delete(a.storage_path) }
     setList(prev => prev.filter(x => x.id !== a.id))
   }
 
-  return { list, loading, upload, url, remove, error }
+  return { list, loading, upload, url, remove, error, cached }
 }
 
 export interface SavedPlace { id: string; name: string; lat: number; lng: number; saved_at: string }
@@ -175,7 +510,7 @@ export function useDayNotes(trip: string, date: string, client: SupabaseClient =
   const noteRef = useRef('')
   const placesRef = useRef<SavedPlace[]>([])
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const pendingNote = useRef<(() => Promise<void>) | null>(null)
+  const pendingNote = useRef<(() => Promise<unknown>) | null>(null)
   // Set as soon as the user edits this day, so a slow initial load cannot overwrite their work.
   // Tracked per field: an unsent note must not also suppress the server's saved places.
   const dirtyText = useRef(false)
@@ -198,19 +533,37 @@ export function useDayNotes(trip: string, date: string, client: SupabaseClient =
     if (!trip || !date) { setLoading(false); return }
     setLoading(true)
     void (async () => {
-      const { data, error } = await client.from('day_notes').select('*').eq('trip', trip).eq('date', date)
-      if (cancelled) return
-      if (error) { console.warn(message(error)); setLoading(false); return }
-      const row = ((data ?? []) as DayNoteRow[])[0]
-      if (!dirtyText.current) {
-        noteRef.current = row?.text ?? ''
-        setNoteState(noteRef.current)
+      try {
+        const { data, error } = await client.from('day_notes').select('*').eq('trip', trip).eq('date', date)
+        if (cancelled) return
+        if (error) console.warn(message(error))
+        // A failed read leaves the cleared state as the base; the queued patches below are
+        // then the only thing the owner sees, which is exactly right with no signal.
+        const row = error ? undefined : ((data ?? []) as DayNoteRow[])[0]
+        let text = row?.text ?? ''
+        let places = row?.saved_places ?? []
+        // Per field, because the two are queued under separate keys and either may be pending.
+        for (const op of await listOutbox()) {
+          if (op.kind !== 'day_notes') continue
+          const p = op.payload as DayNotesPayload
+          if (p.trip !== trip || p.date !== date) continue
+          if (typeof p.patch.text === 'string') text = p.patch.text
+          if (p.patch.saved_places) places = p.patch.saved_places as SavedPlace[]
+        }
+        if (cancelled) return
+        if (!dirtyText.current) {
+          noteRef.current = text
+          setNoteState(noteRef.current)
+        }
+        if (!dirtyPlaces.current) {
+          placesRef.current = places
+          setSavedPlaces(placesRef.current)
+        }
+      } catch (e) {
+        console.warn(e instanceof Error ? e.message : String(e))
+      } finally {
+        if (!cancelled) setLoading(false)
       }
-      if (!dirtyPlaces.current) {
-        placesRef.current = row?.saved_places ?? []
-        setSavedPlaces(placesRef.current)
-      }
-      setLoading(false)
     })()
     return () => { cancelled = true }
   }, [trip, date, client])
@@ -227,10 +580,23 @@ export function useDayNotes(trip: string, date: string, client: SupabaseClient =
   // Only ever send the columns being changed. `upsert` compiles to ON CONFLICT DO UPDATE SET
   // <provided columns>, so omitting `text` from a place write leaves the stored note intact —
   // which matters because noteRef is still '' until the initial load resolves.
-  async function upsert(patch: { text: string } | { saved_places: SavedPlace[] }) {
+  async function upsert(patch: { text: string } | { saved_places: SavedPlace[] }): Promise<WriteResult> {
+    const field = 'text' in patch ? 'text' : 'saved_places'
+    const key = `notes:${trip}:${date}:${field}`
+    const enqueueIt = () => queue({
+      key,
+      kind: 'day_notes',
+      payload: { trip, date, patch } satisfies DayNotesPayload,
+    })
+    if (!isOnline()) return enqueueIt()
+
     const row: Record<string, unknown> = { trip, date, ...patch, updated_at: new Date().toISOString() }
-    const { error } = await client.from('day_notes').upsert(row, { onConflict: 'trip,date' })
-    if (error) { console.warn(message(error)); throw new Error(message(error)) }
+    const startedAt = Date.now()
+    const outcome = await runWrite(() => client.from('day_notes').upsert(row, { onConflict: 'trip,date' }) as PromiseLike<{ error: unknown }>)
+    if (outcome.ok) { await settle(client, key, startedAt); return { queued: false } }
+    if (outcome.network) return enqueueIt()
+    console.warn(outcome.error.message)
+    throw new Error(outcome.error.message)
   }
 
   function setNote(text: string) {
@@ -250,14 +616,15 @@ export function useDayNotes(trip: string, date: string, client: SupabaseClient =
     }, NOTE_DEBOUNCE_MS)
   }
 
-  async function writePlaces(next: SavedPlace[]) {
+  async function writePlaces(next: SavedPlace[]): Promise<WriteResult> {
     const previous = placesRef.current
     const wasDirty = dirtyPlaces.current
     dirtyPlaces.current = true
     placesRef.current = next
     setSavedPlaces(next)
     try {
-      await upsert({ saved_places: next })
+      // A queued write returns normally: the list stands, the outbox owns the rest.
+      return await upsert({ saved_places: next })
     } catch (e) {
       // The write is gone, so this list is no longer a local edit worth defending —
       // let a still-pending load replace it with server truth.
@@ -268,14 +635,14 @@ export function useDayNotes(trip: string, date: string, client: SupabaseClient =
     }
   }
 
-  async function savePlace(place: SavedPlace) {
-    if (placesRef.current.some(p => p.id === place.id)) return
-    await writePlaces([...placesRef.current, place])
+  async function savePlace(place: SavedPlace): Promise<WriteResult> {
+    if (placesRef.current.some(p => p.id === place.id)) return { queued: false }
+    return writePlaces([...placesRef.current, place])
   }
 
-  async function removePlace(id: string) {
-    if (!placesRef.current.some(p => p.id === id)) return
-    await writePlaces(placesRef.current.filter(p => p.id !== id))
+  async function removePlace(id: string): Promise<WriteResult> {
+    if (!placesRef.current.some(p => p.id === id)) return { queued: false }
+    return writePlaces(placesRef.current.filter(p => p.id !== id))
   }
 
   return { note, savedPlaces, loading, setNote, savePlace, removePlace }

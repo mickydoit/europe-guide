@@ -3,18 +3,21 @@ import { useLocation, useNavigate, useParams } from 'react-router-dom'
 // maplibre-gl@6 ships named exports only (no default export), so this is a namespace import.
 import * as maplibregl from 'maplibre-gl'
 // The bundler does not emit MapLibre's module worker; serve the copies in public/map/ instead.
-maplibregl.setWorkerUrl(new URL('/europe-guide/map/maplibre-gl-worker.mjs', typeof location !== 'undefined' ? location.origin : 'https://mickydoit.github.io').href)
+// import.meta.env.BASE_URL is Vite's configured base path (`/europe-guide/` in this
+// deployment) rather than a literal, so this keeps working if the base path changes.
+const WORKER_BASE = (import.meta.env.BASE_URL ?? '/').replace(/\/$/, '')
+maplibregl.setWorkerUrl(new URL(`${WORKER_BASE}/map/maplibre-gl-worker.mjs`, typeof location !== 'undefined' ? location.origin : 'https://mickydoit.github.io').href)
 import 'maplibre-gl/dist/maplibre-gl.css'
 import { PMTiles, Protocol } from 'pmtiles'
 import { useTrip } from '../lib/trip'
-import { useChecks, useDayNotes, type SavedPlace } from '../lib/state'
+import { useChecks, useDayNotes, QUEUED_COPY, type SavedPlace } from '../lib/state'
 import { buildStyle } from '../lib/mapStyle'
 import { boundsFor, legsGeoJSON, parkedGeoJSON, placesGeoJSON, stopsGeoJSON } from '../lib/mapData'
 import { cachedMapStatus, defaultSigner, downloadCityMaps, getCachedMap, getMapsGeneration, MemorySource } from '../lib/offlineMaps'
 import { fmtTime, todayInTrip } from '../lib/time'
 import { walkLink } from '../lib/links'
 import { MapSheet, type MapFeatureKind } from '../components/MapSheet'
-import { nearbyPlaces, nearestN, photoUrl, shouldRefetch, type Place } from '../lib/places'
+import { nearbyPlaces, nearestN, photoUrl, placePhoto, shouldRefetch, type Place } from '../lib/places'
 import type { OfflineAreaRow } from '../lib/types'
 
 const ACCENT = '#11da8f'
@@ -56,12 +59,29 @@ export function resetPmtilesRegistryForTests(): void {
   registryGeneration = getMapsGeneration()
 }
 
+// Session cache of Place Details photo lookups, keyed by place id: a photo is billed
+// per Details call, so a place opened twice in one page load must fetch it once. Never
+// persisted — a fresh page load starts empty.
+const placePhotoCache = new globalThis.Map<string, Promise<string | null>>()
+
+export function resetPlacePhotoCacheForTests(): void {
+  placePhotoCache.clear()
+}
+
 type BasemapMode = 'cached' | 'signed' | 'none'
 interface Basemap { mode: BasemapMode; sources: { id: string; url: string }[]; reason?: 'storage' }
 interface Selected { kind: MapFeatureKind; id: string; properties: Record<string, unknown>; lngLat: [number, number] | null }
 
 function sourceId(area: OfflineAreaRow): string { return `area-${area.seq}` }
 function promptKey(trip: string): string { return `europe-guide.mapPromptDismissed.${trip}` }
+/**
+ * The stale-map offer gets its own dismissal, keyed by the size the rows advertise: a "Later"
+ * tapped months ago on the first download offer must not silence "the map you saved is out of
+ * date", and a fresh re-cut (a new total size) re-arms the offer it was dismissed for.
+ */
+function stalePromptKey(trip: string, bytes: number): string {
+  return `europe-guide.mapStalePromptDismissed.${trip}.${bytes}`
+}
 function mb(bytes: number): string { return (bytes / (1024 * 1024)).toFixed(0) }
 
 const PLACES_ENABLED_KEY = 'europe-guide.places'
@@ -90,11 +110,23 @@ function addLayers(map: maplibregl.Map) {
   map.addSource('places', { type: 'geojson', data: placesGeoJSON([]) })
   map.addSource('user', { type: 'geojson', data: EMPTY })
 
+  // Walking legs are solid; driving and transit legs are dashed (MapLibre can't set
+  // line-dasharray per-feature within one layer, so the mode split needs two layers).
+  // Untyped to the style spec (like `isDone` below): a nested array literal here infers
+  // as a plain array, not the tuple `match` expects.
+  const legColor: unknown = ['match', ['get', 'mode'], 'driving', '#fbdd40', 'transit', '#9ee1fe', ACCENT]
   map.addLayer({
     id: 'legs-line', type: 'line', source: 'legs',
+    filter: ['==', ['get', 'mode'], 'walking'],
     layout: { 'line-join': 'round', 'line-cap': 'round' },
-    paint: { 'line-color': ACCENT, 'line-width': 4, 'line-opacity': 0.8 },
-  })
+    paint: { 'line-color': legColor, 'line-width': 4, 'line-opacity': 0.8 },
+  } as maplibregl.AddLayerObject)
+  map.addLayer({
+    id: 'legs-line-dashed', type: 'line', source: 'legs',
+    filter: ['!=', ['get', 'mode'], 'walking'],
+    layout: { 'line-join': 'round', 'line-cap': 'round' },
+    paint: { 'line-color': legColor, 'line-width': 4, 'line-opacity': 0.8, 'line-dasharray': [2, 2] },
+  } as maplibregl.AddLayerObject)
   map.addLayer({
     id: 'parked-circle', type: 'circle', source: 'parked',
     paint: { 'circle-radius': 5, 'circle-color': MUTED, 'circle-stroke-color': COAL, 'circle-stroke-width': 1 },
@@ -183,7 +215,7 @@ export default function Map() {
 
   const [showAll, setShowAll] = useState(false)
   const [basemap, setBasemap] = useState<Basemap | null>(null)
-  const [status, setStatus] = useState<{ downloaded: number; total: number; bytes: number } | null>(null)
+  const [status, setStatus] = useState<{ downloaded: number; total: number; bytes: number; stale: boolean } | null>(null)
   const [ready, setReady] = useState(false)
   const [selected, setSelected] = useState<Selected | null>(null)
   const [position, setPosition] = useState<{ lat: number; lng: number } | null>(null)
@@ -194,7 +226,9 @@ export default function Map() {
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null)
   const [downloadError, setDownloadError] = useState<string | null>(null)
   const [promptDismissed, setPromptDismissed] = useState(false)
+  const [staleDismissed, setStaleDismissed] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
+  const [saveQueued, setSaveQueued] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [placesEnabled, setPlacesEnabled] = useState(loadPlacesEnabled)
 
@@ -219,10 +253,15 @@ export default function Map() {
     return () => { mountedRef.current = false }
   }, [])
 
+  const areasBytes = useMemo(() => areas.reduce((sum, a) => sum + a.size_bytes, 0), [areas])
+
   useEffect(() => {
     if (!slug) return
-    try { setPromptDismissed(localStorage.getItem(promptKey(slug)) === '1') } catch { /* private mode */ }
-  }, [slug])
+    try {
+      setPromptDismissed(localStorage.getItem(promptKey(slug)) === '1')
+      setStaleDismissed(localStorage.getItem(stalePromptKey(slug, areasBytes)) === '1')
+    } catch { /* private mode */ }
+  }, [slug, areasBytes])
 
   // ---- basemap resolution -------------------------------------------------
   // Every storage read in here can throw outright — Safari private mode denies the
@@ -507,7 +546,12 @@ export default function Map() {
     }
   }
 
-  function dismissPrompt() {
+  function dismissPrompt(kind: 'download' | 'stale') {
+    if (kind === 'stale') {
+      setStaleDismissed(true)
+      try { localStorage.setItem(stalePromptKey(slug, areasBytes), '1') } catch { /* private mode */ }
+      return
+    }
     setPromptDismissed(true)
     try { localStorage.setItem(promptKey(slug), '1') } catch { /* private mode */ }
   }
@@ -555,7 +599,6 @@ export default function Map() {
       title: place.name,
       subtitle: [rating, open].filter(Boolean).join(' · ') || null,
       details: place.address,
-      photoSrc: place.photoName && placesKey ? photoUrl(place.photoName, placesKey) : null,
       walkHref: walkLink({ lat: place.lat, lng: place.lng, name: place.name, address: place.address }, trip.name),
       place: { id: place.id, name: place.name, lat: place.lat, lng: place.lng } satisfies Omit<SavedPlace, 'saved_at'>,
     }
@@ -563,18 +606,44 @@ export default function Map() {
 
   const alreadySaved = !!sheet?.place && notes.savedPlaces.some(p => p.id === sheet.place!.id)
 
+  // ---- lazy place photo -----------------------------------------------------
+  // Cost trim: the nearby search field mask no longer requests photos, so a place's
+  // photo is fetched from Place Details only when its sheet actually opens, once per
+  // id per session (placePhotoCache), and only when online.
+  const [placePhotoSrc, setPlacePhotoSrc] = useState<string | null>(null)
+  const placeId = sheet?.kind === 'place' ? sheet.place?.id : undefined
+
+  useEffect(() => {
+    setPlacePhotoSrc(null)
+    if (!placeId || !placesKey) return
+    if (typeof navigator !== 'undefined' && !navigator.onLine) return
+
+    let cached = placePhotoCache.get(placeId)
+    if (!cached) {
+      cached = placePhoto(placeId, placesKey).catch(e => {
+        console.warn(e instanceof Error ? e.message : String(e))
+        return null
+      })
+      placePhotoCache.set(placeId, cached)
+    }
+
+    let cancelled = false
+    cached.then(name => {
+      if (cancelled || !name) return
+      setPlacePhotoSrc(photoUrl(name, placesKey))
+    })
+    return () => { cancelled = true }
+  }, [placeId, placesKey])
+
   async function handleSave() {
     if (!sheet?.place) return
-    // Saving writes straight to Supabase with no outbox, so offline is a certain failure:
-    // say so up front instead of spinning and surfacing a fetch error.
-    if (typeof navigator !== 'undefined' && !navigator.onLine) {
-      setSaveError("Can't save while offline")
-      return
-    }
+    // Offline is no longer a dead end: useDayNotes queues the write and sync.ts sends it later.
     setSaving(true)
     setSaveError(null)
+    setSaveQueued(null)
     try {
-      await notes.savePlace({ ...sheet.place, saved_at: new Date().toISOString() })
+      const result = await notes.savePlace({ ...sheet.place, saved_at: new Date().toISOString() })
+      if (result?.queued) setSaveQueued(QUEUED_COPY)
     } catch (e) {
       // The raw PostgREST message is noise to the person holding the phone.
       console.warn('save place', e instanceof Error ? e.message : String(e))
@@ -586,7 +655,11 @@ export default function Map() {
 
   // ---- banner -------------------------------------------------------------
   const allCached = !!status && status.total > 0 && status.downloaded === status.total
-  let banner: { text: string; actions?: 'download' | null } | null = null
+  // A stale map counts as not downloaded for the prompt: the tiles on the phone are from a
+  // different cut of the city. Each offer carries its own dismissal.
+  const staleOffer = areas.length > 0 && !!status?.stale && !staleDismissed
+  const downloadOffer = areas.length > 0 && basemap?.mode === 'signed' && status?.downloaded === 0 && !promptDismissed
+  let banner: { text: string; actions?: 'download' | null; dismiss?: 'download' | 'stale' } | null = null
   if (basemap?.reason === 'storage') {
     banner = { text: 'Map storage unavailable — markers still shown' }
   } else if (basemap?.mode === 'none' && areas.length === 0) {
@@ -595,9 +668,14 @@ export default function Map() {
     banner = { text: 'Offline map not downloaded — connect to wifi and download it from More' }
   } else if (!online || (tileError && basemap?.mode === 'signed')) {
     banner = { text: allCached ? 'Offline — showing saved map' : 'Offline — map tiles unavailable' }
-  } else if (basemap?.mode === 'signed' && status?.downloaded === 0 && !promptDismissed && areas.length > 0) {
-    const bytes = areas.reduce((sum, a) => sum + a.size_bytes, 0)
-    banner = { text: `Download the ${trip?.name ?? 'city'} offline map (${mb(bytes)} MB)?`, actions: 'download' }
+  } else if (staleOffer || downloadOffer) {
+    banner = {
+      text: staleOffer
+        ? `Map data changed — update the offline map (${mb(areasBytes)} MB)?`
+        : `Download the ${trip?.name ?? 'city'} offline map (${mb(areasBytes)} MB)?`,
+      actions: 'download',
+      dismiss: staleOffer ? 'stale' : 'download',
+    }
   }
 
   return (
@@ -633,7 +711,7 @@ export default function Map() {
           {banner.actions === 'download' && !downloading && (
             <div className="map-banner__actions">
               <button type="button" className="btn--text" onClick={() => { void handleDownload() }}>Download</button>
-              <button type="button" className="btn--text" onClick={dismissPrompt}>Later</button>
+              <button type="button" className="btn--text" onClick={() => dismissPrompt(banner?.dismiss ?? 'download')}>Later</button>
             </div>
           )}
           {downloadError && <p className="form__msg form__msg--error">{downloadError}</p>}
@@ -663,13 +741,14 @@ export default function Map() {
           title={sheet.title}
           subtitle={sheet.subtitle}
           details={sheet.details}
-          photoSrc={sheet.photoSrc}
+          photoSrc={sheet.kind === 'place' ? placePhotoSrc : sheet.photoSrc}
           walkHref={sheet.walkHref}
-          onClose={() => { setSelected(null); setSaveError(null) }}
+          onClose={() => { setSelected(null); setSaveError(null); setSaveQueued(null) }}
           onSave={sheet.place ? () => { void handleSave() } : undefined}
           saved={alreadySaved}
           saving={saving}
           error={saveError}
+          queuedMsg={saveQueued}
         />
       )}
     </main>

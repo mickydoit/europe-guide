@@ -38,7 +38,7 @@ vi.mock('maplibre-gl', () => {
       return this
     }
     addSource(id: string) { maplibreState.sources.push({ id }) }
-    addLayer(layer: { id: string }) { maplibreState.layers.push({ id: layer.id }) }
+    addLayer(layer: { id: string }) { maplibreState.layers.push(layer) }
     getLayer(id: string) { return maplibreState.layers.find(l => l.id === id) }
     getSource(id: string) {
       return { setData: (data: unknown) => maplibreState.setDataCalls.push({ id, data }) }
@@ -83,17 +83,21 @@ Object.assign(notesStub, { note: '', savedPlaces: [], loading: false, setNote: v
 vi.mock('../../src/lib/state', () => ({
   useChecks: () => checksStub,
   useDayNotes: () => notesStub,
+  QUEUED_COPY: 'Saved on this phone — will sync when online',
 }))
 
-// nearbyPlaces is network; shouldRefetch/nearestN/photoUrl stay real so the merge and
-// distance-sort logic gets exercised for real.
-const { nearbyPlacesMock } = vi.hoisted(() => ({ nearbyPlacesMock: vi.fn() }))
+// nearbyPlaces and placePhoto are network; shouldRefetch/nearestN/photoUrl stay real so
+// the merge, distance-sort and URL-building logic gets exercised for real.
+const { nearbyPlacesMock, placePhotoMock } = vi.hoisted(() => ({
+  nearbyPlacesMock: vi.fn(),
+  placePhotoMock: vi.fn(),
+}))
 vi.mock('../../src/lib/places', async importOriginal => {
   const actual = await importOriginal<typeof import('../../src/lib/places')>()
-  return { ...actual, nearbyPlaces: nearbyPlacesMock }
+  return { ...actual, nearbyPlaces: nearbyPlacesMock, placePhoto: placePhotoMock }
 })
 
-import MapScreen, { resetPmtilesRegistryForTests } from '../../src/screens/Map'
+import MapScreen, { resetPmtilesRegistryForTests, resetPlacePhotoCacheForTests } from '../../src/screens/Map'
 import type { Place } from '../../src/lib/places'
 
 // ---------------------------------------------------------------- cache polyfill
@@ -162,12 +166,17 @@ function lastStops(): GeoJSON.FeatureCollection {
   return call!.data as GeoJSON.FeatureCollection
 }
 
-async function seedCache(areas: OfflineAreaRow[]) {
+/**
+ * Cache each area's archive. `content-length` advertises the size the row claims (rather
+ * than the three stand-in bytes) so a seeded map reads as current, not as a re-cut city —
+ * cachedMapStatus compares the two to decide `stale`.
+ */
+async function seedCache(areas: OfflineAreaRow[], bytes?: number) {
   const cache = await cacheStorage.open('europe-guide-maps')
   for (const area of areas) {
     await cache.put(
       cacheKey('valle', area.seq),
-      new Response(new Uint8Array([1, 2, 3]).buffer, { headers: { 'content-length': '3' } }),
+      new Response(new Uint8Array([1, 2, 3]).buffer, { headers: { 'content-length': String(bytes ?? area.size_bytes) } }),
     )
   }
 }
@@ -190,12 +199,16 @@ beforeEach(async () => {
   localStorage.clear()
   nearbyPlacesMock.mockReset()
   nearbyPlacesMock.mockResolvedValue([])
+  placePhotoMock.mockReset()
+  placePhotoMock.mockResolvedValue(null)
   savePlace.mockReset()
   savePlace.mockResolvedValue(undefined)
   getCachedMapCalls.mockReset()
   // The registry is module-level (it mirrors the protocol singleton), so each test has to
   // start from an empty one or a later test would inherit an earlier test's registrations.
   resetPmtilesRegistryForTests()
+  // Same reasoning for the Place Details photo cache: it's a module-level session cache.
+  resetPlacePhotoCacheForTests()
   content = await makeContent(false)
 })
 
@@ -274,7 +287,7 @@ test('tapping a stop opens the sheet with its title and a Walk there link', asyn
 
   fire('load')
   expect(maplibreState.layers.map(l => l.id)).toEqual([
-    'legs-line', 'parked-circle', 'stops-circle', 'stops-label',
+    'legs-line', 'legs-line-dashed', 'parked-circle', 'stops-circle', 'stops-label',
     'places-circle', 'places-label', 'user-accuracy', 'user-dot',
     'parked-hit', 'stops-hit', 'places-hit',
   ])
@@ -289,6 +302,24 @@ test('tapping a stop opens the sheet with its title and a Walk there link', asyn
   expect(dialog).toHaveAttribute('aria-label', stop.place_name ?? stop.plan)
   const walk = screen.getByRole('link', { name: 'Walk there' })
   expect(walk).toHaveAttribute('href', expect.stringContaining('destination='))
+})
+
+test('legs are split into a solid walking layer and a dashed driving/transit layer, both colored by mode', async () => {
+  renderMap(content)
+  await waitFor(() => expect(maplibreState.instances.length).toBe(1))
+  fire('load')
+
+  const legColor = ['match', ['get', 'mode'], 'driving', '#fbdd40', 'transit', '#9ee1fe', '#11da8f']
+  const solid = maplibreState.layers.find(l => l.id === 'legs-line') as { id: string; filter?: unknown; paint?: Record<string, unknown> }
+  const dashed = maplibreState.layers.find(l => l.id === 'legs-line-dashed') as { id: string; filter?: unknown; paint?: Record<string, unknown> }
+
+  expect(solid.filter).toEqual(['==', ['get', 'mode'], 'walking'])
+  expect(solid.paint?.['line-color']).toEqual(legColor)
+  expect(solid.paint?.['line-dasharray']).toBeUndefined()
+
+  expect(dashed.filter).toEqual(['!=', ['get', 'mode'], 'walking'])
+  expect(dashed.paint?.['line-color']).toEqual(legColor)
+  expect(dashed.paint?.['line-dasharray']).toEqual([2, 2])
 })
 
 test('geolocation is watched on mount and cleared on unmount, and the map is removed', async () => {
@@ -397,6 +428,61 @@ test('tapping a places-circle feature opens the sheet with the place name', asyn
   expect(dialog).toHaveAttribute('aria-label', p.name)
 })
 
+// ---------------------------------------------------------------- T4 lazy place photo
+test('opening a place sheet online fetches its photo once (Place Details) and renders it at maxWidthPx=480', async () => {
+  vi.stubEnv('VITE_GOOGLE_BROWSER_KEY', 'k')
+  const p = place({ id: 'pl-photo', name: 'Miradouro Foto' })
+  nearbyPlacesMock.mockResolvedValue([p])
+  placePhotoMock.mockResolvedValue('places/pl-photo/photos/1')
+
+  renderMap(content)
+  await waitFor(() => expect(maplibreState.instances.length).toBe(1))
+  fire('load')
+
+  const geo = navigator.geolocation as unknown as { watchPosition: ReturnType<typeof vi.fn> }
+  const onPosition = geo.watchPosition.mock.calls[0][0] as (p: unknown) => void
+  act(() => { onPosition({ coords: { latitude: 38.71, longitude: -9.14 } }) })
+  await waitFor(() => expect(maplibreState.setDataCalls.some(c => c.id === 'places')).toBe(true))
+
+  fire('click', { features: [{ layer: { id: 'places-hit' }, properties: { id: p.id, kind: 'place' } }] })
+  await screen.findByRole('dialog')
+
+  await waitFor(() => expect(placePhotoMock).toHaveBeenCalledWith('pl-photo', 'k'))
+  const img = await waitFor(() => {
+    const el = document.querySelector('.sheet__photo')
+    expect(el).not.toBeNull()
+    return el as HTMLImageElement
+  })
+  expect(img).toHaveAttribute('loading', 'lazy')
+  expect(img).toHaveAttribute(
+    'src',
+    'https://places.googleapis.com/v1/places/pl-photo/photos/1/media?maxWidthPx=480&key=k',
+  )
+  expect(placePhotoMock).toHaveBeenCalledTimes(1)
+})
+
+test('opening a place sheet while offline never fetches its photo', async () => {
+  vi.stubEnv('VITE_GOOGLE_BROWSER_KEY', 'k')
+  vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false)
+  const p = place({ id: 'pl-offline', name: 'Miradouro Offline' })
+  nearbyPlacesMock.mockResolvedValue([p])
+
+  renderMap(content)
+  await waitFor(() => expect(maplibreState.instances.length).toBe(1))
+  fire('load')
+
+  const geo = navigator.geolocation as unknown as { watchPosition: ReturnType<typeof vi.fn> }
+  const onPosition = geo.watchPosition.mock.calls[0][0] as (p: unknown) => void
+  act(() => { onPosition({ coords: { latitude: 38.71, longitude: -9.14 } }) })
+  await waitFor(() => expect(maplibreState.setDataCalls.some(c => c.id === 'places')).toBe(true))
+
+  fire('click', { features: [{ layer: { id: 'places-hit' }, properties: { id: p.id, kind: 'place' } }] })
+  await screen.findByRole('dialog')
+
+  expect(placePhotoMock).not.toHaveBeenCalled()
+  expect(document.querySelector('.sheet__photo')).toBeNull()
+})
+
 // ---------------------------------------------------------------- C1 storage failure
 test('a Cache API that throws leaves a markers-only map and an explanatory banner', async () => {
   const withAreas = await makeContent(true)
@@ -466,14 +552,17 @@ async function openPlaceSheet() {
   return screen.findByRole('button', { name: 'Save for today' })
 }
 
-test('Save for today while offline says so and never calls savePlace', async () => {
+test('Save for today while offline still saves — the hook queues it and the sheet says so', async () => {
   vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false)
+  savePlace.mockResolvedValueOnce({ queued: true })
   const button = await openPlaceSheet()
 
   fireEvent.click(button)
 
-  expect(await screen.findByText("Can't save while offline")).toBeInTheDocument()
-  expect(savePlace).not.toHaveBeenCalled()
+  expect(savePlace).toHaveBeenCalled()
+  const msg = await screen.findByText('Saved on this phone — will sync when online')
+  expect(msg).toHaveClass('form__msg--queued')
+  expect(screen.queryByText("Can't save while offline")).toBeNull()
 })
 
 test('a rejected save shows the plain-language message, not the raw error', async () => {
@@ -580,4 +669,65 @@ test('deleting the offline map also invalidates the registry', async () => {
   renderMap(withAreas)
   await waitFor(() => expect(maplibreState.instances.length).toBe(2))
   await waitFor(() => expect(maplibreState.protocolAdds).toBe(4))
+})
+
+test('a re-cut city offers an update, in the download prompt\'s place', async () => {
+  const withAreas = await makeContent(true)
+  vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(true)
+  // Every area is cached, but not at the size the rows now advertise.
+  await seedCache(withAreas.areas, 1024)
+
+  renderMap(withAreas)
+
+  expect(await screen.findByText(/Map data changed — update the offline map \(12 MB\)\?/)).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Download' })).toBeInTheDocument()
+})
+
+const STALE_KEY = 'europe-guide.mapStalePromptDismissed.valle.12582912'
+
+test('an old Later on the download offer does not silence the stale-map prompt', async () => {
+  const withAreas = await makeContent(true)
+  vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(true)
+  // The owner tapped Later on the very first download offer, months and one re-cut ago.
+  localStorage.setItem('europe-guide.mapPromptDismissed.valle', '1')
+  await seedCache(withAreas.areas, 1024)
+
+  renderMap(withAreas)
+
+  expect(await screen.findByText(/Map data changed — update the offline map/)).toBeInTheDocument()
+})
+
+test('Later on the stale prompt is remembered against that cut of the city', async () => {
+  const withAreas = await makeContent(true)
+  vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(true)
+  await seedCache(withAreas.areas, 1024)
+
+  renderMap(withAreas)
+  await screen.findByText(/Map data changed/)
+  fireEvent.click(screen.getByRole('button', { name: 'Later' }))
+
+  await waitFor(() => expect(screen.queryByText(/Map data changed/)).toBeNull())
+  expect(localStorage.getItem(STALE_KEY)).toBe('1')
+  // The download offer's own dismissal is untouched.
+  expect(localStorage.getItem('europe-guide.mapPromptDismissed.valle')).toBeNull()
+})
+
+test('a dismissed stale prompt comes back when the city is re-cut to a new size', async () => {
+  localStorage.setItem(STALE_KEY, '1')
+  const withAreas = await makeContent(true)
+  vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(true)
+  await seedCache(withAreas.areas, 1024)
+
+  const { unmount } = renderMap(withAreas)
+  await waitFor(() => expect(screen.queryByText(/Map data changed/)).toBeNull())
+  unmount()
+
+  // A new cut: different total size_bytes, so the old dismissal no longer applies.
+  const recut = await makeContent(true)
+  recut.areas = recut.areas.map(a => ({ ...a, size_bytes: a.size_bytes + 1024 }))
+  await seedCache(recut.areas, 1024)
+
+  renderMap(recut)
+
+  expect(await screen.findByText(/Map data changed — update the offline map/)).toBeInTheDocument()
 })

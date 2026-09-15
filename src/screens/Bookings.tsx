@@ -2,8 +2,8 @@ import { Fragment, useEffect, useRef, useState } from 'react'
 import type { ChangeEvent } from 'react'
 import { useTrip } from '../lib/trip'
 import { useAuth } from '../lib/auth'
-import { useBookingState, useAttachments } from '../lib/state'
-import type { AttachmentRow, BookingStateRow } from '../lib/state'
+import { useBookingState, useAttachments, QUEUED_COPY } from '../lib/state'
+import type { AttachmentRow, BookingStateRow, WriteResult } from '../lib/state'
 import { fmtDay, fmtTime, nowInTz, todayInTrip } from '../lib/time'
 import { Pill } from '../components/Pill'
 import type { PillTone } from '../components/Pill'
@@ -53,12 +53,12 @@ function BookingSheet({ booking, tripSlug, row, save, onClose }: {
   booking: BookingRow
   tripSlug: string
   row: BookingStateRow | undefined
-  save(bookingId: string, patch: Partial<Omit<BookingStateRow, 'trip' | 'booking_id' | 'updated_at'>>): Promise<void>
+  save(bookingId: string, patch: Partial<Omit<BookingStateRow, 'trip' | 'booking_id' | 'updated_at'>>): Promise<WriteResult>
   onClose(): void
 }) {
   const { session } = useAuth()
   const ownerId = session?.user.id ?? ''
-  const { list, upload, url, remove, error: attError } = useAttachments(tripSlug, booking.id, ownerId)
+  const { list, loading: attLoading, upload, url, remove, error: attError, cached } = useAttachments(tripSlug, booking.id, ownerId)
 
   const [status, setStatus] = useState(row?.status ?? '')
   const [confirmationRef, setConfirmationRef] = useState(row?.confirmation_ref ?? '')
@@ -68,26 +68,36 @@ function BookingSheet({ booking, tripSlug, row, save, onClose }: {
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
+  const [saveQueued, setSaveQueued] = useState(false)
   const [uploading, setUploading] = useState(false)
+  const [uploadQueued, setUploadQueued] = useState(false)
   const [actionError, setActionError] = useState<string | null>(null)
   const savedTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const uploadMsgTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  useEffect(() => () => { if (savedTimer.current) clearTimeout(savedTimer.current) }, [])
+  useEffect(() => () => {
+    if (savedTimer.current) clearTimeout(savedTimer.current)
+    if (uploadMsgTimer.current) clearTimeout(uploadMsgTimer.current)
+  }, [])
 
   async function handleSave() {
     setSaving(true)
     setSaveError(null)
+    setSaveQueued(false)
     try {
-      await save(booking.id, {
+      const result = await save(booking.id, {
         status: (status || null) as BookingStateRow['status'],
         confirmation_ref: confirmationRef || null,
         cost: cost === '' ? null : Number(cost),
         currency: currency || null,
         notes: notes || null,
       })
-      setSaved(true)
+      // Queued and accepted are both saves as far as the owner is concerned — the copy
+      // just says which one it was, so nothing looks lost when the phone has no signal.
+      if (result?.queued) setSaveQueued(true)
+      else setSaved(true)
       if (savedTimer.current) clearTimeout(savedTimer.current)
-      savedTimer.current = setTimeout(() => setSaved(false), 2000)
+      savedTimer.current = setTimeout(() => { setSaved(false); setSaveQueued(false) }, 2000)
     } catch (e) {
       setSaveError(e instanceof Error ? e.message : String(e))
     } finally {
@@ -124,8 +134,15 @@ function BookingSheet({ booking, tripSlug, row, save, onClose }: {
     e.target.value = ''
     if (!file) return
     setUploading(true)
+    setUploadQueued(false)
     try {
-      await upload(file)
+      const result = await upload(file)
+      if (result?.queued) {
+        // Same lifetime as the Save message: say it, then get out of the way.
+        setUploadQueued(true)
+        if (uploadMsgTimer.current) clearTimeout(uploadMsgTimer.current)
+        uploadMsgTimer.current = setTimeout(() => setUploadQueued(false), 2000)
+      }
     } catch {
       // error already surfaced via the attachments hook's error state
     } finally {
@@ -221,6 +238,7 @@ function BookingSheet({ booking, tripSlug, row, save, onClose }: {
           Save
         </button>
         {saved && <p className="form__msg form__msg--info">Saved</p>}
+        {saveQueued && <p className="form__msg form__msg--queued">{QUEUED_COPY}</p>}
         {saveError && <p className="form__msg form__msg--error">{saveError}</p>}
       </div>
 
@@ -235,6 +253,8 @@ function BookingSheet({ booking, tripSlug, row, save, onClose }: {
                     {a.filename}
                   </button>
                   <span className="attachments__size">{fmtSize(a.size)}</span>
+                  {a.pendingUpload && <Pill tone="columbia">waiting to upload</Pill>}
+                  {!a.pendingUpload && cached.has(a.id) && <Pill tone="muted">offline</Pill>}
                   <button type="button" className="attachments__delete" onClick={() => void handleDeleteAttachment(a)}>
                     Delete
                   </button>
@@ -248,10 +268,12 @@ function BookingSheet({ booking, tripSlug, row, save, onClose }: {
               id="booking-attachment"
               type="file"
               accept="application/pdf,image/*"
-              disabled={uploading}
+              disabled={uploading || attLoading}
               onChange={e => void handleFileChange(e)}
             />
+            {attLoading && <p className="caption">Loading attachments…</p>}
           </div>
+          {uploadQueued && <p className="form__msg form__msg--queued">{QUEUED_COPY}</p>}
           {(actionError ?? attError) && <p className="form__msg form__msg--error">{actionError ?? attError}</p>}
         </div>
       )}

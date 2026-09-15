@@ -1,7 +1,62 @@
+import '../helpers/blobClone'
 import { renderHook, act, waitFor } from '@testing-library/react'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { useChecks, useBookingState, useAttachments, useDayNotes } from '../../src/lib/state'
 import type { SavedPlace } from '../../src/lib/state'
+import { resetDbForTests } from '../../src/lib/db'
+import * as outbox from '../../src/lib/outbox'
+import { enqueue, listOutbox } from '../../src/lib/outbox'
+import type { AttachmentUploadPayload, CheckSetPayload, DayNotesPayload } from '../../src/lib/outbox'
+import { resetSyncForTests } from '../../src/lib/sync'
+import * as attachmentsCache from '../../src/lib/attachmentsCache'
+import { FakeCacheStorage } from '../helpers/fakeCaches'
+import { warmTripAttachments, resetWarmForTests } from '../../src/lib/attachmentsWarm'
+
+// cacheAttachment is spied (not replaced) so useAttachments' offline-cache prefetch keeps
+// working against the FakeCacheStorage stubbed in below, while tests can assert it ran.
+vi.mock('../../src/lib/attachmentsCache', async importOriginal => {
+  const actual = await importOriginal<typeof import('../../src/lib/attachmentsCache')>()
+  return { ...actual, cacheAttachment: vi.fn(actual.cacheAttachment) }
+})
+
+// Every write now lands in the outbox when it cannot reach the server, so each test needs
+// a queue of its own — otherwise one test's queued tick reconciles into the next one's load.
+async function wipe() {
+  resetSyncForTests()
+  await resetDbForTests()
+  await new Promise<void>(resolve => {
+    const req = indexedDB.deleteDatabase('europe-guide')
+    req.onsuccess = () => resolve()
+    req.onerror = () => resolve()
+    req.onblocked = () => resolve()
+  })
+}
+
+beforeEach(wipe)
+
+// jsdom has neither `caches` nor a same-origin `fetch` target; useAttachments' offline-cache
+// prefetch touches both by default, so every test gets a fake Cache Storage and a fetch
+// stub whether or not it cares about caching.
+let fakeCaches: FakeCacheStorage
+beforeEach(() => {
+  fakeCaches = new FakeCacheStorage()
+  vi.stubGlobal('caches', fakeCaches)
+  vi.stubGlobal('fetch', vi.fn(async () => new Response(new Uint8Array([1, 2, 3]).buffer, { status: 200 })))
+  vi.mocked(attachmentsCache.cacheAttachment).mockClear()
+})
+afterEach(() => { vi.unstubAllGlobals() })
+
+/** Fake-clock milliseconds a hook's initial load needs, IndexedDB outbox read included. */
+const LOAD_MS = 50
+
+/** Pretend the phone lost signal for the duration of one test. */
+function goOffline() {
+  Object.defineProperty(navigator, 'onLine', { value: false, configurable: true })
+}
+
+afterEach(() => {
+  Object.defineProperty(navigator, 'onLine', { value: true, configurable: true })
+})
 
 type Row = Record<string, unknown>
 type Res<T> = { data: T | null; error: { message: string } | null }
@@ -303,7 +358,9 @@ test('useDayNotes: setNote is optimistic and upserts once after the 800 ms debou
   try {
     const { client, calls } = makeFakeClient()
     const { result } = renderHook(() => useDayNotes('valle', '2026-11-02', client))
-    await act(async () => { await vi.advanceTimersByTimeAsync(0) })
+    // The initial load now also reads the outbox from IndexedDB, which needs a few
+    // ticks of the fake clock before `loading` can go false.
+    await act(async () => { await vi.advanceTimersByTimeAsync(LOAD_MS) })
     expect(result.current.loading).toBe(false)
 
     act(() => { result.current.setNote('a') })
@@ -376,7 +433,9 @@ test('useDayNotes: setNote upserts only text, never saved_places', async () => {
       dayNotes: [{ trip: 'valle', date: '2026-11-02', text: '', saved_places: [{ id: 'p1', name: 'A', lat: 1, lng: 2, saved_at: 'x' }] }],
     })
     const { result } = renderHook(() => useDayNotes('valle', '2026-11-02', client))
-    await act(async () => { await vi.advanceTimersByTimeAsync(0) })
+    // The initial load now also reads the outbox from IndexedDB, which needs a few
+    // ticks of the fake clock before `loading` can go false.
+    await act(async () => { await vi.advanceTimersByTimeAsync(LOAD_MS) })
 
     act(() => { result.current.setNote('ferry at 9') })
     await act(async () => { await vi.advanceTimersByTimeAsync(800) })
@@ -394,7 +453,7 @@ test('useDayNotes: unmounting with a pending note flushes it instead of dropping
   try {
     const { client, calls } = makeFakeClient()
     const { result, unmount } = renderHook(() => useDayNotes('valle', '2026-11-02', client))
-    await act(async () => { await vi.advanceTimersByTimeAsync(0) })
+    await act(async () => { await vi.advanceTimersByTimeAsync(LOAD_MS) })
 
     act(() => { result.current.setNote('half typed') })
     expect(calls.filter(c => c.table === 'day_notes' && c.mode === 'upsert')).toHaveLength(0)
@@ -416,10 +475,10 @@ test('useDayNotes: changing the date flushes the previous day’s pending note o
     const { result, rerender } = renderHook(({ date }) => useDayNotes('valle', date, client), {
       initialProps: { date: '2026-11-02' },
     })
-    await act(async () => { await vi.advanceTimersByTimeAsync(0) })
+    await act(async () => { await vi.advanceTimersByTimeAsync(LOAD_MS) })
 
     act(() => { result.current.setNote('monday note') })
-    await act(async () => { rerender({ date: '2026-11-03' }); await vi.advanceTimersByTimeAsync(0) })
+    await act(async () => { rerender({ date: '2026-11-03' }); await vi.advanceTimersByTimeAsync(LOAD_MS) })
 
     const upserts = calls.filter(c => c.table === 'day_notes' && c.mode === 'upsert')
     expect(upserts).toHaveLength(1)
@@ -448,9 +507,10 @@ test('useDayNotes: a savePlace that fails mid-load lets the pending select apply
   })
   expect(result.current.savedPlaces).toEqual([])
 
-  await act(async () => { release(); await Promise.resolve() })
+  // The load also reads the outbox before it applies anything, so wait for it to land.
+  act(() => { release() })
+  await waitFor(() => expect(result.current.savedPlaces).toEqual([serverPlace]))
 
-  expect(result.current.savedPlaces).toEqual([serverPlace])
   expect(warn).toHaveBeenCalled()
   warn.mockRestore()
 })
@@ -464,10 +524,10 @@ test('useDayNotes: an unsent note survives the load while server places still la
   expect(result.current.loading).toBe(true)
 
   act(() => { result.current.setNote('draft') })
-  await act(async () => { release(); await Promise.resolve() })
+  act(() => { release() })
+  await waitFor(() => expect(result.current.savedPlaces).toEqual([serverPlace]))
 
   expect(result.current.note).toBe('draft')
-  expect(result.current.savedPlaces).toEqual([serverPlace])
 })
 
 test('useDayNotes: an empty date is not a query — it keeps the empty state and stops loading', async () => {
@@ -536,4 +596,712 @@ test('useDayNotes: changing the day clears the previous day’s places before th
   await act(async () => { release!() })
   await waitFor(() => expect(result.current.loading).toBe(false))
   expect(result.current.savedPlaces.map(p => p.id)).toEqual(['p2'])
+})
+
+// ---- offline writes go to the outbox ---------------------------------------
+
+test('useChecks: an offline toggle enqueues, keeps the tick and never calls the client', async () => {
+  const { client, calls } = makeFakeClient()
+  const { result } = renderHook(() => useChecks('valle', client))
+  await waitFor(() => expect(result.current.loading).toBe(false))
+  const before = calls.length
+
+  goOffline()
+  let outcome: { queued: boolean } | undefined
+  await act(async () => { outcome = await result.current.toggle('valle/T01') })
+
+  expect(outcome).toEqual({ queued: true })
+  expect(result.current.done.has('valle/T01')).toBe(true)
+  expect(calls.length).toBe(before)
+
+  const ops = await listOutbox()
+  expect(ops).toHaveLength(1)
+  expect(ops[0].kind).toBe('check_set')
+  expect(ops[0].key).toBe('check:valle/T01')
+  expect(ops[0].payload as CheckSetPayload).toEqual({ itemId: 'valle/T01', done: true })
+})
+
+test('useChecks: a network TypeError from the client enqueues instead of reverting', async () => {
+  const calls: string[] = []
+  const client = {
+    from: () => {
+      const q: Record<string, unknown> = {
+        select: () => q, like: () => q, eq: () => q, delete: () => q,
+        insert: () => { calls.push('insert'); throw new TypeError('Failed to fetch') },
+        then: (resolve: (r: { data: unknown[]; error: null }) => void) => resolve({ data: [], error: null }),
+      }
+      return q
+    },
+  } as unknown as SupabaseClient
+
+  const { result } = renderHook(() => useChecks('valle', client))
+  await waitFor(() => expect(result.current.loading).toBe(false))
+
+  let outcome: { queued: boolean } | undefined
+  await act(async () => { outcome = await result.current.toggle('valle/T01') })
+
+  expect(calls).toEqual(['insert'])
+  expect(outcome).toEqual({ queued: true })
+  expect(result.current.done.has('valle/T01')).toBe(true)
+  expect((await listOutbox()).map(o => o.kind)).toEqual(['check_set'])
+})
+
+test('useChecks: a non-network error still reverts, rejects and queues nothing', async () => {
+  const { client } = makeFakeClient({ failInsert: true })
+  const { result } = renderHook(() => useChecks('valle', client))
+  await waitFor(() => expect(result.current.loading).toBe(false))
+
+  const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+  await act(async () => { await expect(result.current.toggle('valle/T01')).rejects.toThrow() })
+  warn.mockRestore()
+
+  expect(result.current.done.has('valle/T01')).toBe(false)
+  expect(await listOutbox()).toHaveLength(0)
+})
+
+test('useChecks: a fresh mount overlays a pending tick the server has not seen', async () => {
+  goOffline()
+  const first = makeFakeClient()
+  const { result, unmount } = renderHook(() => useChecks('valle', first.client))
+  await waitFor(() => expect(result.current.loading).toBe(false))
+  await act(async () => { await result.current.toggle('valle/T01') })
+  unmount()
+
+  // A second mount whose fetch returns nothing: the tick has to come back off the outbox.
+  const second = makeFakeClient()
+  const { result: reloaded } = renderHook(() => useChecks('valle', second.client))
+  await waitFor(() => expect(reloaded.current.loading).toBe(false))
+  await waitFor(() => expect(reloaded.current.done.has('valle/T01')).toBe(true))
+})
+
+test('useChecks: a pending untick hides a row the server still has', async () => {
+  await enqueue({ key: 'check:valle/T01', kind: 'check_set', payload: { itemId: 'valle/T01', done: false } })
+  const { client } = makeFakeClient({ itemChecks: [{ item_id: 'valle/T01' }] })
+  const { result } = renderHook(() => useChecks('valle', client))
+  await waitFor(() => expect(result.current.loading).toBe(false))
+  expect(result.current.done.has('valle/T01')).toBe(false)
+})
+
+test('useBookingState: an offline save enqueues booking_state and keeps the optimistic row', async () => {
+  const { client, calls } = makeFakeClient()
+  const { result } = renderHook(() => useBookingState('valle', client))
+  await waitFor(() => expect(result.current.loading).toBe(false))
+  const before = calls.length
+
+  goOffline()
+  let outcome: { queued: boolean } | undefined
+  await act(async () => { outcome = await result.current.save('T01', { status: 'booked', cost: 12.5 }) })
+
+  expect(outcome).toEqual({ queued: true })
+  expect(calls.length).toBe(before)
+  expect(result.current.state.T01.status).toBe('booked')
+
+  const ops = await listOutbox()
+  expect(ops).toHaveLength(1)
+  expect(ops[0].kind).toBe('booking_state')
+  expect(ops[0].key).toBe('booking:valle:T01')
+  expect(ops[0].payload).toMatchObject({ trip: 'valle', booking_id: 'T01', status: 'booked', cost: 12.5 })
+})
+
+test('useBookingState: a fresh mount merges a pending save over the server row', async () => {
+  await enqueue({
+    key: 'booking:valle:T01',
+    kind: 'booking_state',
+    payload: { trip: 'valle', booking_id: 'T01', status: 'confirmed', updated_at: '2026-09-15T00:00:00.000Z' },
+  })
+  const { client } = makeFakeClient({
+    bookingState: [{ trip: 'valle', booking_id: 'T01', status: 'booked', cost: 9, confirmation_ref: 'ABC', currency: 'EUR', notes: null, updated_at: '2026-09-01T00:00:00.000Z' }],
+  })
+  const { result } = renderHook(() => useBookingState('valle', client))
+  await waitFor(() => expect(result.current.loading).toBe(false))
+  expect(result.current.state.T01.status).toBe('confirmed')
+  // Fields the pending op did not touch still come from the server.
+  expect(result.current.state.T01.confirmation_ref).toBe('ABC')
+})
+
+test('useAttachments: an offline upload enqueues the blob and shows a pending row', async () => {
+  const { client, storageCalls } = makeFakeClient()
+  const { result } = renderHook(() => useAttachments('valle', 'T01', 'owner-1', client))
+  await waitFor(() => expect(result.current.loading).toBe(false))
+
+  goOffline()
+  const file = new File([new Uint8Array(1024)], 'ticket.pdf', { type: 'application/pdf' })
+  let outcome: { queued: boolean } | undefined
+  await act(async () => { outcome = await result.current.upload(file) })
+
+  expect(outcome).toEqual({ queued: true })
+  expect(storageCalls.length).toBe(0)
+  expect(result.current.list).toHaveLength(1)
+  expect(result.current.list[0].pendingUpload).toBe(true)
+  expect(result.current.list[0].filename).toBe('ticket.pdf')
+
+  const ops = await listOutbox()
+  expect(ops).toHaveLength(1)
+  expect(ops[0].kind).toBe('attachment_upload')
+  const payload = ops[0].payload as AttachmentUploadPayload
+  expect(payload.blob).toBeInstanceOf(Blob)
+  expect(await payload.blob.text()).toHaveLength(1024)
+  expect(payload.path).toMatch(/^owner-1\/valle\/T01\/\d+-ticket\.pdf$/)
+  expect(ops[0].key).toBe(payload.path)
+})
+
+test('useAttachments: a fresh mount lists a queued upload, and remove drops the op', async () => {
+  const blob = new Blob([new Uint8Array(4)], { type: 'application/pdf' })
+  await enqueue({
+    key: 'owner-1/valle/T01/1-queued.pdf',
+    kind: 'attachment_upload',
+    payload: { trip: 'valle', bookingId: 'T01', ownerId: 'owner-1', path: 'owner-1/valle/T01/1-queued.pdf', filename: 'queued.pdf', mime: 'application/pdf', size: 4, blob },
+  })
+  const { client } = makeFakeClient()
+  const { result } = renderHook(() => useAttachments('valle', 'T01', 'owner-1', client))
+  await waitFor(() => expect(result.current.loading).toBe(false))
+  await waitFor(() => expect(result.current.list).toHaveLength(1))
+  expect(result.current.list[0].pendingUpload).toBe(true)
+  expect(result.current.list[0].id).toBe('pending:owner-1/valle/T01/1-queued.pdf')
+
+  await act(async () => { await result.current.remove(result.current.list[0]) })
+  expect(result.current.list).toHaveLength(0)
+  expect(await listOutbox()).toHaveLength(0)
+})
+
+test('useDayNotes: an offline savePlace enqueues day_notes with the saved_places patch', async () => {
+  const { client, calls } = makeFakeClient()
+  const { result } = renderHook(() => useDayNotes('valle', '2026-11-02', client))
+  await waitFor(() => expect(result.current.loading).toBe(false))
+  const before = calls.length
+
+  goOffline()
+  const place: SavedPlace = { id: 'p1', name: 'Bar Uno', lat: 1, lng: 2, saved_at: '2026-11-02T08:00:00.000Z' }
+  let outcome: { queued: boolean } | undefined
+  await act(async () => { outcome = await result.current.savePlace(place) })
+
+  expect(outcome).toEqual({ queued: true })
+  expect(calls.length).toBe(before)
+  expect(result.current.savedPlaces.map(p => p.id)).toEqual(['p1'])
+
+  const ops = await listOutbox()
+  expect(ops).toHaveLength(1)
+  expect(ops[0].kind).toBe('day_notes')
+  expect(ops[0].key).toBe('notes:valle:2026-11-02:saved_places')
+  const payload = ops[0].payload as DayNotesPayload
+  expect(payload.trip).toBe('valle')
+  expect(payload.date).toBe('2026-11-02')
+  expect(payload.patch.saved_places).toEqual([place])
+})
+
+test('useDayNotes: a fresh mount overlays a pending note and pending places', async () => {
+  await enqueue({ key: 'notes:valle:2026-11-02:text', kind: 'day_notes', payload: { trip: 'valle', date: '2026-11-02', patch: { text: 'queued note' } } })
+  await enqueue({ key: 'notes:valle:2026-11-02:saved_places', kind: 'day_notes', payload: { trip: 'valle', date: '2026-11-02', patch: { saved_places: [{ id: 'p9', name: 'Queued', lat: 1, lng: 2, saved_at: '2026-11-02T09:00:00.000Z' }] } } })
+  const { client } = makeFakeClient({ dayNotes: [{ trip: 'valle', date: '2026-11-02', text: 'server note', saved_places: [], updated_at: '2026-09-01T00:00:00.000Z' }] })
+  const { result } = renderHook(() => useDayNotes('valle', '2026-11-02', client))
+  await waitFor(() => expect(result.current.loading).toBe(false))
+  expect(result.current.note).toBe('queued note')
+  expect(result.current.savedPlaces.map(p => p.id)).toEqual(['p9'])
+})
+
+// ---- a failed read is when the overlay matters most ------------------------
+
+/**
+ * A client whose every request fails the way an offline `fetch` does. Reads matter here;
+ * writes are recorded so a test can prove none were attempted.
+ */
+// Hold the returned client in a const: a fresh one per render changes the hooks'
+// effect dependency every render and spins forever.
+function makeOfflineReadClient(seen: string[] = []) {
+  const client = {
+    from() {
+      let mode = 'select'
+      const q: Record<string, unknown> = {
+        select() { return q },
+        order() { return q },
+        eq() { return q },
+        like() { return q },
+        single() { return q },
+        insert() { mode = 'insert'; return q },
+        delete() { mode = 'delete'; return q },
+        upsert() { mode = 'upsert'; return q },
+        then(resolve: (r: Res<unknown>) => void) {
+          seen.push(mode)
+          resolve({ data: null, error: { message: 'TypeError: Failed to fetch' } })
+        },
+      }
+      return q
+    },
+    storage: { from: () => makeStorageBucket([]) },
+  }
+  return client as unknown as SupabaseClient
+}
+
+test('useChecks: a failed read still shows the pending tick', async () => {
+  await enqueue({ key: 'check:valle/T01', kind: 'check_set', payload: { itemId: 'valle/T01', done: true } })
+  const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+  const client = makeOfflineReadClient()
+  const { result } = renderHook(() => useChecks('valle', client))
+  await waitFor(() => expect(result.current.loading).toBe(false))
+  expect(result.current.done.has('valle/T01')).toBe(true)
+  warn.mockRestore()
+})
+
+test('useBookingState: a failed read still shows the pending booking edit', async () => {
+  await enqueue({
+    key: 'booking:valle:T01',
+    kind: 'booking_state',
+    payload: { trip: 'valle', booking_id: 'T01', status: 'booked', updated_at: '2026-09-15T00:00:00.000Z' },
+  })
+  const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+  const client = makeOfflineReadClient()
+  const { result } = renderHook(() => useBookingState('valle', client))
+  await waitFor(() => expect(result.current.loading).toBe(false))
+  expect(result.current.state.T01?.status).toBe('booked')
+  warn.mockRestore()
+})
+
+test('useDayNotes: a failed read still shows the pending saved place', async () => {
+  const place = { id: 'p1', name: 'Bar Uno', lat: 1, lng: 2, saved_at: '2026-11-02T08:00:00.000Z' }
+  await enqueue({
+    key: 'notes:valle:2026-11-02:saved_places',
+    kind: 'day_notes',
+    payload: { trip: 'valle', date: '2026-11-02', patch: { saved_places: [place] } },
+  })
+  const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+  const client = makeOfflineReadClient()
+  const { result } = renderHook(() => useDayNotes('valle', '2026-11-02', client))
+  await waitFor(() => expect(result.current.loading).toBe(false))
+  expect(result.current.savedPlaces.map(p => p.id)).toEqual(['p1'])
+  warn.mockRestore()
+})
+
+test('useAttachments: a failed read still lists the queued upload', async () => {
+  const blob = new Blob([new Uint8Array(4)], { type: 'application/pdf' })
+  await enqueue({
+    key: 'owner-1/valle/T01/1-queued.pdf',
+    kind: 'attachment_upload',
+    payload: { trip: 'valle', bookingId: 'T01', ownerId: 'owner-1', path: 'owner-1/valle/T01/1-queued.pdf', filename: 'queued.pdf', mime: 'application/pdf', size: 4, blob },
+  })
+  const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+  const client = makeOfflineReadClient()
+  const { result } = renderHook(() => useAttachments('valle', 'T01', 'owner-1', client))
+  await waitFor(() => expect(result.current.loading).toBe(false))
+  await waitFor(() => expect(result.current.list).toHaveLength(1))
+  expect(result.current.list[0].pendingUpload).toBe(true)
+  warn.mockRestore()
+})
+
+// ---- a live write supersedes what is queued under the same key -------------
+
+test('useChecks: a successful online untick drops the stale queued tick for that item', async () => {
+  await enqueue({ key: 'check:valle/T01', kind: 'check_set', payload: { itemId: 'valle/T01', done: true } })
+  const { client, calls } = makeFakeClient({ itemChecks: [{ item_id: 'valle/T01' }] })
+  const { result } = renderHook(() => useChecks('valle', client))
+  await waitFor(() => expect(result.current.loading).toBe(false))
+  expect(result.current.done.has('valle/T01')).toBe(true)
+
+  await act(async () => { await result.current.toggle('valle/T01') })
+
+  expect(result.current.done.has('valle/T01')).toBe(false)
+  // Without superseding, the queued done:true would be flushed straight back in.
+  await waitFor(async () => expect(await listOutbox()).toHaveLength(0))
+  expect(calls.filter(c => c.table === 'item_checks' && c.mode === 'insert')).toHaveLength(0)
+})
+
+// ---- blob URLs are not leaked ---------------------------------------------
+
+test('useAttachments: removing a pending row revokes the blob URL it handed out', async () => {
+  if (!URL.createObjectURL) Object.defineProperty(URL, 'createObjectURL', { value: () => '', configurable: true, writable: true })
+  if (!URL.revokeObjectURL) Object.defineProperty(URL, 'revokeObjectURL', { value: () => {}, configurable: true, writable: true })
+  const create = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:queued')
+  const revoke = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {})
+  try {
+    const blob = new Blob([new Uint8Array(4)], { type: 'application/pdf' })
+    await enqueue({
+      key: 'owner-1/valle/T01/1-queued.pdf',
+      kind: 'attachment_upload',
+      payload: { trip: 'valle', bookingId: 'T01', ownerId: 'owner-1', path: 'owner-1/valle/T01/1-queued.pdf', filename: 'queued.pdf', mime: 'application/pdf', size: 4, blob },
+    })
+    const { client } = makeFakeClient()
+    const { result } = renderHook(() => useAttachments('valle', 'T01', 'owner-1', client))
+    await waitFor(() => expect(result.current.list).toHaveLength(1))
+
+    // The same row asked for twice hands back one URL, not two.
+    let first = ''
+    await act(async () => { first = await result.current.url(result.current.list[0]) })
+    await act(async () => { await result.current.url(result.current.list[0]) })
+    expect(first).toBe('blob:queued')
+    expect(create).toHaveBeenCalledTimes(1)
+    expect(revoke).not.toHaveBeenCalled()
+
+    await act(async () => { await result.current.remove(result.current.list[0]) })
+    expect(revoke).toHaveBeenCalledWith('blob:queued')
+  } finally {
+    create.mockRestore()
+    revoke.mockRestore()
+  }
+})
+
+// ---- a broken outbox must not wedge the screen -----------------------------
+
+test('useChecks: a rejected outbox read stops loading instead of wedging on “Loading…”', async () => {
+  const spy = vi.spyOn(outbox, 'listOutbox').mockRejectedValue(new Error('IndexedDB is gone'))
+  const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+  try {
+    const { client } = makeFakeClient()
+    const { result } = renderHook(() => useChecks('valle', client))
+    await waitFor(() => expect(result.current.loading).toBe(false))
+    expect(warn).toHaveBeenCalled()
+  } finally {
+    warn.mockRestore()
+    spy.mockRestore()
+  }
+})
+
+test('useBookingState: a save made while the read is still in flight survives it', async () => {
+  let release!: () => void
+  const gate = new Promise<void>(resolve => { release = resolve })
+  const upserts: unknown[] = []
+  const client = {
+    from() {
+      let mode = 'select'
+      let payload: unknown
+      const q: Record<string, unknown> = {
+        select() { return q },
+        eq() { return q },
+        upsert(p: unknown) { mode = 'upsert'; payload = p; return q },
+        then(resolve: (r: Res<unknown>) => void) {
+          if (mode === 'upsert') { upserts.push(payload); resolve({ data: null, error: null }); return }
+          void gate.then(() => resolve({ data: [], error: null }))
+        },
+      }
+      return q
+    },
+  } as unknown as SupabaseClient
+
+  const { result } = renderHook(() => useBookingState('valle', client))
+  expect(result.current.loading).toBe(true)
+
+  await act(async () => { await result.current.save('T01', { status: 'booked' }) })
+  expect(result.current.state.T01.status).toBe('booked')
+
+  act(() => { release() })
+  await waitFor(() => expect(result.current.loading).toBe(false))
+  expect(upserts).toHaveLength(1)
+  // The empty server response must not wipe the save that overtook it.
+  expect(result.current.state.T01?.status).toBe('booked')
+})
+
+test('useChecks: a toggle made while the read is still in flight survives it', async () => {
+  let release!: () => void
+  const gate = new Promise<void>(resolve => { release = resolve })
+  const client = {
+    from() {
+      let mode = 'select'
+      const q: Record<string, unknown> = {
+        select() { return q },
+        like() { return q },
+        eq() { return q },
+        insert() { mode = 'insert'; return q },
+        delete() { mode = 'delete'; return q },
+        then(resolve: (r: Res<unknown>) => void) {
+          if (mode !== 'select') { resolve({ data: null, error: null }); return }
+          void gate.then(() => resolve({ data: [], error: null }))
+        },
+      }
+      return q
+    },
+  } as unknown as SupabaseClient
+
+  const { result } = renderHook(() => useChecks('valle', client))
+  await act(async () => { await result.current.toggle('valle/T01') })
+  expect(result.current.done.has('valle/T01')).toBe(true)
+
+  act(() => { release() })
+  await waitFor(() => expect(result.current.loading).toBe(false))
+  expect(result.current.done.has('valle/T01')).toBe(true)
+})
+
+// ---- attachments are cached for offline use --------------------------------
+
+test('useAttachments: an online load prefetches every listed row into the offline cache', async () => {
+  const { client, storageCalls } = makeFakeClient({
+    attachments: [
+      { id: 'r1', trip: 'valle', booking_id: 'T01', storage_path: 'owner-1/valle/T01/1-a.pdf', filename: 'a.pdf', mime: 'application/pdf', size: 10, uploaded_at: '2026-01-01T00:00:00.000Z' },
+      { id: 'r2', trip: 'valle', booking_id: 'T01', storage_path: 'owner-1/valle/T01/2-b.pdf', filename: 'b.pdf', mime: 'application/pdf', size: 10, uploaded_at: '2026-01-02T00:00:00.000Z' },
+    ],
+  })
+  const { result } = renderHook(() => useAttachments('valle', 'T01', 'owner-1', client))
+  await waitFor(() => expect(result.current.loading).toBe(false))
+
+  await waitFor(() => expect(attachmentsCache.cacheAttachment).toHaveBeenCalledTimes(2))
+  expect(attachmentsCache.cacheAttachment).toHaveBeenCalledWith('r1', 'https://signed.example/owner-1/valle/T01/1-a.pdf')
+  expect(attachmentsCache.cacheAttachment).toHaveBeenCalledWith('r2', 'https://signed.example/owner-1/valle/T01/2-b.pdf')
+  await waitFor(() => expect(result.current.cached.has('r1')).toBe(true))
+  expect(result.current.cached.has('r2')).toBe(true)
+  expect(storageCalls.filter(c => c.op === 'createSignedUrl')).toHaveLength(2)
+})
+
+test('useAttachments: prefetch skips a row already in the cache', async () => {
+  const rowId = 'r1'
+  await attachmentsCache.cacheAttachment(rowId, 'https://signed.example/pre-cached')
+  vi.mocked(attachmentsCache.cacheAttachment).mockClear()
+
+  const { client } = makeFakeClient({
+    attachments: [
+      { id: 'r1', trip: 'valle', booking_id: 'T01', storage_path: 'owner-1/valle/T01/1-a.pdf', filename: 'a.pdf', mime: 'application/pdf', size: 10, uploaded_at: '2026-01-01T00:00:00.000Z' },
+      { id: 'r2', trip: 'valle', booking_id: 'T01', storage_path: 'owner-1/valle/T01/2-b.pdf', filename: 'b.pdf', mime: 'application/pdf', size: 10, uploaded_at: '2026-01-02T00:00:00.000Z' },
+    ],
+  })
+  const { result } = renderHook(() => useAttachments('valle', 'T01', 'owner-1', client))
+  await waitFor(() => expect(result.current.loading).toBe(false))
+
+  await waitFor(() => expect(result.current.cached.has('r2')).toBe(true))
+  expect(result.current.cached.has('r1')).toBe(true)
+  expect(attachmentsCache.cacheAttachment).toHaveBeenCalledTimes(1)
+  expect(attachmentsCache.cacheAttachment).toHaveBeenCalledWith('r2', expect.any(String))
+})
+
+test('useAttachments: offline url() serves the cached blob and never calls createSignedUrl again', async () => {
+  if (!URL.createObjectURL) Object.defineProperty(URL, 'createObjectURL', { value: () => '', configurable: true, writable: true })
+  if (!URL.revokeObjectURL) Object.defineProperty(URL, 'revokeObjectURL', { value: () => {}, configurable: true, writable: true })
+  const create = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:cached')
+  try {
+    const { client, storageCalls } = makeFakeClient({
+      attachments: [
+        { id: 'r1', trip: 'valle', booking_id: 'T01', storage_path: 'owner-1/valle/T01/1-a.pdf', filename: 'a.pdf', mime: 'application/pdf', size: 10, uploaded_at: '2026-01-01T00:00:00.000Z' },
+      ],
+    })
+    const { result } = renderHook(() => useAttachments('valle', 'T01', 'owner-1', client))
+    await waitFor(() => expect(result.current.loading).toBe(false))
+    await waitFor(() => expect(result.current.cached.has('r1')).toBe(true))
+    const signedCallsAfterPrefetch = storageCalls.filter(c => c.op === 'createSignedUrl').length
+    expect(signedCallsAfterPrefetch).toBe(1)
+
+    goOffline()
+    let got = ''
+    await act(async () => { got = await result.current.url(result.current.list[0]) })
+
+    expect(got).toBe('blob:cached')
+    expect(storageCalls.filter(c => c.op === 'createSignedUrl')).toHaveLength(signedCallsAfterPrefetch)
+  } finally {
+    create.mockRestore()
+  }
+})
+
+test('useAttachments: an upload that lands while the initial read is in flight survives it', async () => {
+  let release!: () => void
+  const gate = new Promise<void>(resolve => { release = resolve })
+  const client = {
+    from(table: string) {
+      if (table !== 'attachments') throw new Error(`unexpected table ${table}`)
+      let mode: 'select' | 'insert' = 'select'
+      let payload: Record<string, unknown> = {}
+      let single = false
+      const q: Record<string, unknown> = {
+        select() { return q },
+        eq() { return q },
+        order() { return q },
+        insert(p: Record<string, unknown>) { mode = 'insert'; payload = p; return q },
+        single() { single = true; return q },
+        then(resolve: (r: { data: unknown; error: unknown }) => void) {
+          if (mode === 'insert') {
+            const row = { id: 'fake-1', trip: 'valle', booking_id: 'T01', uploaded_at: '2026-01-01T00:00:00.000Z', ...payload }
+            resolve({ data: single ? row : [row], error: null })
+            return
+          }
+          void gate.then(() => resolve({ data: [], error: null }))
+        },
+      }
+      return q
+    },
+    storage: {
+      from: () => ({
+        async upload(path: string) { return { data: { path }, error: null } },
+        async createSignedUrl(path: string) { return { data: { signedUrl: `https://signed.example/${path}` }, error: null } },
+      }),
+    },
+  } as unknown as SupabaseClient
+
+  const { result } = renderHook(() => useAttachments('valle', 'T01', 'owner-1', client))
+  expect(result.current.loading).toBe(true)
+
+  const file = new File([new Uint8Array(4)], 'ticket.pdf', { type: 'application/pdf' })
+  await act(async () => { await result.current.upload(file) })
+  expect(result.current.list).toHaveLength(1)
+  expect(result.current.list[0].filename).toBe('ticket.pdf')
+
+  act(() => { release() })
+  await waitFor(() => expect(result.current.loading).toBe(false))
+  // The empty server response — captured before the insert landed — must not drop the
+  // upload that overtook it.
+  expect(result.current.list).toHaveLength(1)
+  expect(result.current.list[0].filename).toBe('ticket.pdf')
+})
+
+test('useAttachments: remove() also evicts the offline cache entry', async () => {
+  const { client } = makeFakeClient({
+    attachments: [
+      { id: 'r1', trip: 'valle', booking_id: 'T01', storage_path: 'owner-1/valle/T01/1-a.pdf', filename: 'a.pdf', mime: 'application/pdf', size: 10, uploaded_at: '2026-01-01T00:00:00.000Z' },
+    ],
+  })
+  const { result } = renderHook(() => useAttachments('valle', 'T01', 'owner-1', client))
+  await waitFor(() => expect(result.current.loading).toBe(false))
+  await waitFor(() => expect(result.current.cached.has('r1')).toBe(true))
+  expect(await attachmentsCache.hasCachedAttachment('r1')).toBe(true)
+
+  await act(async () => { await result.current.remove(result.current.list[0]) })
+
+  expect(await attachmentsCache.hasCachedAttachment('r1')).toBe(false)
+  expect(result.current.cached.has('r1')).toBe(false)
+})
+
+// ---- settle only clears intent the write superseded (fix C1) ---------------
+
+/** A client whose writes hang on `gate`, so a test can queue an op mid-round-trip. */
+function gatedChecksClient(gate: Promise<void>): SupabaseClient {
+  return {
+    from() {
+      let mode = 'select'
+      const q: Record<string, unknown> = {
+        select() { return q },
+        order() { return q },
+        like() { return q },
+        eq() { return q },
+        insert() { mode = 'insert'; return q },
+        delete() { mode = 'delete'; return q },
+        then(resolve: (r: Res<unknown>) => void) {
+          if (mode === 'select') { resolve({ data: [], error: null }); return }
+          void gate.then(() => resolve({ data: null, error: null }))
+        },
+      }
+      return q
+    },
+    storage: { from: () => ({}) },
+  } as unknown as SupabaseClient
+}
+
+test('settle drops the op the landed write superseded', async () => {
+  const { client } = makeFakeClient()
+  const { result } = renderHook(() => useChecks('valle', client))
+  await waitFor(() => expect(result.current.loading).toBe(false))
+
+  // Queued before the write started, so the server has already moved past it. nextAt is
+  // parked in the future so settle's fire-and-forget flush cannot be what removes it.
+  const older = await enqueue({ key: 'check:valle/T01', kind: 'check_set', payload: { itemId: 'valle/T01', done: true } })
+  await outbox.updateOp(older.id, { createdAt: Date.now() - 60_000, nextAt: Date.now() + 60_000 })
+
+  await act(async () => { await result.current.toggle('valle/T01') })
+
+  expect(await listOutbox()).toHaveLength(0)
+})
+
+test('settle keeps an op the owner queued while the write was still in flight', async () => {
+  let release!: () => void
+  const gate = new Promise<void>(resolve => { release = resolve })
+  // Built once: a fresh client per render would re-fire the hook's load effect forever.
+  const client = gatedChecksClient(gate)
+  const { result } = renderHook(() => useChecks('valle', client))
+  await waitFor(() => expect(result.current.loading).toBe(false))
+
+  await act(async () => {
+    const inFlight = result.current.toggle('valle/T01')
+    // The owner unticks it again before the first write comes back. `createdAt` is pushed
+    // past the write's `startedAt` explicitly: same millisecond would be a coin toss.
+    const newer = await enqueue({ key: 'check:valle/T01', kind: 'check_set', payload: { itemId: 'valle/T01', done: false } })
+    await outbox.updateOp(newer.id, { createdAt: Date.now() + 1000, nextAt: Date.now() + 60_000 })
+    release()
+    await inFlight
+  })
+
+  const left = await listOutbox()
+  expect(left).toHaveLength(1)
+  expect((left[0].payload as CheckSetPayload).done).toBe(false)
+})
+
+// ---- a duplicate storage_path is success, not a failure (fix I2) -----------
+
+test('useAttachments: a 23505 on insert adopts the row that is already there', async () => {
+  const stored = {
+    id: 'att-existing', trip: 'valle', booking_id: 'B1', filename: 'ticket.pdf',
+    mime: 'application/pdf', size: 3, uploaded_at: '2026-01-01T00:00:00.000Z',
+  }
+  let inserts = 0
+  const client = {
+    from() {
+      let mode = 'select'
+      const filters: Array<[string, unknown]> = []
+      const q: Record<string, unknown> = {
+        select() { return q },
+        order() { return q },
+        single() { return q },
+        eq(col: string, val: unknown) { filters.push([col, val]); return q },
+        insert() { mode = 'insert'; return q },
+        then(resolve: (r: Res<unknown>) => void) {
+          if (mode === 'insert') {
+            inserts += 1
+            resolve({ data: null, error: { message: 'duplicate key value violates unique constraint "attachments_storage_path_key"', code: '23505' } as never })
+            return
+          }
+          const path = filters.find(([c]) => c === 'storage_path')?.[1]
+          resolve(path ? { data: { ...stored, storage_path: path }, error: null } : { data: [], error: null })
+        },
+      }
+      return q
+    },
+    storage: {
+      from: () => ({
+        async upload(path: string) { return { data: { path }, error: null } },
+        async createSignedUrl(path: string) { return { data: { signedUrl: `https://signed.example/${path}` }, error: null } },
+      }),
+    },
+  } as unknown as SupabaseClient
+
+  const { result } = renderHook(() => useAttachments('valle', 'B1', 'owner-1', client))
+  await waitFor(() => expect(result.current.loading).toBe(false))
+
+  const file = new File([new Uint8Array([1, 2, 3])], 'ticket.pdf', { type: 'application/pdf' })
+  let outcome: { queued: boolean } | undefined
+  await act(async () => { outcome = await result.current.upload(file) })
+
+  expect(inserts).toBe(1)
+  expect(outcome).toEqual({ queued: false })
+  expect(result.current.error).toBeNull()
+  expect(result.current.list).toHaveLength(1)
+  expect(result.current.list[0].id).toBe('att-existing')
+})
+
+test('useBookingState: an empty trip reads nothing and stops loading', async () => {
+  const { client, calls } = makeFakeClient()
+  const { result } = renderHook(() => useBookingState('', client))
+
+  await waitFor(() => expect(result.current.loading).toBe(false))
+  expect(calls).toEqual([])
+  expect(result.current.state).toEqual({})
+})
+
+test('useAttachments: a live upload lets the ticket warm pass run again for that trip', async () => {
+  const { client } = makeFakeClient()
+  let warmSelects = 0
+  const warmClient = {
+    from() {
+      const q: Record<string, unknown> = {
+        select() { return q },
+        eq() { return q },
+        then(resolve: (r: Res<unknown>) => void) { warmSelects += 1; resolve({ data: [], error: null }) },
+      }
+      return q
+    },
+    storage: { from: () => ({}) },
+  } as unknown as SupabaseClient
+
+  resetWarmForTests()
+  await warmTripAttachments('valle', warmClient, fakeCaches as unknown as CacheStorage)
+  await warmTripAttachments('valle', warmClient, fakeCaches as unknown as CacheStorage)
+  // Once per trip per session, until something changes what the trip holds.
+  expect(warmSelects).toBe(1)
+
+  const { result } = renderHook(() => useAttachments('valle', 'B1', 'owner-1', client))
+  await waitFor(() => expect(result.current.loading).toBe(false))
+  const file = new File([new Uint8Array([1, 2, 3])], 'ticket.pdf', { type: 'application/pdf' })
+  await act(async () => { await result.current.upload(file) })
+
+  await warmTripAttachments('valle', warmClient, fakeCaches as unknown as CacheStorage)
+  expect(warmSelects).toBe(2)
 })

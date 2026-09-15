@@ -12,17 +12,19 @@ import { printReport } from './report'
 import { ImportError } from './md'
 
 const pexec = promisify(execFile)
-const USAGE = 'usage: npm run import -- <city> [--dry-run] [--skip-maps] [--maxzoom N]'
-const ALLOWED_FLAGS = new Set(['--dry-run', '--skip-maps', '--maxzoom'])
+const USAGE = 'usage: npm run import -- <city> [--dry-run] [--skip-maps] [--maxzoom N] [--split-areas]'
+const ALLOWED_FLAGS = new Set(['--dry-run', '--skip-maps', '--maxzoom', '--split-areas'])
 
-export function parseFlags(flags: string[]): { dryRun: boolean; skipMaps: boolean; maxzoom: number } {
+export function parseFlags(flags: string[]): { dryRun: boolean; skipMaps: boolean; maxzoom: number; splitAreas: boolean } {
   let dryRun = false
   let skipMaps = false
-  let maxzoom = 16
+  let maxzoom = 15
+  let splitAreas = false
   for (let i = 0; i < flags.length; i++) {
     const f = flags[i]
     if (f === '--dry-run') { dryRun = true; continue }
     if (f === '--skip-maps') { skipMaps = true; continue }
+    if (f === '--split-areas') { splitAreas = true; continue }
     if (f === '--maxzoom') {
       const v = flags[++i]
       if (v === undefined || !/^\d+$/.test(v)) throw new Error('--maxzoom requires a numeric value')
@@ -31,15 +33,15 @@ export function parseFlags(flags: string[]): { dryRun: boolean; skipMaps: boolea
     }
     if (!ALLOWED_FLAGS.has(f)) throw new Error(`unknown flag: ${f}`)
   }
-  return { dryRun, skipMaps, maxzoom }
+  return { dryRun, skipMaps, maxzoom, splitAreas }
 }
 
 async function main() {
   const [slug, ...flags] = process.argv.slice(2)
   if (!slug) { console.error(USAGE); process.exit(2) }
-  let dryRun: boolean, skipMaps: boolean, maxzoom: number
+  let dryRun: boolean, skipMaps: boolean, maxzoom: number, splitAreas: boolean
   try {
-    ({ dryRun, skipMaps, maxzoom } = parseFlags(flags))
+    ({ dryRun, skipMaps, maxzoom, splitAreas } = parseFlags(flags))
   } catch (e) {
     console.error((e as Error).message); console.error(USAGE); process.exit(2)
   }
@@ -59,7 +61,7 @@ async function main() {
     catch (e) { warnings.push(`polyline ${leg.route_id}#${leg.seq}: ${(e as Error).message}`) }
   }
   if (!skipMaps && !dryRun) {
-    content.areas = await buildOfflineAreas(slug, content, { buildUrl: env.protomapsBuildUrl, outDir: `.cache/pmtiles`, maxzoom, upload: supabaseUploader(client) })
+    content.areas = await buildOfflineAreas(slug, content, { buildUrl: env.protomapsBuildUrl, outDir: `.cache/pmtiles`, maxzoom, splitAreas, upload: supabaseUploader(client) })
   } else if (skipMaps && !dryRun) {
     const { data, error } = await client.from('offline_areas').select('*').eq('trip', slug)
     if (error) throw new Error(`offline_areas fetch: ${error.message}`)

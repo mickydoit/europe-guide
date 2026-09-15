@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useRef, useState } from 'react'
 import { useParams, useNavigate, Navigate, Link } from 'react-router-dom'
 import { useTrip } from '../lib/trip'
-import { useChecks, useDayNotes } from '../lib/state'
+import { useChecks, useDayNotes, QUEUED_COPY } from '../lib/state'
 import { currentAndNext, currentBlock, dayIndex, fmtDay, nowInTz, todayInTrip } from '../lib/time'
 import { TripPicker } from '../components/TripPicker'
 import { NowNext } from '../components/NowNext'
@@ -9,13 +9,14 @@ import { RouteStrip } from '../components/RouteStrip'
 import { StopCard } from '../components/StopCard'
 import { WeatherStrip } from '../components/WeatherStrip'
 import { Md } from '../components/Md'
+import { SyncBadge } from '../components/SyncBadge'
 import { walkLink } from '../lib/links'
 import type { Block, ItemRow } from '../lib/types'
 
 const BLOCK_KEYS: Block[] = ['morning', 'midday', 'evening', null]
 const BLOCK_LABEL: Record<string, string> = { morning: 'Morning', midday: 'Midday', evening: 'Evening' }
 const NOW_TICK_MS = 30_000
-const TICK_ERROR_MS = 4_000
+const TICK_MSG_MS = 4_000
 
 export function Day() {
   const { date: dateParam } = useParams<{ date?: string }>()
@@ -26,23 +27,38 @@ export function Day() {
   // useDayNotes skips the query until both halves of the key are real.
   const { savedPlaces, loading: notesLoading, removePlace } = useDayNotes(content?.trip.slug ?? '', dateParam ?? '')
   const [now, setNow] = useState(() => new Date())
-  const [tickError, setTickError] = useState<string | null>(null)
-  const tickErrorTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const [tickMsg, setTickMsg] = useState<{ text: string; tone: 'error' | 'queued' } | null>(null)
+  const tickMsgTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
     const id = setInterval(() => setNow(new Date()), NOW_TICK_MS)
     return () => clearInterval(id)
   }, [])
 
-  useEffect(() => () => { if (tickErrorTimer.current) clearTimeout(tickErrorTimer.current) }, [])
+  useEffect(() => () => { if (tickMsgTimer.current) clearTimeout(tickMsgTimer.current) }, [])
+
+  function flashTick(text: string, tone: 'error' | 'queued') {
+    setTickMsg({ text, tone })
+    if (tickMsgTimer.current) clearTimeout(tickMsgTimer.current)
+    tickMsgTimer.current = setTimeout(() => setTickMsg(null), TICK_MSG_MS)
+  }
+
+  async function handleRemovePlace(id: string) {
+    try {
+      const result = await removePlace(id)
+      if (result?.queued) flashTick(QUEUED_COPY, 'queued')
+    } catch {
+      flashTick("Couldn't save — you may be offline", 'error')
+    }
+  }
 
   async function handleToggle(itemId: string) {
     try {
-      await toggle(itemId)
+      // Queued is not a failure: the tick is already on screen and the outbox owns the rest.
+      const result = await toggle(itemId)
+      if (result?.queued) flashTick(QUEUED_COPY, 'queued')
     } catch {
-      setTickError("Couldn't save — you may be offline")
-      if (tickErrorTimer.current) clearTimeout(tickErrorTimer.current)
-      tickErrorTimer.current = setTimeout(() => setTickError(null), TICK_ERROR_MS)
+      flashTick("Couldn't save — you may be offline", 'error')
     }
   }
 
@@ -148,6 +164,7 @@ export function Day() {
         >
           ›
         </button>
+        <SyncBadge />
         <Link to={`/map/${date}`} className="btn--text day-header__map">Map</Link>
         {today && !isToday && (
           <button type="button" className="btn--text day-nav__today" onClick={() => navigate(`/day/${today}`)}>
@@ -174,7 +191,7 @@ export function Day() {
                     type="button"
                     className="saved-places__remove"
                     aria-label={`Remove ${p.name}`}
-                    onClick={() => { void removePlace(p.id).catch(() => {}) }}
+                    onClick={() => { void handleRemovePlace(p.id) }}
                   >
                     ×
                   </button>
@@ -187,7 +204,7 @@ export function Day() {
 
       {isToday && <NowNext current={current} next={next} minutesToNext={minutesToNext} />}
 
-      {tickError && <p className="form__msg form__msg--error">{tickError}</p>}
+      {tickMsg && <p className={`form__msg form__msg--${tickMsg.tone}`}>{tickMsg.text}</p>}
 
       {blocks.map((g, gi) => (
         <Fragment key={g.block ?? 'none'}>

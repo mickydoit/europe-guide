@@ -47,10 +47,11 @@ test('buildStyle points every non-background layer at one of the given source id
   }
 })
 
-test('buildStyle sets absolute glyph and sprite URLs (MapLibre rejects relative ones)', () => {
+test('buildStyle sets absolute glyph and sprite URLs (MapLibre rejects relative ones), derived from BASE_URL', () => {
   const style = buildStyle(sources)
-  expect(style.glyphs).toMatch(/^https?:\/\/[^/]+\/europe-guide\/map\/fonts\/\{fontstack\}\/\{range\}\.pbf$/)
-  expect(style.sprite).toMatch(/^https?:\/\/[^/]+\/europe-guide\/map\/sprites\/v4\/dark$/)
+  const base = (import.meta.env.BASE_URL ?? '/').replace(/\/$/, '')
+  expect(style.glyphs).toBe(`${location.origin}${base}/map/fonts/{fontstack}/{range}.pbf`)
+  expect(style.sprite).toBe(`${location.origin}${base}/map/sprites/v4/dark`)
   expect(GLYPHS).toBe(style.glyphs)
   expect(SPRITE).toBe(style.sprite)
 })

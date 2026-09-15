@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { cachedMapStatus, deleteCityMaps, defaultSigner, downloadCityMaps, type Signer } from '../lib/offlineMaps'
 import type { OfflineAreaRow } from '../lib/types'
 
-interface Status { downloaded: number; total: number; bytes: number }
+interface Status { downloaded: number; total: number; bytes: number; stale: boolean }
 
 // What we last saw fully downloaded. iOS evicts the Cache API without telling anyone, so
 // a remembered total that no longer matches the cache is the only signal that the map
@@ -103,9 +103,12 @@ export function OfflineMapCard({ trip, areas, signer = defaultSigner, cacheStora
   const anyDownloaded = status.downloaded > 0
   const evicted = remembered !== null && status.total > 0
     && remembered === status.total && status.downloaded < status.total
+  // Re-cut tiles: what is saved is a different map than the one on the server, so the
+  // offer is an Update even when every area is present.
+  const stale = status.stale
   const primaryLabel = downloading
     ? `Downloading ${progress?.done ?? 0} of ${progress?.total ?? status.total}…`
-    : allDownloaded ? 'Update' : 'Download'
+    : allDownloaded || stale ? 'Update' : 'Download'
 
   return (
     <div className="offline-map-card">
@@ -113,6 +116,7 @@ export function OfflineMapCard({ trip, areas, signer = defaultSigner, cacheStora
         Offline map — {status.downloaded} of {status.total} areas · {(status.bytes / (1024 * 1024)).toFixed(1)} of {totalMb} MB
       </p>
       {evicted && <p className="caption">Map data was cleared by iOS — re-download</p>}
+      {stale && <p className="caption">Update needed — map data changed</p>}
       <div className="offline-map-card__actions">
         <button
           type="button"

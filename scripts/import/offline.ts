@@ -50,6 +50,8 @@ export async function buildOfflineAreas(
     buildUrl: string
     outDir: string
     maxzoom?: number
+    /** Keep the old per-cluster extraction behaviour instead of one merged extract per city. */
+    splitAreas?: boolean
     exec?: (cmd: string, args: string[]) => Promise<void>
     upload?: (local: string, remote: string) => Promise<number>
     statImpl?: (p: string) => Promise<{ size: number }>
@@ -86,12 +88,25 @@ export async function buildOfflineAreas(
   const clusters = clusterPoints(pts)
   const rows: OfflineAreaRow[] = []
 
-  for (const [seq, cl] of clusters.entries()) {
-    const cx = cl.reduce((s, p) => s + p.lat, 0) / cl.length
-    const cy = cl.reduce((s, p) => s + p.lng, 0) / cl.length
-    const named = cl.filter(p => p.name).sort((a, b) => haversineKm(a, { lat: cx, lng: cy }) - haversineKm(b, { lat: cx, lng: cy }))
-    const name = named[0]?.name ?? `Area ${seq + 1}`
-    const bbox = bboxOf(cl)
+  const areas: { seq: number; name: string; bbox: ReturnType<typeof bboxOf> }[] = opts.splitAreas
+    ? clusters.map((cl, seq) => {
+        const cx = cl.reduce((s, p) => s + p.lat, 0) / cl.length
+        const cy = cl.reduce((s, p) => s + p.lng, 0) / cl.length
+        const named = cl.filter(p => p.name).sort((a, b) => haversineKm(a, { lat: cx, lng: cy }) - haversineKm(b, { lat: cx, lng: cy }))
+        return { seq, name: named[0]?.name ?? `Area ${seq + 1}`, bbox: bboxOf(cl) }
+      })
+    : clusters.length === 0
+      ? []
+      : [{
+          seq: 0,
+          name: c.trip.name,
+          bbox: clusters.map(cl => bboxOf(cl, 400)).reduce((acc, b) => ({
+            min_lng: Math.min(acc.min_lng, b.min_lng), min_lat: Math.min(acc.min_lat, b.min_lat),
+            max_lng: Math.max(acc.max_lng, b.max_lng), max_lat: Math.max(acc.max_lat, b.max_lat),
+          })),
+        }]
+
+  for (const { seq, name, bbox } of areas) {
     const pmtilesPath = `${trip}/${seq}.pmtiles`
     const local = `${opts.outDir}/${trip}-${seq}.pmtiles`
 
@@ -100,7 +115,7 @@ export async function buildOfflineAreas(
       opts.buildUrl,
       local,
       `--bbox=${bbox.min_lng},${bbox.min_lat},${bbox.max_lng},${bbox.max_lat}`,
-      `--maxzoom=${opts.maxzoom ?? 16}`,
+      `--maxzoom=${opts.maxzoom ?? 15}`,
     ])
 
     const fileStat = await doStat(local).catch(() => null)
@@ -109,6 +124,7 @@ export async function buildOfflineAreas(
     }
 
     const size_bytes = await upload(local, pmtilesPath)
+    console.log(`  offline map: ${name} — ${(size_bytes / 1_048_576).toFixed(1)} MB`)
 
     rows.push({ trip, seq, name, ...bbox, pmtiles_path: pmtilesPath,
       built_at: new Date().toISOString(), size_bytes })
