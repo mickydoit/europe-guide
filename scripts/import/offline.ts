@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
-import { readFile, mkdir } from 'node:fs/promises'
+import { readFile, mkdir, stat } from 'node:fs/promises'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { CityContent, OfflineAreaRow } from './types'
 
@@ -52,11 +52,13 @@ export async function buildOfflineAreas(
     maxzoom?: number
     exec?: (cmd: string, args: string[]) => Promise<void>
     upload?: (local: string, remote: string) => Promise<number>
+    statImpl?: (p: string) => Promise<{ size: number }>
   }
 ): Promise<OfflineAreaRow[]> {
   const exec = opts.exec ?? (async (cmd: string, args: string[]) => { await pexec(cmd, args) })
   if (!opts.upload) throw new Error('upload required')
   const upload = opts.upload
+  const doStat = opts.statImpl ?? stat
 
   const pts: NamedPoint[] = []
   for (const it of c.items) if (it.lat != null && it.lng != null) pts.push({ lat: it.lat, lng: it.lng, name: it.place_name })
@@ -87,6 +89,12 @@ export async function buildOfflineAreas(
       `--bbox=${bbox.min_lng},${bbox.min_lat},${bbox.max_lng},${bbox.max_lat}`,
       `--maxzoom=${opts.maxzoom ?? 16}`,
     ])
+
+    const fileStat = await doStat(local).catch(() => null)
+    if (!fileStat || fileStat.size === 0) {
+      throw new Error(`pmtiles extract produced no file for ${trip} area ${seq} (${local})`)
+    }
+
     const size_bytes = await upload(local, pmtilesPath)
 
     rows.push({ trip, seq, name, ...bbox, pmtiles_path: pmtilesPath, size_bytes })
@@ -97,7 +105,11 @@ export async function buildOfflineAreas(
 
 export function supabaseUploader(client: SupabaseClient) {
   return async (local: string, remote: string) => {
-    const buf = await readFile(local).catch(() => Buffer.alloc(0))
+    const buf = await readFile(local).catch((err: NodeJS.ErrnoException) => {
+      if (err.code === 'ENOENT') throw new Error(`offline map file missing: ${local}`)
+      throw err
+    })
+    if (buf.length === 0) throw new Error(`offline map file is empty: ${local}`)
     const { error } = await client.storage.from('maps').upload(remote, buf, { upsert: true, contentType: 'application/octet-stream' })
     if (error) throw new Error(`upload ${remote}: ${error.message}`)
     return buf.length
