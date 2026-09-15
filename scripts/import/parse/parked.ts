@@ -1,5 +1,5 @@
 import { tokenize, ImportError } from '../md'
-import { extractPlace } from './itinerary'
+import { extractPlace } from '../places'
 import type { ParkedRow } from '../types'
 export function parseParked(file: string, src: string, ctx: { trip: string }): ParkedRow[] {
   const nodes = tokenize(src); const t = nodes.find(n => n.kind === 'table')

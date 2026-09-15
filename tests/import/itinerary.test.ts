@@ -44,3 +44,13 @@ test('unknown H1 heading fails', () => {
   const bad = readFileSync('tests/fixtures/broken/bad-heading.md', 'utf8')
   expect(() => parseItinerary('bad-heading.md', bad, ctx)).toThrow(/day heading/)
 })
+test('options table must be shaped [Place, Address, ...] or it is an unknown table shape', () => {
+  const src = '# Valle, 1 – 3 November 2026\n\n# Sunday 1 November — arrival\n\n| Time | Plan | Details |\n|---|---|---|\n| 09:00 | **A** | — |\n\n| Place | Notes |\n|---|---|\n| **B** | some notes |\n'
+  expect(() => parseItinerary('opts.md', src, ctx)).toThrow(ImportError)
+  expect(() => parseItinerary('opts.md', src, ctx)).toThrow(/unknown table shape/)
+})
+test('a trip-title H1 must contain a comma and a 4-digit year, or parsing fails', () => {
+  const src = '# Wed 30 Sept — x\n\nsome para\n\n# Monday 2 November — real\n\n| Time | Plan |\n|---|---|\n| 09:00 | **A** |\n'
+  expect(() => parseItinerary('x.md', src, ctx)).toThrow(ImportError)
+  expect(() => parseItinerary('x.md', src, ctx)).toThrow(/not a day heading/)
+})

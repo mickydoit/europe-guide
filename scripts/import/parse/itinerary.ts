@@ -1,5 +1,6 @@
 import { tokenize, ImportError, type Node } from '../md'
 import { itemId } from '../ids'
+import { extractPlace } from '../places'
 import type { DayRow, ItemRow, Block } from '../types'
 
 const WEEKDAYS = 'Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday'
@@ -24,14 +25,6 @@ export function parseTime(cell: string) {
   return { time: `${String(h).padStart(2, '0')}:${m[3]}`, text: c, approx: !!m[1] }
 }
 
-export function extractPlace(plan: string): { place_name: string | null; address: string | null } {
-  const m = plan.match(/\*\*([^*]+)\*\*(?:,\s*([^—]+?))?(?=\s*(?:—|$))/)
-  if (!m) return { place_name: null, address: null }
-  const name = m[1].replace(/\s*[—-]\s*(BOOKED|booked)$/, '').trim()
-  if (/^(Book|Tell the guide|Option|Alternatives|Or stay|Confirm|Check|Pick one|Walk to|Early start|Long day)/i.test(name)) return { place_name: null, address: null }
-  return { place_name: name, address: m[2]?.trim() || null }
-}
-
 const BLOCKS: Record<string, Block> = { Morning: 'morning', Midday: 'midday', Evening: 'evening' }
 
 export function parseItinerary(file: string, src: string, ctx: { trip: string; year: number }) {
@@ -50,7 +43,7 @@ export function parseItinerary(file: string, src: string, ctx: { trip: string; y
     if (n.kind === 'hr') continue
     if (n.kind === 'heading' && n.level === 1) {
       const d = (() => { try { return parseDayHeading(n.text, ctx.year) } catch (e) { return fail(n, (e as Error).message) } })()
-      if (!d) { if (!sawTrip && days.length === 0) { sawTrip = true; continue } fail(n, `not a day heading: "${n.text}"`) }
+      if (!d) { if (!sawTrip && days.length === 0 && /,.*\b\d{4}\b/.test(n.text)) { sawTrip = true; continue } fail(n, `not a day heading: "${n.text}"`) }
       day = { trip: ctx.trip, date: d!.date, title: d!.title, status: d!.status, intro: null }
       days.push(day); block = null; seq = 0; lastStop = null; lastPick = null; continue
     }
@@ -69,7 +62,7 @@ export function parseItinerary(file: string, src: string, ctx: { trip: string; y
           lastStop = push({ kind: 'stop', time: t.time, time_text: t.text, approx: t.approx, parent_item: null, plan: r[1], details: r[2] ?? null, place_name, address, lat: null, lng: null, url: null, route_id: null })
           if (/pick one|options? below|choose one/i.test(`${r[1]} ${r[2] ?? ''}`)) lastPick = lastStop
         }
-      } else if (h[0] === 'place') {
+      } else if (h[0] === 'place' && h[1] === 'address') {
         const parent = lastPick ?? lastStop
         if (!parent) fail(n, 'options table with no preceding stop')
         for (const r of n.rows) {
