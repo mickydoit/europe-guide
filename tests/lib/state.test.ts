@@ -1,6 +1,7 @@
 import { renderHook, act, waitFor } from '@testing-library/react'
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { useChecks, useBookingState, useAttachments } from '../../src/lib/state'
+import { useChecks, useBookingState, useAttachments, useDayNotes } from '../../src/lib/state'
+import type { SavedPlace } from '../../src/lib/state'
 
 type Row = Record<string, unknown>
 type Res<T> = { data: T | null; error: { message: string } | null }
@@ -81,7 +82,9 @@ function makeFakeClient(config: {
   itemChecks?: Row[]
   bookingState?: Row[]
   attachments?: Row[]
+  dayNotes?: Row[]
   failInsert?: boolean
+  failUpsert?: boolean
   failUpload?: boolean
 } = {}) {
   const calls: Call[] = []
@@ -92,6 +95,9 @@ function makeFakeClient(config: {
     }),
     booking_state: makeTable('booking_state', config.bookingState ?? [], calls, {}),
     attachments: makeTable('attachments', config.attachments ?? [], calls, {}),
+    day_notes: makeTable('day_notes', config.dayNotes ?? [], calls, {
+      onUpsert: config.failUpsert ? () => ({ data: null, error: { message: 'upsert failed' } }) : undefined,
+    }),
   }
   const bucket = makeStorageBucket(storageCalls, { failUpload: config.failUpload })
   const client = {
@@ -216,4 +222,318 @@ test('useAttachments: url returns a signed url and remove deletes storage object
 
   const deleteCall = calls.find(c => c.table === 'attachments' && c.mode === 'delete')
   expect(deleteCall?.filters).toEqual([['id', attachment.id]])
+})
+
+test('useDayNotes: loads the existing row for (trip, date)', async () => {
+  const { client } = makeFakeClient({
+    dayNotes: [
+      { trip: 'valle', date: '2026-11-02', text: 'ferry at 9', saved_places: [{ id: 'p1', name: 'Bar Uno', lat: 1, lng: 2, saved_at: '2026-11-02T08:00:00.000Z' }] },
+      { trip: 'valle', date: '2026-11-03', text: 'other day', saved_places: [] },
+    ],
+  })
+  const { result } = renderHook(() => useDayNotes('valle', '2026-11-02', client))
+  await waitFor(() => expect(result.current.loading).toBe(false))
+  expect(result.current.note).toBe('ferry at 9')
+  expect(result.current.savedPlaces.map(p => p.id)).toEqual(['p1'])
+})
+
+test('useDayNotes: savePlace upserts an array containing the new place', async () => {
+  const { client, calls } = makeFakeClient()
+  const { result } = renderHook(() => useDayNotes('valle', '2026-11-02', client))
+  await waitFor(() => expect(result.current.loading).toBe(false))
+
+  const place: SavedPlace = { id: 'p9', name: 'Pasticceria', lat: 38.7, lng: -9.1, saved_at: '2026-11-02T10:00:00.000Z' }
+  await act(async () => { await result.current.savePlace(place) })
+
+  const upsertCall = calls.find(c => c.table === 'day_notes' && c.mode === 'upsert')
+  expect(upsertCall?.upsertOpts).toEqual({ onConflict: 'trip,date' })
+  const payload = upsertCall?.payload as { trip: string; date: string; saved_places: SavedPlace[] }
+  expect(payload.trip).toBe('valle')
+  expect(payload.date).toBe('2026-11-02')
+  expect(payload.saved_places).toEqual([place])
+  expect(result.current.savedPlaces).toEqual([place])
+})
+
+test('useDayNotes: savePlace is idempotent for an id already saved', async () => {
+  const existing = { id: 'p1', name: 'Bar Uno', lat: 1, lng: 2, saved_at: '2026-11-02T08:00:00.000Z' }
+  const { client, calls } = makeFakeClient({
+    dayNotes: [{ trip: 'valle', date: '2026-11-02', text: '', saved_places: [existing] }],
+  })
+  const { result } = renderHook(() => useDayNotes('valle', '2026-11-02', client))
+  await waitFor(() => expect(result.current.loading).toBe(false))
+
+  await act(async () => { await result.current.savePlace({ ...existing, saved_at: 'later' }) })
+
+  expect(calls.filter(c => c.table === 'day_notes' && c.mode === 'upsert')).toHaveLength(0)
+  expect(result.current.savedPlaces).toEqual([existing])
+})
+
+test('useDayNotes: removePlace upserts the remaining array', async () => {
+  const a = { id: 'p1', name: 'A', lat: 1, lng: 2, saved_at: 'x' }
+  const b = { id: 'p2', name: 'B', lat: 3, lng: 4, saved_at: 'y' }
+  const { client, calls } = makeFakeClient({
+    dayNotes: [{ trip: 'valle', date: '2026-11-02', text: '', saved_places: [a, b] }],
+  })
+  const { result } = renderHook(() => useDayNotes('valle', '2026-11-02', client))
+  await waitFor(() => expect(result.current.loading).toBe(false))
+
+  await act(async () => { await result.current.removePlace('p1') })
+
+  const upsertCall = calls.find(c => c.table === 'day_notes' && c.mode === 'upsert')
+  expect((upsertCall?.payload as { saved_places: SavedPlace[] }).saved_places).toEqual([b])
+  expect(result.current.savedPlaces).toEqual([b])
+})
+
+test('useDayNotes: a failing savePlace reverts the optimistic list and rejects', async () => {
+  const { client } = makeFakeClient({ failUpsert: true })
+  const { result } = renderHook(() => useDayNotes('valle', '2026-11-02', client))
+  await waitFor(() => expect(result.current.loading).toBe(false))
+
+  const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+  await act(async () => {
+    await expect(result.current.savePlace({ id: 'p9', name: 'X', lat: 0, lng: 0, saved_at: 'z' })).rejects.toThrow()
+  })
+  expect(result.current.savedPlaces).toEqual([])
+  expect(warn).toHaveBeenCalled()
+  warn.mockRestore()
+})
+
+test('useDayNotes: setNote is optimistic and upserts once after the 800 ms debounce', async () => {
+  vi.useFakeTimers()
+  try {
+    const { client, calls } = makeFakeClient()
+    const { result } = renderHook(() => useDayNotes('valle', '2026-11-02', client))
+    await act(async () => { await vi.advanceTimersByTimeAsync(0) })
+    expect(result.current.loading).toBe(false)
+
+    act(() => { result.current.setNote('a') })
+    act(() => { result.current.setNote('ab') })
+    expect(result.current.note).toBe('ab')
+    expect(calls.filter(c => c.table === 'day_notes' && c.mode === 'upsert')).toHaveLength(0)
+
+    await act(async () => { await vi.advanceTimersByTimeAsync(800) })
+
+    const upserts = calls.filter(c => c.table === 'day_notes' && c.mode === 'upsert')
+    expect(upserts).toHaveLength(1)
+    expect((upserts[0].payload as { text: string }).text).toBe('ab')
+  } finally {
+    vi.useRealTimers()
+  }
+})
+
+// A client whose day_notes SELECT stays pending until released, so a write can be
+// observed while the hook is still loading.
+function makeSlowDayNotesClient(existing: Row, opts: { failUpsert?: boolean } = {}) {
+  const upserts: Record<string, unknown>[] = []
+  let release!: () => void
+  const gate = new Promise<void>(resolve => { release = resolve })
+  const client = {
+    from() {
+      let mode: 'select' | 'upsert' = 'select'
+      let payload: Record<string, unknown> | undefined
+      const q: Record<string, unknown> = {
+        select() { return q },
+        eq() { return q },
+        upsert(p: Record<string, unknown>) { mode = 'upsert'; payload = p; return q },
+        then(resolve: (r: Res<unknown>) => void) {
+          if (mode === 'upsert') {
+            upserts.push(payload!)
+            resolve(opts.failUpsert ? { data: null, error: { message: 'upsert failed' } } : { data: null, error: null })
+            return
+          }
+          void gate.then(() => resolve({ data: [existing], error: null }))
+        },
+      }
+      return q
+    },
+  }
+  return { client: client as unknown as SupabaseClient, upserts, release }
+}
+
+test('useDayNotes: savePlace before the initial load resolves never sends text', async () => {
+  const { client, upserts, release } = makeSlowDayNotesClient({
+    trip: 'valle', date: '2026-11-02', text: 'do not clobber me', saved_places: [],
+  })
+  const { result } = renderHook(() => useDayNotes('valle', '2026-11-02', client))
+  expect(result.current.loading).toBe(true)
+
+  const place: SavedPlace = { id: 'p9', name: 'Pasticceria', lat: 1, lng: 2, saved_at: 'now' }
+  await act(async () => { await result.current.savePlace(place) })
+
+  expect(upserts).toHaveLength(1)
+  expect(upserts[0]).not.toHaveProperty('text')
+  expect(upserts[0].saved_places).toEqual([place])
+
+  // The late load must not overwrite the edit the user already made.
+  await act(async () => { release(); await Promise.resolve() })
+  expect(result.current.savedPlaces).toEqual([place])
+})
+
+test('useDayNotes: setNote upserts only text, never saved_places', async () => {
+  vi.useFakeTimers()
+  try {
+    const { client, calls } = makeFakeClient({
+      dayNotes: [{ trip: 'valle', date: '2026-11-02', text: '', saved_places: [{ id: 'p1', name: 'A', lat: 1, lng: 2, saved_at: 'x' }] }],
+    })
+    const { result } = renderHook(() => useDayNotes('valle', '2026-11-02', client))
+    await act(async () => { await vi.advanceTimersByTimeAsync(0) })
+
+    act(() => { result.current.setNote('ferry at 9') })
+    await act(async () => { await vi.advanceTimersByTimeAsync(800) })
+
+    const upsert = calls.find(c => c.table === 'day_notes' && c.mode === 'upsert')!
+    expect(upsert.payload).not.toHaveProperty('saved_places')
+    expect((upsert.payload as { text: string }).text).toBe('ferry at 9')
+  } finally {
+    vi.useRealTimers()
+  }
+})
+
+test('useDayNotes: unmounting with a pending note flushes it instead of dropping it', async () => {
+  vi.useFakeTimers()
+  try {
+    const { client, calls } = makeFakeClient()
+    const { result, unmount } = renderHook(() => useDayNotes('valle', '2026-11-02', client))
+    await act(async () => { await vi.advanceTimersByTimeAsync(0) })
+
+    act(() => { result.current.setNote('half typed') })
+    expect(calls.filter(c => c.table === 'day_notes' && c.mode === 'upsert')).toHaveLength(0)
+
+    await act(async () => { unmount(); await vi.advanceTimersByTimeAsync(0) })
+
+    const upserts = calls.filter(c => c.table === 'day_notes' && c.mode === 'upsert')
+    expect(upserts).toHaveLength(1)
+    expect((upserts[0].payload as { text: string }).text).toBe('half typed')
+  } finally {
+    vi.useRealTimers()
+  }
+})
+
+test('useDayNotes: changing the date flushes the previous day’s pending note once', async () => {
+  vi.useFakeTimers()
+  try {
+    const { client, calls } = makeFakeClient()
+    const { result, rerender } = renderHook(({ date }) => useDayNotes('valle', date, client), {
+      initialProps: { date: '2026-11-02' },
+    })
+    await act(async () => { await vi.advanceTimersByTimeAsync(0) })
+
+    act(() => { result.current.setNote('monday note') })
+    await act(async () => { rerender({ date: '2026-11-03' }); await vi.advanceTimersByTimeAsync(0) })
+
+    const upserts = calls.filter(c => c.table === 'day_notes' && c.mode === 'upsert')
+    expect(upserts).toHaveLength(1)
+    expect(upserts[0].payload).toMatchObject({ date: '2026-11-02', text: 'monday note' })
+
+    // The flushed timer must not fire a second time.
+    await act(async () => { await vi.advanceTimersByTimeAsync(800) })
+    expect(calls.filter(c => c.table === 'day_notes' && c.mode === 'upsert')).toHaveLength(1)
+  } finally {
+    vi.useRealTimers()
+  }
+})
+
+test('useDayNotes: a savePlace that fails mid-load lets the pending select apply server places', async () => {
+  const serverPlace = { id: 'server-1', name: 'From the server', lat: 5, lng: 6, saved_at: 's' }
+  const { client, release } = makeSlowDayNotesClient(
+    { trip: 'valle', date: '2026-11-02', text: 'server note', saved_places: [serverPlace] },
+    { failUpsert: true },
+  )
+  const { result } = renderHook(() => useDayNotes('valle', '2026-11-02', client))
+  expect(result.current.loading).toBe(true)
+
+  const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+  await act(async () => {
+    await expect(result.current.savePlace({ id: 'p9', name: 'X', lat: 1, lng: 2, saved_at: 'now' })).rejects.toThrow()
+  })
+  expect(result.current.savedPlaces).toEqual([])
+
+  await act(async () => { release(); await Promise.resolve() })
+
+  expect(result.current.savedPlaces).toEqual([serverPlace])
+  expect(warn).toHaveBeenCalled()
+  warn.mockRestore()
+})
+
+test('useDayNotes: an unsent note survives the load while server places still land', async () => {
+  const serverPlace = { id: 'server-1', name: 'From the server', lat: 5, lng: 6, saved_at: 's' }
+  const { client, release } = makeSlowDayNotesClient({
+    trip: 'valle', date: '2026-11-02', text: 'server', saved_places: [serverPlace],
+  })
+  const { result } = renderHook(() => useDayNotes('valle', '2026-11-02', client))
+  expect(result.current.loading).toBe(true)
+
+  act(() => { result.current.setNote('draft') })
+  await act(async () => { release(); await Promise.resolve() })
+
+  expect(result.current.note).toBe('draft')
+  expect(result.current.savedPlaces).toEqual([serverPlace])
+})
+
+test('useDayNotes: an empty date is not a query — it keeps the empty state and stops loading', async () => {
+  const { client, calls } = makeFakeClient({
+    dayNotes: [{ trip: 'valle', date: '2026-11-02', text: 'ferry at 9', saved_places: [] }],
+  })
+  const { result } = renderHook(() => useDayNotes('valle', '', client))
+
+  await waitFor(() => expect(result.current.loading).toBe(false))
+  expect(calls.filter(c => c.table === 'day_notes')).toEqual([])
+  expect(result.current.note).toBe('')
+  expect(result.current.savedPlaces).toEqual([])
+})
+
+test('useDayNotes: an empty trip is not a query either', async () => {
+  const { client, calls } = makeFakeClient()
+  const { result } = renderHook(() => useDayNotes('', '2026-11-02', client))
+
+  await waitFor(() => expect(result.current.loading).toBe(false))
+  expect(calls.filter(c => c.table === 'day_notes')).toEqual([])
+})
+
+test('useDayNotes: changing the day clears the previous day’s places before the new load lands', async () => {
+  const byDate: Record<string, SavedPlace[]> = {
+    '2026-11-02': [{ id: 'p1', name: 'Bar Uno', lat: 1, lng: 2, saved_at: '2026-11-02T08:00:00.000Z' }],
+    '2026-11-03': [{ id: 'p2', name: 'Bar Due', lat: 3, lng: 4, saved_at: '2026-11-03T08:00:00.000Z' }],
+  }
+  let release: (() => void) | null = null
+  // Hand-rolled so the second day's load can be held open: the point of the test is the
+  // window between the key changing and the new row arriving.
+  const client = {
+    from: () => {
+      let date = ''
+      const q: Record<string, unknown> = {
+        select: () => q,
+        eq: (col: string, val: unknown) => { if (col === 'date') date = String(val); return q },
+        then: (resolve: (r: { data: unknown[]; error: null }) => void) => {
+          const payload = {
+            data: [{ trip: 'valle', date, text: `note ${date}`, saved_places: byDate[date] ?? [] }],
+            error: null,
+          }
+          if (date === '2026-11-03') { release = () => resolve(payload); return }
+          resolve(payload)
+        },
+      }
+      return q
+    },
+  } as unknown as SupabaseClient
+
+  const { result, rerender } = renderHook(({ date }) => useDayNotes('valle', date, client), {
+    initialProps: { date: '2026-11-02' },
+  })
+  await waitFor(() => expect(result.current.loading).toBe(false))
+  expect(result.current.savedPlaces.map(p => p.id)).toEqual(['p1'])
+
+  rerender({ date: '2026-11-03' })
+
+  // The new load has not resolved yet — yesterday's chips must already be gone.
+  expect(result.current.loading).toBe(true)
+  expect(result.current.savedPlaces).toEqual([])
+  expect(result.current.note).toBe('')
+
+  // `await thenable` reaches .then on a microtask, so the query only starts after the
+  // clear above — which is the point. Let it start, then let it land.
+  await waitFor(() => expect(release).not.toBeNull())
+  await act(async () => { release!() })
+  await waitFor(() => expect(result.current.loading).toBe(false))
+  expect(result.current.savedPlaces.map(p => p.id)).toEqual(['p2'])
 })

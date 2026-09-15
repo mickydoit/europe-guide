@@ -1,15 +1,25 @@
-import { render, screen, fireEvent, within, act } from '@testing-library/react'
+import { render, screen, fireEvent, within, act, waitFor } from '@testing-library/react'
 import { MemoryRouter, Routes, Route } from 'react-router-dom'
 import { vi, beforeEach, afterEach } from 'vitest'
 import { TripProvider } from '../../src/lib/trip'
 import { loadValle } from '../helpers/content'
 import type { CityContent, ItemRow } from '../../src/lib/types'
+import type { SavedPlace } from '../../src/lib/state'
 
-const { toggle, useChecksMock } = vi.hoisted(() => {
+const { toggle, useChecksMock, removePlace, useDayNotesMock } = vi.hoisted(() => {
   const toggle = vi.fn()
-  return { toggle, useChecksMock: vi.fn(() => ({ done: new Set<string>(), loading: false, toggle })) }
+  const removePlace = vi.fn()
+  return {
+    toggle,
+    removePlace,
+    useChecksMock: vi.fn(() => ({ done: new Set<string>(), loading: false, toggle })),
+    useDayNotesMock: vi.fn(() => ({
+      note: '', savedPlaces: [] as SavedPlace[], loading: false,
+      setNote: vi.fn(), savePlace: vi.fn(), removePlace,
+    })),
+  }
 })
-vi.mock('../../src/lib/state', () => ({ useChecks: useChecksMock }))
+vi.mock('../../src/lib/state', () => ({ useChecks: useChecksMock, useDayNotes: useDayNotesMock }))
 
 import { Day } from '../../src/screens/Day'
 
@@ -32,6 +42,11 @@ let content: CityContent
 beforeEach(async () => {
   content = await loadValle()
   useChecksMock.mockReturnValue({ done: new Set<string>(), loading: false, toggle })
+  removePlace.mockReset()
+  removePlace.mockResolvedValue(undefined)
+  useDayNotesMock.mockReturnValue({
+    note: '', savedPlaces: [], loading: false, setNote: vi.fn(), savePlace: vi.fn(), removePlace,
+  })
 })
 
 afterEach(() => {
@@ -120,4 +135,46 @@ test('the live banner updates the countdown 30s at a time', async () => {
   expect(screen.getByText('in 15 min', { exact: false })).toBeInTheDocument()
   act(() => { vi.advanceTimersByTime(60_000) })
   expect(screen.getByText('in 14 min', { exact: false })).toBeInTheDocument()
+})
+
+test('the Map link carries the day being viewed', async () => {
+  renderDay('2026-11-02', content)
+  const link = await screen.findByRole('link', { name: 'Map' })
+  expect(link).toHaveAttribute('href', '/map/2026-11-02')
+})
+
+test('a saved place renders as a chip with a Walk there link and a working ×', async () => {
+  const saved: SavedPlace = { id: 'p1', name: 'Bar Sole', lat: 38.71, lng: -9.14, saved_at: '2026-11-02T10:00:00.000Z' }
+  useDayNotesMock.mockReturnValue({
+    note: '', savedPlaces: [saved], loading: false, setNote: vi.fn(), savePlace: vi.fn(), removePlace,
+  })
+
+  renderDay('2026-11-02', content)
+
+  const row = (await screen.findByRole('heading', { name: 'Saved nearby' })).closest('.saved-places') as HTMLElement
+  const chip = within(row).getByText('Bar Sole').closest('.saved-places__chip') as HTMLElement
+  expect(within(chip).getByRole('link', { name: 'Walk there' }))
+    .toHaveAttribute('href', 'https://www.google.com/maps/dir/?api=1&destination=38.71,-9.14&travelmode=walking')
+
+  fireEvent.click(within(chip).getByRole('button', { name: 'Remove Bar Sole' }))
+  await waitFor(() => expect(removePlace).toHaveBeenCalledWith('p1'))
+})
+
+test('the notes hook is keyed on the day in the URL, never a blank date', async () => {
+  renderDay('2026-11-03', content)
+  await screen.findByRole('link', { name: 'Map' })
+  expect(useDayNotesMock).toHaveBeenCalledWith('valle', '2026-11-03')
+})
+
+test('the saved-places row stays hidden while the notes are still loading', async () => {
+  const saved: SavedPlace = { id: 'p1', name: 'Bar Sole', lat: 38.71, lng: -9.14, saved_at: '2026-11-02T10:00:00.000Z' }
+  useDayNotesMock.mockReturnValue({
+    note: '', savedPlaces: [saved], loading: true, setNote: vi.fn(), savePlace: vi.fn(), removePlace,
+  })
+
+  renderDay('2026-11-02', content)
+
+  await screen.findByRole('link', { name: 'Map' })
+  expect(screen.queryByRole('heading', { name: 'Saved nearby' })).toBeNull()
+  expect(screen.queryByText('Bar Sole')).toBeNull()
 })

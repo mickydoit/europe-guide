@@ -1,13 +1,15 @@
 import { Fragment, useEffect, useRef, useState } from 'react'
-import { useParams, useNavigate, Navigate } from 'react-router-dom'
+import { useParams, useNavigate, Navigate, Link } from 'react-router-dom'
 import { useTrip } from '../lib/trip'
-import { useChecks } from '../lib/state'
+import { useChecks, useDayNotes } from '../lib/state'
 import { currentAndNext, currentBlock, dayIndex, fmtDay, nowInTz, todayInTrip } from '../lib/time'
 import { TripPicker } from '../components/TripPicker'
 import { NowNext } from '../components/NowNext'
 import { RouteStrip } from '../components/RouteStrip'
 import { StopCard } from '../components/StopCard'
+import { WeatherStrip } from '../components/WeatherStrip'
 import { Md } from '../components/Md'
+import { walkLink } from '../lib/links'
 import type { Block, ItemRow } from '../lib/types'
 
 const BLOCK_KEYS: Block[] = ['morning', 'midday', 'evening', null]
@@ -20,6 +22,9 @@ export function Day() {
   const navigate = useNavigate()
   const { trips, slug, content, loading, error, setSlug, refresh } = useTrip()
   const { done, toggle } = useChecks(content?.trip.slug ?? '')
+  // Hooks run before this screen knows which day it is showing, so pass the raw param:
+  // useDayNotes skips the query until both halves of the key are real.
+  const { savedPlaces, loading: notesLoading, removePlace } = useDayNotes(content?.trip.slug ?? '', dateParam ?? '')
   const [now, setNow] = useState(() => new Date())
   const [tickError, setTickError] = useState<string | null>(null)
   const tickErrorTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -143,12 +148,42 @@ export function Day() {
         >
           ›
         </button>
+        <Link to={`/map/${date}`} className="btn--text day-header__map">Map</Link>
         {today && !isToday && (
           <button type="button" className="btn--text day-nav__today" onClick={() => navigate(`/day/${today}`)}>
             Today
           </button>
         )}
       </div>
+
+      <WeatherStrip trip={trip} content={content} date={date} />
+
+      {!notesLoading && savedPlaces.length > 0 && (
+        <section className="saved-places" aria-label="Saved nearby">
+          <h2 className="h5 saved-places__heading">Saved nearby</h2>
+          <ul className="saved-places__row">
+            {savedPlaces.map(p => {
+              const href = walkLink({ lat: p.lat, lng: p.lng, name: p.name }, trip.name)
+              return (
+                <li key={p.id} className="saved-places__chip">
+                  <span className="saved-places__name">{p.name}</span>
+                  {href && (
+                    <a className="btn--text" href={href} target="_blank" rel="noopener noreferrer">Walk there</a>
+                  )}
+                  <button
+                    type="button"
+                    className="saved-places__remove"
+                    aria-label={`Remove ${p.name}`}
+                    onClick={() => { void removePlace(p.id).catch(() => {}) }}
+                  >
+                    ×
+                  </button>
+                </li>
+              )
+            })}
+          </ul>
+        </section>
+      )}
 
       {isToday && <NowNext current={current} next={next} minutesToNext={minutesToNext} />}
 

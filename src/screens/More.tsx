@@ -5,6 +5,7 @@ import { fmtDay } from '../lib/time'
 import { walkLink } from '../lib/links'
 import { Md } from '../components/Md'
 import { TripPicker } from '../components/TripPicker'
+import { OfflineMapCard } from '../components/OfflineMapCard'
 import { buildIcs, downloadIcs } from '../lib/ics'
 
 const NOTE_SECTIONS: Array<{ key: 'standing' | 'walkin' | 'routes'; heading: string }> = [
@@ -98,6 +99,9 @@ export function More() {
           Export {trip.name} calendar (.ics)
         </button>
         <p className="caption">{"Opens in Calendar on iPhone. Add all events to a new 'Europe 2026' calendar so you can hide it later."}</p>
+        {content.areas.length > 0
+          ? <OfflineMapCard trip={content.trip.slug} areas={content.areas} />
+          : <p className="caption">No offline map for this city yet</p>}
       </section>
 
       <section className="more-section">

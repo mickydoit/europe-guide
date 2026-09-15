@@ -155,3 +155,128 @@ export function useAttachments(trip: string, bookingId: string, ownerId: string,
 
   return { list, loading, upload, url, remove, error }
 }
+
+export interface SavedPlace { id: string; name: string; lat: number; lng: number; saved_at: string }
+
+export interface DayNoteRow {
+  trip: string
+  date: string
+  text: string | null
+  saved_places: SavedPlace[] | null
+  updated_at: string
+}
+
+const NOTE_DEBOUNCE_MS = 800
+
+export function useDayNotes(trip: string, date: string, client: SupabaseClient = supabase) {
+  const [note, setNoteState] = useState('')
+  const [savedPlaces, setSavedPlaces] = useState<SavedPlace[]>([])
+  const [loading, setLoading] = useState(true)
+  const noteRef = useRef('')
+  const placesRef = useRef<SavedPlace[]>([])
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const pendingNote = useRef<(() => Promise<void>) | null>(null)
+  // Set as soon as the user edits this day, so a slow initial load cannot overwrite their work.
+  // Tracked per field: an unsent note must not also suppress the server's saved places.
+  const dirtyText = useRef(false)
+  const dirtyPlaces = useRef(false)
+
+  useEffect(() => {
+    let cancelled = false
+    dirtyText.current = false
+    dirtyPlaces.current = false
+    // Clear before the new load starts, not after it lands: otherwise the previous day's
+    // note and saved places stay on screen for the length of a round trip and read as this
+    // day's. `dirty*` were just reset, so nothing unsent is being discarded here.
+    noteRef.current = ''
+    placesRef.current = []
+    setNoteState('')
+    setSavedPlaces([])
+    // Callers that don't have a day yet (the Map screen before the trip resolves) pass ''.
+    // Querying on it returns nothing useful and still burns a round trip, so skip it and
+    // keep the empty state until a real (trip, date) arrives.
+    if (!trip || !date) { setLoading(false); return }
+    setLoading(true)
+    void (async () => {
+      const { data, error } = await client.from('day_notes').select('*').eq('trip', trip).eq('date', date)
+      if (cancelled) return
+      if (error) { console.warn(message(error)); setLoading(false); return }
+      const row = ((data ?? []) as DayNoteRow[])[0]
+      if (!dirtyText.current) {
+        noteRef.current = row?.text ?? ''
+        setNoteState(noteRef.current)
+      }
+      if (!dirtyPlaces.current) {
+        placesRef.current = row?.saved_places ?? []
+        setSavedPlaces(placesRef.current)
+      }
+      setLoading(false)
+    })()
+    return () => { cancelled = true }
+  }, [trip, date, client])
+
+  // The debounce timer outlives a single render: on unmount, or when the day changes,
+  // flush whatever the user last typed rather than dropping it on the floor.
+  useEffect(() => () => {
+    if (timer.current) { clearTimeout(timer.current); timer.current = null }
+    const flush = pendingNote.current
+    pendingNote.current = null
+    if (flush) void flush().catch(() => {})
+  }, [trip, date])
+
+  // Only ever send the columns being changed. `upsert` compiles to ON CONFLICT DO UPDATE SET
+  // <provided columns>, so omitting `text` from a place write leaves the stored note intact —
+  // which matters because noteRef is still '' until the initial load resolves.
+  async function upsert(patch: { text: string } | { saved_places: SavedPlace[] }) {
+    const row: Record<string, unknown> = { trip, date, ...patch, updated_at: new Date().toISOString() }
+    const { error } = await client.from('day_notes').upsert(row, { onConflict: 'trip,date' })
+    if (error) { console.warn(message(error)); throw new Error(message(error)) }
+  }
+
+  function setNote(text: string) {
+    // Stays set even if the save fails: unsent text is the user's, and losing it is worse
+    // than showing a stale server note. It never gates saved_places.
+    dirtyText.current = true
+    noteRef.current = text
+    setNoteState(text)
+    if (timer.current) clearTimeout(timer.current)
+    // Nothing awaits a debounced save, so the warn inside upsert is the whole report.
+    const flush = () => upsert({ text })
+    pendingNote.current = flush
+    timer.current = setTimeout(() => {
+      timer.current = null
+      pendingNote.current = null
+      void flush().catch(() => {})
+    }, NOTE_DEBOUNCE_MS)
+  }
+
+  async function writePlaces(next: SavedPlace[]) {
+    const previous = placesRef.current
+    const wasDirty = dirtyPlaces.current
+    dirtyPlaces.current = true
+    placesRef.current = next
+    setSavedPlaces(next)
+    try {
+      await upsert({ saved_places: next })
+    } catch (e) {
+      // The write is gone, so this list is no longer a local edit worth defending —
+      // let a still-pending load replace it with server truth.
+      dirtyPlaces.current = wasDirty
+      placesRef.current = previous
+      setSavedPlaces(previous)
+      throw e
+    }
+  }
+
+  async function savePlace(place: SavedPlace) {
+    if (placesRef.current.some(p => p.id === place.id)) return
+    await writePlaces([...placesRef.current, place])
+  }
+
+  async function removePlace(id: string) {
+    if (!placesRef.current.some(p => p.id === id)) return
+    await writePlaces(placesRef.current.filter(p => p.id !== id))
+  }
+
+  return { note, savedPlaces, loading, setNote, savePlace, removePlace }
+}
