@@ -29,6 +29,7 @@
   "private": true,
   "dependencies": {
     "@supabase/supabase-js": "^2.116.0",
+    "idb": "^8.0.3",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
     "react-router-dom": "^7.18.3"
@@ -41,6 +42,7 @@
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^6.1.1",
     "dotenv": "^17.4.2",
+    "fake-indexeddb": "^6.2.5",
     "jsdom": "^30.0.1",
     "tsx": "^4.23.13",
     "typescript": "^7.0.2",

@@ -161,7 +161,7 @@ site_url = "https://mickydoit.github.io/europe-guide/"
 # A list of *exact* URLs that auth providers are permitted to redirect to post authentication.
 additional_redirect_urls = ["https://mickydoit.github.io/europe-guide/reset", "http://localhost:5173/europe-guide/reset"]
 # How long tokens are valid for, in seconds. Defaults to 3600 (1 hour), maximum 604,800 (1 week).
-jwt_expiry = 3600
+jwt_expiry = 604800
 # JWT issuer URL. If not set, defaults to auth.external_url.
 # jwt_issuer = ""
 # Path to JWT signing key. DO NOT commit your signing keys file to git.
@@ -170,7 +170,7 @@ jwt_expiry = 3600
 enable_refresh_token_rotation = true
 # Allows refresh tokens to be reused after expiry, up to the specified interval in seconds.
 # Requires enable_refresh_token_rotation = true.
-refresh_token_reuse_interval = 10
+refresh_token_reuse_interval = 60
 # Allow/disallow new user signups to your project.
 enable_signup = false
 # Allow/disallow anonymous sign-ins to your project.
