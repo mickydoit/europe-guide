@@ -1,5 +1,6 @@
 import { Routes, Route, Outlet } from 'react-router-dom'
 import { AuthProvider, RequireAuth } from './lib/auth'
+import { TripProvider } from './lib/trip'
 import { TabBar } from './components/TabBar'
 import { Placeholder } from './screens/Placeholder'
 import { SignIn } from './screens/SignIn'
@@ -12,7 +13,7 @@ export default function App() {
       <Routes>
         <Route path="/signin" element={<SignIn />} />
         <Route path="/reset" element={<ResetPassword />} />
-        <Route element={<RequireAuth><Shell /></RequireAuth>}>
+        <Route element={<RequireAuth><TripProvider><Shell /></TripProvider></RequireAuth>}>
           <Route path="/" element={<Placeholder title="Home" />} />
           <Route path="/day" element={<Placeholder title="Day" />} />
           <Route path="/map" element={<Placeholder title="Map" />} />
