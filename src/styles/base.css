@@ -172,3 +172,10 @@ button { font: inherit; }
 .more-tools__link { display: block; margin-bottom: 12px; }
 .btn--secondary { background: var(--card-alt); color: var(--text); border: 1px solid var(--border); width: 100%; margin-bottom: 12px; }
 .btn--secondary:disabled { opacity: .5; cursor: default; }
+
+/* Map */
+.map-screen { position: fixed; inset: 0; background: var(--bg); }
+.map-close { position: absolute; top: calc(var(--safe-top) + 12px); left: 12px; z-index: 5;
+  min-height: 40px; padding: 0 16px; border-radius: var(--radius-pill); border: 1px solid var(--border);
+  background: var(--card); color: var(--text); font-size: 14px; font-weight: 600; cursor: pointer; }
+.map-close:active { filter: brightness(.92); }
