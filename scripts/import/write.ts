@@ -29,11 +29,16 @@ export async function assembleCity(dir: string, slug: string) {
   const pk = await pick(dir, 'Parked-Venues.md', false)
   const parked = pk ? parseParked(pk.name, pk.src, ctx) : []
   const legs = r.routes.flatMap(splitLegs)
-  for (const item of i.items) if (item.kind === 'route_link' && item.url) item.route_id = r.routes.find(x => x.google_url === item.url)?.id ?? null
+  const warnings: string[] = []
+  for (const item of i.items) if (item.kind === 'route_link' && item.url) {
+    const route = r.routes.find(x => x.google_url === item.url)
+    item.route_id = route?.id ?? null
+    if (!route) warnings.push(`route_link on ${item.date} has no matching route: ${item.url}`)
+  }
   const notes = [...b.notes, ...r.notes].map((n, seq) => ({ ...n, seq }))
   const trip: TripRow = { slug, name, country: meta.country, country_code: meta.country_code, start_date: fmDates[1], end_date: fmDates[2], base: b.front.base ?? null, timezone: meta.timezone, intro: i.intro, sort: 0 }
   const content: CityContent = { trip, days: i.days, items: i.items, bookings: b.bookings, routes: r.routes, legs, alerts: b.alerts, parked, notes, areas: [] }
-  return { content, front: b.front, cityHint: name, year }
+  return { content, front: b.front, cityHint: name, year, warnings }
 }
 export function stampOwner(c: CityContent, owner: string) {
   const s = <T extends object>(rows: T[]) => rows.map(r => ({ ...r, owner }))

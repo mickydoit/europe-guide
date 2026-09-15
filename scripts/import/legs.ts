@@ -1,7 +1,9 @@
 import { pointsFromGoogleUrl } from './places'
+import { ImportError } from './md'
 import type { RouteRow, LegRow } from './types'
 export function splitLegs(route: RouteRow): LegRow[] {
-  const { names } = pointsFromGoogleUrl(route.google_url); const legs: LegRow[] = []
+  const names = (() => { try { return pointsFromGoogleUrl(route.google_url).names } catch (e) { throw new ImportError('<routes>', 0, `route ${route.id}: ${(e as Error).message}`) } })()
+  const legs: LegRow[] = []
   for (let i = 0; i < names.length - 1; i++) {
     const p = new URLSearchParams({ api: '1', origin: names[i], destination: names[i + 1], travelmode: route.mode })
     legs.push({ trip: route.trip, route_id: route.id, seq: i, from_name: names[i], to_name: names[i + 1], from_lat: null, from_lng: null, to_lat: null, to_lng: null, google_url: `https://www.google.com/maps/dir/?${p.toString()}`, polyline: null, distance_m: null, duration_s: null })

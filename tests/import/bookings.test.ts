@@ -39,3 +39,25 @@ test('missing id fails', () => {
   const bad = readFileSync('tests/fixtures/broken/missing-id.md', 'utf8')
   expect(() => parseBookings('missing-id.md', bad, ctx)).toThrow(ImportError)
 })
+test('bad time in the booked table fails with ImportError mentioning the value', () => {
+  const bad = '## 1. Booked\n\n| id | item | date | time | notes |\n|---|---|---|---|---|\n| B01 | X | 2026-11-01 | 25:70 | note |\n'
+  expect(() => parseBookings('b.md', bad, ctx)).toThrow(ImportError)
+  expect(() => parseBookings('b.md', bad, ctx)).toThrow(/25:70/)
+})
+test('bad date in the booked table fails', () => {
+  const bad = '## 1. Booked\n\n| id | item | date | time | notes |\n|---|---|---|---|---|\n| B01 | X | 29 Sep | 20:00 | note |\n'
+  expect(() => parseBookings('b.md', bad, ctx)).toThrow(ImportError)
+  expect(() => parseBookings('b.md', bad, ctx)).toThrow(/bad date/)
+})
+test('duplicate booking id fails', () => {
+  const bad = '## 2. To book\n\n### T01 · First\n- **priority:** high\n\n### T01 · Second\n- **priority:** low\n'
+  expect(() => parseBookings('b.md', bad, ctx)).toThrow(ImportError)
+  expect(() => parseBookings('b.md', bad, ctx)).toThrow(/duplicate booking id T01/)
+})
+test('walk-ins are numbered globally across paragraphs with no repeats', () => {
+  const src = '## 3. No booking needed\n\nBar Sole · Enoteca Piccola\n\nCaffè Nord · Osteria Blu\n'
+  const r = parseBookings('b.md', src, ctx)
+  const ids = r.bookings.filter(b => b.kind === 'walkin').map(b => b.id)
+  expect(ids).toEqual(['WK01', 'WK02', 'WK03', 'WK04'])
+  expect(new Set(ids).size).toBe(ids.length)
+})

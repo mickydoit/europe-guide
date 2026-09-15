@@ -12,3 +12,7 @@ test('routes with fields, mode, covers and dates', () => {
 test('missing url fails', () => {
   expect(() => parseRoutes('r.md', '## Monday 2 November\n\n### V9 — x\n- **distance:** 1 km\n', { trip: 'valle', year: 2026 })).toThrow(/url/)
 })
+test('duplicate route id fails', () => {
+  const bad = '## Monday 2 November\n\n### V1 — First\n- **url:** https://www.google.com/maps/dir/?api=1&origin=A&destination=B\n\n### V1 — Second\n- **url:** https://www.google.com/maps/dir/?api=1&origin=C&destination=D\n'
+  expect(() => parseRoutes('r.md', bad, { trip: 'valle', year: 2026 })).toThrow(/duplicate route id V1/)
+})

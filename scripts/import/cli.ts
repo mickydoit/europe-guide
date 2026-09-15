@@ -49,8 +49,8 @@ async function main() {
   }
   const env = loadEnv()
   const client = createClient(env.supabaseUrl, env.serviceKey, { auth: { persistSession: false } })
-  const { content, cityHint } = await assembleCity(`content/${slug}`, slug)
-  const warnings: string[] = []
+  const { content, cityHint, warnings: assembleWarnings } = await assembleCity(`content/${slug}`, slug)
+  const warnings: string[] = [...assembleWarnings]
   const geocoder = makeCachedGeocoder(makeGoogleGeocoder(env.googleServerKey, content.trip.country_code), supabaseCache(client, env.ownerId))
   const { misses } = await geocodeContent(content, geocoder, cityHint)
   for (const leg of content.legs) {
@@ -58,8 +58,16 @@ async function main() {
     try { const p = await fetchPolyline(env.googleServerKey, leg, mode); if (p) Object.assign(leg, p); else warnings.push(`no polyline for ${leg.route_id}#${leg.seq} (${leg.from_name} → ${leg.to_name})`) }
     catch (e) { warnings.push(`polyline ${leg.route_id}#${leg.seq}: ${(e as Error).message}`) }
   }
-  if (!skipMaps && !dryRun) content.areas = await buildOfflineAreas(slug, content, { buildUrl: env.protomapsBuildUrl, outDir: `.cache/pmtiles`, maxzoom, upload: supabaseUploader(client) })
-  else if (skipMaps) warnings.push('offline maps skipped (--skip-maps)')
+  if (!skipMaps && !dryRun) {
+    content.areas = await buildOfflineAreas(slug, content, { buildUrl: env.protomapsBuildUrl, outDir: `.cache/pmtiles`, maxzoom, upload: supabaseUploader(client) })
+  } else if (skipMaps && !dryRun) {
+    const { data, error } = await client.from('offline_areas').select('*').eq('trip', slug)
+    if (error) throw new Error(`offline_areas fetch: ${error.message}`)
+    content.areas = (data ?? []).map(({ owner: _owner, ...rest }) => rest) as typeof content.areas
+    warnings.push(`offline maps skipped — kept ${content.areas.length} existing area(s)`)
+  } else if (skipMaps) {
+    warnings.push('offline maps skipped (--skip-maps)')
+  }
   const counts = dryRun
     ? Object.fromEntries(Object.entries(content).filter(([k]) => k !== 'trip').map(([k, v]) => [k, (v as unknown[]).length]))
     : await rewriteCity(client, env.ownerId, content)

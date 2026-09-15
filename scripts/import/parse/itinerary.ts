@@ -44,6 +44,7 @@ export function parseItinerary(file: string, src: string, ctx: { trip: string; y
     if (n.kind === 'heading' && n.level === 1) {
       const d = (() => { try { return parseDayHeading(n.text, ctx.year) } catch (e) { return fail(n, (e as Error).message) } })()
       if (!d) { if (!sawTrip && days.length === 0 && /,.*\b\d{4}\b/.test(n.text)) { sawTrip = true; continue } fail(n, `not a day heading: "${n.text}"`) }
+      if (days.some(x => x.date === d!.date)) fail(n, `duplicate day ${d!.date}`)
       day = { trip: ctx.trip, date: d!.date, title: d!.title, status: d!.status, intro: null }
       days.push(day); block = null; seq = 0; lastStop = null; lastPick = null; continue
     }

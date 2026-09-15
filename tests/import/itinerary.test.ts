@@ -54,3 +54,14 @@ test('a trip-title H1 must contain a comma and a 4-digit year, or parsing fails'
   expect(() => parseItinerary('x.md', src, ctx)).toThrow(ImportError)
   expect(() => parseItinerary('x.md', src, ctx)).toThrow(/not a day heading/)
 })
+test('bad time in a day table fails with file:line and the offending value', () => {
+  const bad = readFileSync('tests/fixtures/broken/bad-time.md', 'utf8')
+  expect(() => parseItinerary('bad-time.md', bad, ctx)).toThrow(ImportError)
+  expect(() => parseItinerary('bad-time.md', bad, ctx)).toThrow(/bad-time\.md:\d+/)
+  expect(() => parseItinerary('bad-time.md', bad, ctx)).toThrow(/25:70/)
+})
+test('a repeated day heading fails as a duplicate day', () => {
+  const src = '# Sunday 1 November — arrival\n\n| Time | Plan |\n|---|---|\n| 09:00 | **A** |\n\n# Sunday 1 November — again\n\n| Time | Plan |\n|---|---|\n| 10:00 | **B** |\n'
+  expect(() => parseItinerary('dup.md', src, ctx)).toThrow(ImportError)
+  expect(() => parseItinerary('dup.md', src, ctx)).toThrow(/duplicate day/)
+})

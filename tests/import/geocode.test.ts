@@ -1,5 +1,6 @@
-import { makeGoogleGeocoder, makeCachedGeocoder, geocodeContent } from '../../scripts/import/geocode'
+import { makeGoogleGeocoder, makeCachedGeocoder, geocodeContent, supabaseCache } from '../../scripts/import/geocode'
 import type { CityContent } from '../../scripts/import/types'
+import type { SupabaseClient } from '@supabase/supabase-js'
 test('google geocoder parses the first result and returns null on ZERO_RESULTS', async () => {
   const fetchImpl = (async (url: string) => new Response(JSON.stringify(url.includes('Nowhere') ? { status: 'ZERO_RESULTS', results: [] } :
     { status: 'OK', results: [{ geometry: { location: { lat: 1.5, lng: 2.5 } }, formatted_address: 'F', place_id: 'P' }] }))) as typeof fetch
@@ -29,4 +30,20 @@ test('geocodeContent fills items, parked and leg endpoints and reports misses', 
   expect(c.items[0]).toMatchObject({ lat: 10, lng: 20 }); expect(c.parked[0].lat).toBe(10)
   expect(c.legs[0]).toMatchObject({ from_lat: 10, to_lat: null })
   expect(r.misses).toEqual(['Miss Me, Valle', 'Miss B'])
+})
+test('supabaseCache warns and treats a select/upsert error as a miss, without throwing', async () => {
+  const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+  const fakeClient = {
+    from: () => ({
+      select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: null, error: { message: 'boom' } }) }) }),
+      upsert: async () => ({ error: { message: 'boom' } }),
+    }),
+  } as unknown as SupabaseClient
+  const cache = supabaseCache(fakeClient, 'owner-1')
+  const inner = async (q: string) => ({ lat: 1, lng: 2, formatted: q, place_id: 'p' })
+  const g = makeCachedGeocoder(inner, cache)
+  const r = await g('Somewhere')
+  expect(r).toEqual({ lat: 1, lng: 2, formatted: 'Somewhere', place_id: 'p' })
+  expect(warn).toHaveBeenCalled()
+  warn.mockRestore()
 })

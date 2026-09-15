@@ -11,7 +11,8 @@ export function parseRoutes(file: string, src: string, ctx: { trip: string; year
     if (n.kind === 'hr') continue
     if (n.kind === 'heading' && n.level === 1) continue
     if (n.kind === 'heading' && n.level === 2) {
-      finish(n); const d = parseDayHeading(n.text, ctx.year)
+      finish(n)
+      const d = (() => { try { return parseDayHeading(n.text, ctx.year) } catch (e) { return fail(n, (e as Error).message) } })()
       if (d) { date = d.date; skipping = false } else if (/^Rough daily walking totals/i.test(n.text)) skipping = true; else fail(n, `unknown ## heading "${n.text}"`)
       continue
     }
@@ -39,5 +40,7 @@ export function parseRoutes(file: string, src: string, ctx: { trip: string; year
     if (n.kind === 'table') fail(n, 'unexpected table in routes file')
   }
   if (cur) finish(nodes[nodes.length - 1])
+  const seenIds = new Set<string>()
+  for (const r of routes) { if (seenIds.has(r.id)) throw new ImportError(file, 1, `duplicate route id ${r.id}`); seenIds.add(r.id) }
   return { routes, notes }
 }

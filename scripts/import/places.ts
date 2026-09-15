@@ -7,7 +7,7 @@ export function extractPlace(plan: string): { place_name: string | null; address
   }
   const name = raw.replace(/\s*[—-]\s*(BOOKED|booked)$/, '').trim()
   const rest = plan.slice((m.index ?? 0) + m[0].length)
-  const am = rest.match(/^,\s*([^—]*)/)
+  const am = rest.match(/^,\s*([^—*]*)/)
   const address = am ? am[1].trim() || null : null
   return { place_name: name, address }
 }

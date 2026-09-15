@@ -15,6 +15,7 @@ test('extractPlace cases', () => {
   expect(extractPlace('**Mesa de Frades** — fado show with dinner — **BOOKED**')).toEqual({ place_name: 'Mesa de Frades', address: null })
   expect(extractPlace('Walk to the meeting point')).toEqual({ place_name: null, address: null })
   expect(extractPlace('**Tell the guide what to skip**')).toEqual({ place_name: null, address: null })
+  expect(extractPlace('**Time Out Market**, Lisboa **BOOKED**')).toEqual({ place_name: 'Time Out Market', address: 'Lisboa' })
 })
 test('extractPlace: bold name followed by plain text with no separator', () => {
   expect(extractPlace('**Castello Alto** viewpoint')).toEqual({ place_name: 'Castello Alto', address: null })

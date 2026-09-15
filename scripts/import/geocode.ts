@@ -19,8 +19,15 @@ export function makeCachedGeocoder(inner: Geocoder, cache: { get(q: string): Pro
 }
 export function supabaseCache(client: SupabaseClient, ownerId: string) {
   return {
-    async get(q: string) { const { data } = await client.from('geocode_cache').select('lat,lng,formatted_address,place_id').eq('query', q).maybeSingle(); return data && data.lat != null ? { lat: data.lat, lng: data.lng, formatted: data.formatted_address, place_id: data.place_id } : null },
-    async set(q: string, v: GeoPoint) { await client.from('geocode_cache').upsert({ query: q, owner: ownerId, lat: v.lat, lng: v.lng, formatted_address: v.formatted, place_id: v.place_id }) },
+    async get(q: string) {
+      const { data, error } = await client.from('geocode_cache').select('lat,lng,formatted_address,place_id').eq('query', q).maybeSingle()
+      if (error) { console.warn(`geocode_cache get failed: ${error.message}`); return null }
+      return data && data.lat != null ? { lat: data.lat, lng: data.lng, formatted: data.formatted_address, place_id: data.place_id } : null
+    },
+    async set(q: string, v: GeoPoint) {
+      const { error } = await client.from('geocode_cache').upsert({ query: q, owner: ownerId, lat: v.lat, lng: v.lng, formatted_address: v.formatted, place_id: v.place_id })
+      if (error) console.warn(`geocode_cache set failed: ${error.message}`)
+    },
   }
 }
 export async function geocodeContent(c: CityContent, geocode: Geocoder, cityHint: string) {
