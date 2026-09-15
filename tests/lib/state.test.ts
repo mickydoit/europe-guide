@@ -12,6 +12,7 @@ function makeTable(table: string, initial: Row[], calls: Call[], hooks: {
   onUpsert?: (payload: unknown) => Res<unknown>
 } = {}) {
   let rows: Row[] = [...initial]
+  let nextInsertId = 1
   function build() {
     let mode: 'select' | 'insert' | 'delete' | 'upsert' = 'select'
     let payload: unknown
@@ -36,8 +37,10 @@ function makeTable(table: string, initial: Row[], calls: Call[], hooks: {
           if (like) { const prefix = like[1].replace(/%$/, ''); out = out.filter(r => String(r[like![0]]).startsWith(prefix)) }
           resolve({ data: single ? (out[0] ?? null) : out, error: null })
         } else if (mode === 'insert') {
-          const result = hooks.onInsert ? hooks.onInsert(payload) : { data: payload, error: null }
-          if (!result.error) rows.push(...(Array.isArray(payload) ? (payload as Row[]) : [payload as Row]))
+          const withId = (r: Row): Row => (r.id === undefined ? { ...r, id: `fake-${nextInsertId++}` } : r)
+          const insertPayload = Array.isArray(payload) ? (payload as Row[]).map(withId) : withId(payload as Row)
+          const result = hooks.onInsert ? hooks.onInsert(insertPayload) : { data: insertPayload, error: null }
+          if (!result.error) rows.push(...(Array.isArray(insertPayload) ? insertPayload : [insertPayload]))
           resolve(result)
         } else if (mode === 'delete') {
           const result = hooks.onDelete ? hooks.onDelete() : { data: null, error: null }
@@ -113,6 +116,20 @@ test('useChecks: toggle inserts then deletes, Set reflects it', async () => {
   expect(calls.some(c => c.table === 'item_checks' && c.mode === 'delete')).toBe(true)
 })
 
+test('useChecks: two rapid toggles of the same id take opposite actions', async () => {
+  const { client, calls } = makeFakeClient()
+  const { result } = renderHook(() => useChecks('valle', client))
+  await waitFor(() => expect(result.current.loading).toBe(false))
+
+  await act(async () => {
+    await Promise.all([result.current.toggle('valle/x'), result.current.toggle('valle/x')])
+  })
+
+  const itemCheckCalls = calls.filter(c => c.table === 'item_checks' && c.mode !== 'select')
+  expect(itemCheckCalls.map(c => c.mode)).toEqual(['insert', 'delete'])
+  expect(result.current.done.has('valle/x')).toBe(false)
+})
+
 test('useChecks: a failing insert reverts the optimistic Set and rejects', async () => {
   const { client } = makeFakeClient({ failInsert: true })
   const { result } = renderHook(() => useChecks('valle', client))
@@ -156,8 +173,11 @@ test('useAttachments: upload rejects a text file without touching storage', asyn
   await waitFor(() => expect(result.current.loading).toBe(false))
 
   const txtFile = new File([new Uint8Array(10)], 'notes.txt', { type: 'text/plain' })
-  await expect(result.current.upload(txtFile)).rejects.toThrow(/PDF or image/)
+  await act(async () => {
+    await expect(result.current.upload(txtFile)).rejects.toThrow(/PDF or image/)
+  })
   expect(storageCalls.length).toBe(0)
+  expect(result.current.error).toMatch(/PDF or image/)
 })
 
 test('useAttachments: a valid PDF uploads to storage with expected path then inserts a row', async () => {
@@ -179,17 +199,21 @@ test('useAttachments: a valid PDF uploads to storage with expected path then ins
 })
 
 test('useAttachments: url returns a signed url and remove deletes storage object then row', async () => {
-  const { client } = makeFakeClient()
+  const { client, calls } = makeFakeClient()
   const { result } = renderHook(() => useAttachments('valle', 'T01', 'owner-1', client))
   await waitFor(() => expect(result.current.loading).toBe(false))
 
   const file = new File([new Uint8Array(10)], 'a.pdf', { type: 'application/pdf' })
   await act(async () => { await result.current.upload(file) })
   const attachment = result.current.list[0]
+  expect(attachment.id).toMatch(/^fake-\d+$/)
 
   const signedUrl = await result.current.url(attachment)
   expect(signedUrl).toContain(attachment.storage_path)
 
   await act(async () => { await result.current.remove(attachment) })
   expect(result.current.list.length).toBe(0)
+
+  const deleteCall = calls.find(c => c.table === 'attachments' && c.mode === 'delete')
+  expect(deleteCall?.filters).toEqual([['id', attachment.id]])
 })

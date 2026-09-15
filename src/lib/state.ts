@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { supabase } from './supabase'
 
@@ -30,6 +30,7 @@ function message(e: { message: string } | null): string { return e?.message ?? '
 
 export function useChecks(trip: string, client: SupabaseClient = supabase) {
   const [done, setDone] = useState<Set<string>>(new Set())
+  const doneRef = useRef<Set<string>>(done)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
@@ -39,28 +40,28 @@ export function useChecks(trip: string, client: SupabaseClient = supabase) {
       const { data, error } = await client.from('item_checks').select('*').like('item_id', `${trip}/%`)
       if (cancelled) return
       if (error) { console.warn(message(error)); setLoading(false); return }
-      setDone(new Set(((data ?? []) as { item_id: string }[]).map(r => r.item_id)))
+      const next = new Set(((data ?? []) as { item_id: string }[]).map(r => r.item_id))
+      doneRef.current = next
+      setDone(next)
       setLoading(false)
     })()
     return () => { cancelled = true }
   }, [trip, client])
 
   async function toggle(itemId: string) {
-    const wasDone = done.has(itemId)
-    setDone(prev => {
-      const next = new Set(prev)
-      if (wasDone) next.delete(itemId); else next.add(itemId)
-      return next
-    })
+    const wasDone = doneRef.current.has(itemId)
+    const next = new Set(doneRef.current)
+    if (wasDone) next.delete(itemId); else next.add(itemId)
+    doneRef.current = next
+    setDone(next)
     const { error } = wasDone
       ? await client.from('item_checks').delete().eq('item_id', itemId)
       : await client.from('item_checks').insert({ item_id: itemId })
     if (error) {
-      setDone(prev => {
-        const next = new Set(prev)
-        if (wasDone) next.add(itemId); else next.delete(itemId)
-        return next
-      })
+      const reverted = new Set(doneRef.current)
+      if (wasDone) reverted.add(itemId); else reverted.delete(itemId)
+      doneRef.current = reverted
+      setDone(reverted)
       console.warn(message(error))
       throw new Error(message(error))
     }
@@ -119,7 +120,11 @@ export function useAttachments(trip: string, bookingId: string, ownerId: string,
 
   async function upload(file: File) {
     const validType = file.type === 'application/pdf' || file.type.startsWith('image/')
-    if (!validType || file.size > 25 * 1024 * 1024) throw new Error('Only PDF or image files up to 25 MB')
+    if (!validType || file.size > 25 * 1024 * 1024) {
+      const msg = 'Only PDF or image files up to 25 MB'
+      setError(msg)
+      throw new Error(msg)
+    }
 
     const safeName = `${Date.now()}-${file.name.replace(/[^A-Za-z0-9._-]/g, '_')}`
     const path = `${ownerId}/${trip}/${bookingId}/${safeName}`

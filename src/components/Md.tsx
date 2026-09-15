@@ -2,6 +2,7 @@ import type { ReactNode } from 'react'
 
 const TOKEN_RE = /(\*\*[^*]+\*\*|\[[^\]]+\]\([^)\s]+\))/
 const LINK_RE = /^\[([^\]]+)\]\(([^)\s]+)\)$/
+const SAFE_PROTOCOL_RE = /^(?:https?:|mailto:|tel:)/i
 
 function renderPlainText(text: string, keyPrefix: string): ReactNode[] {
   const lines = text.split('\n')
@@ -24,7 +25,7 @@ export function Md({ text, className }: { text: string | null | undefined; class
       return
     }
     const link = LINK_RE.exec(part)
-    if (link) {
+    if (link && SAFE_PROTOCOL_RE.test(link[2])) {
       nodes.push(
         <a key={`a-${i}`} href={link[2]} target="_blank" rel="noopener noreferrer">
           {link[1]}

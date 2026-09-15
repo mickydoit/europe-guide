@@ -50,4 +50,18 @@ describe('Md', () => {
     const { container } = render(<Md text="hi" className="note" />)
     expect(container.querySelector('.note')).not.toBeNull()
   })
+
+  test('does not render an <a> for an unsafe protocol - renders the literal text instead', () => {
+    const { container } = render(<Md text="[x](javascript:alert(1))" />)
+    expect(container.querySelector('a')).toBeNull()
+    expect(container.textContent).toBe('[x](javascript:alert(1))')
+  })
+
+  test('renders a tel: link as an <a> with that href', () => {
+    const { container } = render(<Md text="[call](tel:+351123)" />)
+    const a = container.querySelector('a')
+    expect(a).not.toBeNull()
+    expect(a?.getAttribute('href')).toBe('tel:+351123')
+    expect(a?.textContent).toBe('call')
+  })
 })
