@@ -4,6 +4,7 @@ import { supabase } from './supabase'
 import { enqueue, listOutbox, removeOp, removeOpsByKey } from './outbox'
 import type { AttachmentUploadPayload, BookingStatePayload, CheckSetPayload, DayNotesPayload } from './outbox'
 import { flushOutbox, notify } from './sync'
+import { cacheAttachment, deleteCachedAttachment, enforceCacheLimit, getCachedAttachmentBlob, hasCachedAttachment } from './attachmentsCache'
 
 export type BookingStatus = 'not_booked' | 'booked' | 'confirmed' | 'cancelled' | 'undecided'
 
@@ -263,19 +264,71 @@ export function useAttachments(trip: string, bookingId: string, ownerId: string,
   const [list, setList] = useState<AttachmentRow[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  // Real (non-pending) attachment ids currently held in Cache Storage — drives the offline
+  // pill and lets `url()` skip the network when a cached copy is already on the phone.
+  const [cached, setCached] = useState<Set<string>>(new Set())
   // Blob URLs handed out for queued uploads, by storage path. They are held (not revoked
   // straight after use) because `handleOpenAttachment` opens the window before awaiting the
   // URL, so the tab may not have navigated yet; unmount is the safe moment to let them go.
   const objectUrls = useRef(new Map<string, string>())
+  // Storage paths uploaded directly (not queued) while the initial read was still in
+  // flight. The read's success path replaces `list` with what the SELECT returned, which
+  // was captured before the insert landed on the server, so the new row must be put back.
+  const touched = useRef(new Set<string>())
 
   useEffect(() => () => {
     for (const url of objectUrls.current.values()) URL.revokeObjectURL(url)
     objectUrls.current.clear()
   }, [])
 
+  function markCached(id: string) {
+    setCached(prev => (prev.has(id) ? prev : new Set(prev).add(id)))
+  }
+
+  function unmarkCached(id: string) {
+    setCached(prev => {
+      if (!prev.has(id)) return prev
+      const next = new Set(prev)
+      next.delete(id)
+      return next
+    })
+  }
+
   useEffect(() => {
     let cancelled = false
+    touched.current = new Set()
     setLoading(true)
+
+    // Fire-and-forget: warms Cache Storage so tickets open offline. Runs after `loading`
+    // has already been allowed to clear — nothing on screen waits for this.
+    async function prefetch(rows: AttachmentRow[]) {
+      for (const row of rows) {
+        if (cancelled) return
+        try {
+          if (await hasCachedAttachment(row.id)) { if (!cancelled) markCached(row.id); continue }
+          const { data, error: sErr } = await client.storage.from('tickets').createSignedUrl(row.storage_path, 3600)
+          if (sErr) throw new Error(message(sErr))
+          await cacheAttachment(row.id, (data as { signedUrl: string }).signedUrl)
+          if (!cancelled) markCached(row.id)
+        } catch (e) {
+          console.warn(e instanceof Error ? e.message : String(e))
+        }
+      }
+      if (cancelled) return
+      try {
+        const evicted = await enforceCacheLimit(rows)
+        if (evicted.length && !cancelled) {
+          setCached(prev => {
+            const next = new Set(prev)
+            for (const id of evicted) next.delete(id)
+            return next
+          })
+        }
+      } catch (e) {
+        console.warn(e instanceof Error ? e.message : String(e))
+      }
+    }
+
     void (async () => {
       try {
         const { data, error: err } = await client.from('attachments').select('*').eq('trip', trip).eq('booking_id', bookingId).order('uploaded_at')
@@ -293,8 +346,14 @@ export function useAttachments(trip: string, bookingId: string, ownerId: string,
         setList(prev => {
           const base = rows ?? prev.filter(r => !r.pendingUpload)
           const paths = new Set(base.map(r => r.storage_path))
-          return [...base, ...pending.filter(p => !paths.has(p.storage_path))]
+          const merged = [...base, ...pending.filter(p => !paths.has(p.storage_path))]
+          const mergedPaths = new Set(merged.map(r => r.storage_path))
+          // Read at commit time (`prev`, not a value captured before the last await): a
+          // direct upload can land at any point during this read.
+          const reapplied = prev.filter(r => touched.current.has(r.storage_path) && !mergedPaths.has(r.storage_path))
+          return [...merged, ...reapplied]
         })
+        if (rows && rows.length) void prefetch(rows).catch(e => console.warn(e instanceof Error ? e.message : String(e)))
       } catch (e) {
         console.warn(e instanceof Error ? e.message : String(e))
       } finally {
@@ -333,6 +392,9 @@ export function useAttachments(trip: string, bookingId: string, ownerId: string,
 
     const safeName = `${Date.now()}-${file.name.replace(/[^A-Za-z0-9._-]/g, '_')}`
     const path = `${ownerId}/${trip}/${bookingId}/${safeName}`
+    // Marked as soon as the upload starts (queued or direct): if the initial read is still
+    // in flight, its success path must not overwrite this row when it lands.
+    touched.current.add(path)
     const payload: AttachmentUploadPayload = {
       trip, bookingId, ownerId, path, filename: file.name, mime: file.type, size: file.size, blob: file,
     }
@@ -374,9 +436,29 @@ export function useAttachments(trip: string, bookingId: string, ownerId: string,
       objectUrls.current.set(a.storage_path, url)
       return url
     }
+
+    // With no signal, or a copy already on the phone, serve the cached bytes — this is
+    // what makes a ticket openable in airplane mode.
+    if (!isOnline() || cached.has(a.id)) {
+      const held = objectUrls.current.get(a.storage_path)
+      if (held) return held
+      const blob = await getCachedAttachmentBlob(a.id)
+      if (blob) {
+        const objUrl = URL.createObjectURL(blob)
+        objectUrls.current.set(a.storage_path, objUrl)
+        return objUrl
+      }
+      if (!isOnline()) throw new Error('No offline copy of this file yet')
+    }
+
     const { data, error: sErr } = await client.storage.from('tickets').createSignedUrl(a.storage_path, 3600)
     if (sErr) { console.warn(message(sErr)); throw new Error(message(sErr)) }
-    return (data as { signedUrl: string }).signedUrl
+    const signedUrl = (data as { signedUrl: string }).signedUrl
+    // Warm the cache for next time; nothing on screen waits for this.
+    void cacheAttachment(a.id, signedUrl)
+      .then(() => markCached(a.id))
+      .catch(e => console.warn(e instanceof Error ? e.message : String(e)))
+    return signedUrl
   }
 
   async function remove(a: AttachmentRow) {
@@ -393,10 +475,14 @@ export function useAttachments(trip: string, bookingId: string, ownerId: string,
     if (rmErr) { console.warn(message(rmErr)); throw new Error(message(rmErr)) }
     const { error: delErr } = await client.from('attachments').delete().eq('id', a.id)
     if (delErr) { console.warn(message(delErr)); throw new Error(message(delErr)) }
+    await deleteCachedAttachment(a.id).catch(e => console.warn(e instanceof Error ? e.message : String(e)))
+    unmarkCached(a.id)
+    const held = objectUrls.current.get(a.storage_path)
+    if (held) { URL.revokeObjectURL(held); objectUrls.current.delete(a.storage_path) }
     setList(prev => prev.filter(x => x.id !== a.id))
   }
 
-  return { list, loading, upload, url, remove, error }
+  return { list, loading, upload, url, remove, error, cached }
 }
 
 export interface SavedPlace { id: string; name: string; lat: number; lng: number; saved_at: string }

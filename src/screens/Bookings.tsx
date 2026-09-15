@@ -59,7 +59,7 @@ function BookingSheet({ booking, tripSlug, row, save, onClose }: {
 }) {
   const { session } = useAuth()
   const ownerId = session?.user.id ?? ''
-  const { list, upload, url, remove, error: attError } = useAttachments(tripSlug, booking.id, ownerId)
+  const { list, loading: attLoading, upload, url, remove, error: attError, cached } = useAttachments(tripSlug, booking.id, ownerId)
 
   const [status, setStatus] = useState(row?.status ?? '')
   const [confirmationRef, setConfirmationRef] = useState(row?.confirmation_ref ?? '')
@@ -255,6 +255,7 @@ function BookingSheet({ booking, tripSlug, row, save, onClose }: {
                   </button>
                   <span className="attachments__size">{fmtSize(a.size)}</span>
                   {a.pendingUpload && <Pill tone="columbia">waiting to upload</Pill>}
+                  {!a.pendingUpload && cached.has(a.id) && <Pill tone="muted">offline</Pill>}
                   <button type="button" className="attachments__delete" onClick={() => void handleDeleteAttachment(a)}>
                     Delete
                   </button>
@@ -268,9 +269,10 @@ function BookingSheet({ booking, tripSlug, row, save, onClose }: {
               id="booking-attachment"
               type="file"
               accept="application/pdf,image/*"
-              disabled={uploading}
+              disabled={uploading || attLoading}
               onChange={e => void handleFileChange(e)}
             />
+            {attLoading && <p className="caption">Loading attachments…</p>}
           </div>
           {uploadQueued && <p className="form__msg form__msg--queued">{QUEUED_COPY}</p>}
           {(actionError ?? attError) && <p className="form__msg form__msg--error">{actionError ?? attError}</p>}

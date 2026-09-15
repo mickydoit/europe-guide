@@ -8,6 +8,15 @@ import * as outbox from '../../src/lib/outbox'
 import { enqueue, listOutbox } from '../../src/lib/outbox'
 import type { AttachmentUploadPayload, CheckSetPayload, DayNotesPayload } from '../../src/lib/outbox'
 import { resetSyncForTests } from '../../src/lib/sync'
+import * as attachmentsCache from '../../src/lib/attachmentsCache'
+import { FakeCacheStorage } from '../helpers/fakeCaches'
+
+// cacheAttachment is spied (not replaced) so useAttachments' offline-cache prefetch keeps
+// working against the FakeCacheStorage stubbed in below, while tests can assert it ran.
+vi.mock('../../src/lib/attachmentsCache', async importOriginal => {
+  const actual = await importOriginal<typeof import('../../src/lib/attachmentsCache')>()
+  return { ...actual, cacheAttachment: vi.fn(actual.cacheAttachment) }
+})
 
 // Every write now lands in the outbox when it cannot reach the server, so each test needs
 // a queue of its own — otherwise one test's queued tick reconciles into the next one's load.
@@ -23,6 +32,18 @@ async function wipe() {
 }
 
 beforeEach(wipe)
+
+// jsdom has neither `caches` nor a same-origin `fetch` target; useAttachments' offline-cache
+// prefetch touches both by default, so every test gets a fake Cache Storage and a fetch
+// stub whether or not it cares about caching.
+let fakeCaches: FakeCacheStorage
+beforeEach(() => {
+  fakeCaches = new FakeCacheStorage()
+  vi.stubGlobal('caches', fakeCaches)
+  vi.stubGlobal('fetch', vi.fn(async () => new Response(new Uint8Array([1, 2, 3]).buffer, { status: 200 })))
+  vi.mocked(attachmentsCache.cacheAttachment).mockClear()
+})
+afterEach(() => { vi.unstubAllGlobals() })
 
 /** Fake-clock milliseconds a hook's initial load needs, IndexedDB outbox read included. */
 const LOAD_MS = 50
@@ -994,4 +1015,138 @@ test('useChecks: a toggle made while the read is still in flight survives it', a
   act(() => { release() })
   await waitFor(() => expect(result.current.loading).toBe(false))
   expect(result.current.done.has('valle/T01')).toBe(true)
+})
+
+// ---- attachments are cached for offline use --------------------------------
+
+test('useAttachments: an online load prefetches every listed row into the offline cache', async () => {
+  const { client, storageCalls } = makeFakeClient({
+    attachments: [
+      { id: 'r1', trip: 'valle', booking_id: 'T01', storage_path: 'owner-1/valle/T01/1-a.pdf', filename: 'a.pdf', mime: 'application/pdf', size: 10, uploaded_at: '2026-01-01T00:00:00.000Z' },
+      { id: 'r2', trip: 'valle', booking_id: 'T01', storage_path: 'owner-1/valle/T01/2-b.pdf', filename: 'b.pdf', mime: 'application/pdf', size: 10, uploaded_at: '2026-01-02T00:00:00.000Z' },
+    ],
+  })
+  const { result } = renderHook(() => useAttachments('valle', 'T01', 'owner-1', client))
+  await waitFor(() => expect(result.current.loading).toBe(false))
+
+  await waitFor(() => expect(attachmentsCache.cacheAttachment).toHaveBeenCalledTimes(2))
+  expect(attachmentsCache.cacheAttachment).toHaveBeenCalledWith('r1', 'https://signed.example/owner-1/valle/T01/1-a.pdf')
+  expect(attachmentsCache.cacheAttachment).toHaveBeenCalledWith('r2', 'https://signed.example/owner-1/valle/T01/2-b.pdf')
+  await waitFor(() => expect(result.current.cached.has('r1')).toBe(true))
+  expect(result.current.cached.has('r2')).toBe(true)
+  expect(storageCalls.filter(c => c.op === 'createSignedUrl')).toHaveLength(2)
+})
+
+test('useAttachments: prefetch skips a row already in the cache', async () => {
+  const rowId = 'r1'
+  await attachmentsCache.cacheAttachment(rowId, 'https://signed.example/pre-cached')
+  vi.mocked(attachmentsCache.cacheAttachment).mockClear()
+
+  const { client } = makeFakeClient({
+    attachments: [
+      { id: 'r1', trip: 'valle', booking_id: 'T01', storage_path: 'owner-1/valle/T01/1-a.pdf', filename: 'a.pdf', mime: 'application/pdf', size: 10, uploaded_at: '2026-01-01T00:00:00.000Z' },
+      { id: 'r2', trip: 'valle', booking_id: 'T01', storage_path: 'owner-1/valle/T01/2-b.pdf', filename: 'b.pdf', mime: 'application/pdf', size: 10, uploaded_at: '2026-01-02T00:00:00.000Z' },
+    ],
+  })
+  const { result } = renderHook(() => useAttachments('valle', 'T01', 'owner-1', client))
+  await waitFor(() => expect(result.current.loading).toBe(false))
+
+  await waitFor(() => expect(result.current.cached.has('r2')).toBe(true))
+  expect(result.current.cached.has('r1')).toBe(true)
+  expect(attachmentsCache.cacheAttachment).toHaveBeenCalledTimes(1)
+  expect(attachmentsCache.cacheAttachment).toHaveBeenCalledWith('r2', expect.any(String))
+})
+
+test('useAttachments: offline url() serves the cached blob and never calls createSignedUrl again', async () => {
+  if (!URL.createObjectURL) Object.defineProperty(URL, 'createObjectURL', { value: () => '', configurable: true, writable: true })
+  if (!URL.revokeObjectURL) Object.defineProperty(URL, 'revokeObjectURL', { value: () => {}, configurable: true, writable: true })
+  const create = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:cached')
+  try {
+    const { client, storageCalls } = makeFakeClient({
+      attachments: [
+        { id: 'r1', trip: 'valle', booking_id: 'T01', storage_path: 'owner-1/valle/T01/1-a.pdf', filename: 'a.pdf', mime: 'application/pdf', size: 10, uploaded_at: '2026-01-01T00:00:00.000Z' },
+      ],
+    })
+    const { result } = renderHook(() => useAttachments('valle', 'T01', 'owner-1', client))
+    await waitFor(() => expect(result.current.loading).toBe(false))
+    await waitFor(() => expect(result.current.cached.has('r1')).toBe(true))
+    const signedCallsAfterPrefetch = storageCalls.filter(c => c.op === 'createSignedUrl').length
+    expect(signedCallsAfterPrefetch).toBe(1)
+
+    goOffline()
+    let got = ''
+    await act(async () => { got = await result.current.url(result.current.list[0]) })
+
+    expect(got).toBe('blob:cached')
+    expect(storageCalls.filter(c => c.op === 'createSignedUrl')).toHaveLength(signedCallsAfterPrefetch)
+  } finally {
+    create.mockRestore()
+  }
+})
+
+test('useAttachments: an upload that lands while the initial read is in flight survives it', async () => {
+  let release!: () => void
+  const gate = new Promise<void>(resolve => { release = resolve })
+  const client = {
+    from(table: string) {
+      if (table !== 'attachments') throw new Error(`unexpected table ${table}`)
+      let mode: 'select' | 'insert' = 'select'
+      let payload: Record<string, unknown> = {}
+      let single = false
+      const q: Record<string, unknown> = {
+        select() { return q },
+        eq() { return q },
+        order() { return q },
+        insert(p: Record<string, unknown>) { mode = 'insert'; payload = p; return q },
+        single() { single = true; return q },
+        then(resolve: (r: { data: unknown; error: unknown }) => void) {
+          if (mode === 'insert') {
+            const row = { id: 'fake-1', trip: 'valle', booking_id: 'T01', uploaded_at: '2026-01-01T00:00:00.000Z', ...payload }
+            resolve({ data: single ? row : [row], error: null })
+            return
+          }
+          void gate.then(() => resolve({ data: [], error: null }))
+        },
+      }
+      return q
+    },
+    storage: {
+      from: () => ({
+        async upload(path: string) { return { data: { path }, error: null } },
+        async createSignedUrl(path: string) { return { data: { signedUrl: `https://signed.example/${path}` }, error: null } },
+      }),
+    },
+  } as unknown as SupabaseClient
+
+  const { result } = renderHook(() => useAttachments('valle', 'T01', 'owner-1', client))
+  expect(result.current.loading).toBe(true)
+
+  const file = new File([new Uint8Array(4)], 'ticket.pdf', { type: 'application/pdf' })
+  await act(async () => { await result.current.upload(file) })
+  expect(result.current.list).toHaveLength(1)
+  expect(result.current.list[0].filename).toBe('ticket.pdf')
+
+  act(() => { release() })
+  await waitFor(() => expect(result.current.loading).toBe(false))
+  // The empty server response — captured before the insert landed — must not drop the
+  // upload that overtook it.
+  expect(result.current.list).toHaveLength(1)
+  expect(result.current.list[0].filename).toBe('ticket.pdf')
+})
+
+test('useAttachments: remove() also evicts the offline cache entry', async () => {
+  const { client } = makeFakeClient({
+    attachments: [
+      { id: 'r1', trip: 'valle', booking_id: 'T01', storage_path: 'owner-1/valle/T01/1-a.pdf', filename: 'a.pdf', mime: 'application/pdf', size: 10, uploaded_at: '2026-01-01T00:00:00.000Z' },
+    ],
+  })
+  const { result } = renderHook(() => useAttachments('valle', 'T01', 'owner-1', client))
+  await waitFor(() => expect(result.current.loading).toBe(false))
+  await waitFor(() => expect(result.current.cached.has('r1')).toBe(true))
+  expect(await attachmentsCache.hasCachedAttachment('r1')).toBe(true)
+
+  await act(async () => { await result.current.remove(result.current.list[0]) })
+
+  expect(await attachmentsCache.hasCachedAttachment('r1')).toBe(false)
+  expect(result.current.cached.has('r1')).toBe(false)
 })

@@ -8,43 +8,7 @@ import {
   MemorySource,
 } from '../../src/lib/offlineMaps'
 import type { OfflineAreaRow } from '../../src/lib/types'
-
-// jsdom has no `caches`; this is a minimal in-memory CacheStorage/Cache polyfill
-// injected via the `cacheStorage` parameter of every offlineMaps function.
-class FakeCache {
-  store = new Map<string, Response>()
-  async put(req: Request | string, res: Response) {
-    this.store.set(typeof req === 'string' ? req : req.url, res.clone())
-  }
-  async match(req: Request | string) {
-    return this.store.get(typeof req === 'string' ? req : req.url)
-  }
-  async delete(req: Request | string) {
-    return this.store.delete(typeof req === 'string' ? req : req.url)
-  }
-  async keys() {
-    return [...this.store.keys()].map(k => new Request(k))
-  }
-}
-class FakeCacheStorage {
-  caches = new Map<string, FakeCache>()
-  async open(name: string) {
-    if (!this.caches.has(name)) this.caches.set(name, new FakeCache())
-    return this.caches.get(name) as unknown as Cache
-  }
-  async delete(name: string) {
-    return this.caches.delete(name)
-  }
-  async has(name: string) {
-    return this.caches.has(name)
-  }
-  async keys() {
-    return [...this.caches.keys()]
-  }
-  async match() {
-    return undefined
-  }
-}
+import { FakeCacheStorage } from '../helpers/fakeCaches'
 
 function area(seq: number, overrides: Partial<OfflineAreaRow> = {}): OfflineAreaRow {
   return {
