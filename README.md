@@ -47,7 +47,7 @@ country_code: pt           # optional — required only if `country` is set but 
 Run the import:
 
 ```bash
-npm run import -- <slug> [--dry-run] [--skip-maps] [--maxzoom N]
+npm run import -- <slug> [--dry-run] [--skip-maps] [--maxzoom N] [--split-areas]
 ```
 
 - `--dry-run` never writes to the trip/day/item/etc. content tables — it prints the counts it
@@ -55,7 +55,16 @@ npm run import -- <slug> [--dry-run] [--skip-maps] [--maxzoom N]
   It still calls the Google Geocoding and Routes APIs and upserts hits into `geocode_cache`,
   so it consumes API quota just like a real import.
 - `--skip-maps` skips building/uploading offline `.pmtiles` areas for that run.
-- `--maxzoom N` (default 16) caps the offline map tile zoom level.
+- `--maxzoom N` (default 15, the Protomaps daily build's maximum) caps the offline map tile zoom
+  level.
+- By default, offline maps are built as **one merged `.pmtiles` file per city**: the union bbox
+  of every clustered point (itinerary items, parked venues, route leg endpoints), each padded
+  400 m, uploaded to `<slug>/0.pmtiles` and recorded as a single `offline_areas` row (`seq 0`,
+  named after the trip). This removes the seams/gaps a multi-area download used to leave at
+  cluster boundaries. Expect roughly 20–40 MB for a city-sized trip like Lisbon; the import
+  report prints the extracted size in MB.
+- `--split-areas` restores the old behaviour: one extract per geocoded cluster (walking-distance
+  groups of points), each its own `offline_areas` row.
 
 A parse failure aborts immediately and prints `✗ <file>:<line>: <message>` with a non-zero
 exit code — nothing partial is written. A real (non-dry-run) import is atomic: the Postgres
