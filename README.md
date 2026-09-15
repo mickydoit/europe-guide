@@ -17,6 +17,11 @@ Copy `.env.example` to `.env` and fill in the `VITE_*` values for local developm
 
 ## Importing a city
 
+**Prerequisites:** the [`pmtiles`](https://github.com/protomaps/go-pmtiles) CLI on `PATH`
+(`brew install pmtiles`) — required unless you pass `--skip-maps` or `--dry-run` — and the
+[Supabase CLI](https://supabase.com/docs/guides/local-development/cli/getting-started), logged
+in and linked to the project.
+
 Trip content lives outside the repo, in `content/<slug>/` (gitignored — never commit it). Each
 city is four markdown files, matched by filename suffix inside that directory:
 
@@ -45,8 +50,10 @@ Run the import:
 npm run import -- <slug> [--dry-run] [--skip-maps] [--maxzoom N]
 ```
 
-- `--dry-run` parses and geocodes but never writes to Supabase — it prints the counts it
+- `--dry-run` never writes to the trip/day/item/etc. content tables — it prints the counts it
   would have written and the geocode-miss list, so misses can be fixed in the markdown first.
+  It still calls the Google Geocoding and Routes APIs and upserts hits into `geocode_cache`,
+  so it consumes API quota just like a real import.
 - `--skip-maps` skips building/uploading offline `.pmtiles` areas for that run.
 - `--maxzoom N` (default 16) caps the offline map tile zoom level.
 

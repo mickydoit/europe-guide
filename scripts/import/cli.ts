@@ -1,3 +1,7 @@
+import { execFile } from 'node:child_process'
+import { promisify } from 'node:util'
+import { resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { createClient } from '@supabase/supabase-js'
 import { loadEnv } from './env'
 import { assembleCity, rewriteCity } from './write'
@@ -7,11 +11,42 @@ import { buildOfflineAreas, supabaseUploader } from './offline'
 import { printReport } from './report'
 import { ImportError } from './md'
 
+const pexec = promisify(execFile)
+const USAGE = 'usage: npm run import -- <city> [--dry-run] [--skip-maps] [--maxzoom N]'
+const ALLOWED_FLAGS = new Set(['--dry-run', '--skip-maps', '--maxzoom'])
+
+export function parseFlags(flags: string[]): { dryRun: boolean; skipMaps: boolean; maxzoom: number } {
+  let dryRun = false
+  let skipMaps = false
+  let maxzoom = 16
+  for (let i = 0; i < flags.length; i++) {
+    const f = flags[i]
+    if (f === '--dry-run') { dryRun = true; continue }
+    if (f === '--skip-maps') { skipMaps = true; continue }
+    if (f === '--maxzoom') {
+      const v = flags[++i]
+      if (v === undefined || !/^\d+$/.test(v)) throw new Error('--maxzoom requires a numeric value')
+      maxzoom = +v
+      continue
+    }
+    if (!ALLOWED_FLAGS.has(f)) throw new Error(`unknown flag: ${f}`)
+  }
+  return { dryRun, skipMaps, maxzoom }
+}
+
 async function main() {
   const [slug, ...flags] = process.argv.slice(2)
-  if (!slug) { console.error('usage: npm run import -- <city> [--dry-run] [--skip-maps] [--maxzoom N]'); process.exit(2) }
-  const dryRun = flags.includes('--dry-run'); const skipMaps = flags.includes('--skip-maps')
-  const mz = flags.indexOf('--maxzoom'); const maxzoom = mz >= 0 ? +flags[mz + 1] : 16
+  if (!slug) { console.error(USAGE); process.exit(2) }
+  let dryRun: boolean, skipMaps: boolean, maxzoom: number
+  try {
+    ({ dryRun, skipMaps, maxzoom } = parseFlags(flags))
+  } catch (e) {
+    console.error((e as Error).message); console.error(USAGE); process.exit(2)
+  }
+  if (!skipMaps && !dryRun) {
+    try { await pexec('pmtiles', ['--help']) }
+    catch { throw new Error('pmtiles CLI not found. Install with: brew install pmtiles  (or pass --skip-maps)') }
+  }
   const env = loadEnv()
   const client = createClient(env.supabaseUrl, env.serviceKey, { auth: { persistSession: false } })
   const { content, cityHint } = await assembleCity(`content/${slug}`, slug)
@@ -30,4 +65,11 @@ async function main() {
     : await rewriteCity(client, env.ownerId, content)
   printReport({ slug, counts, misses, warnings, dryRun, url: `https://mickydoit.github.io/europe-guide/?trip=${slug}` })
 }
-main().catch(e => { if (e instanceof ImportError) console.error(`\n✗ ${e.message}`); else console.error(e); process.exit(1) })
+const isDirectRun = !!process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)
+if (isDirectRun) {
+  main().catch(e => {
+    if (e instanceof Error) console.error(`\n✗ ${e.message}`); else console.error(e)
+    if (process.env.DEBUG) console.error(e)
+    process.exit(1)
+  })
+}
