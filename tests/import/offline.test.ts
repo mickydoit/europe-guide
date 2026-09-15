@@ -1,3 +1,4 @@
+import { vi } from 'vitest'
 import { clusterPoints, bboxOf, buildOfflineAreas } from '../../scripts/import/offline'
 import type { CityContent } from '../../scripts/import/types'
 test('clusters points by distance', () => {
@@ -27,4 +28,21 @@ test('buildOfflineAreas rejects when the extracted file is empty', async () => {
   await expect(buildOfflineAreas('valle', content, { buildUrl: 'https://build.protomaps.com/20260901.pmtiles', outDir: '/tmp/x',
     exec: async () => {}, upload: async () => 1234, statImpl: async () => ({ size: 0 }) }))
     .rejects.toThrow(/produced no file/)
+})
+
+test('buildOfflineAreas retries a failed extract with backoff', async () => {
+  let calls = 0
+  const content = { items: [{ kind: 'stop', place_name: 'Centre', lat: 38.71, lng: -9.14 }], parked: [], legs: [] } as unknown as CityContent
+  const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+  const rows = await buildOfflineAreas('valle', content, { buildUrl: 'u', outDir: '/tmp/x', retryDelaysMs: [0, 0],
+    exec: async () => { calls++; if (calls < 3) throw new Error('HTTP error: 429') },
+    upload: async () => 10, statImpl: async () => ({ size: 10 }) })
+  expect(calls).toBe(3); expect(rows).toHaveLength(1); expect(warn).toHaveBeenCalledTimes(2)
+  warn.mockRestore()
+})
+test('buildOfflineAreas gives up after the last retry', async () => {
+  const content = { items: [{ kind: 'stop', place_name: 'Centre', lat: 38.71, lng: -9.14 }], parked: [], legs: [] } as unknown as CityContent
+  vi.spyOn(console, 'warn').mockImplementation(() => {})
+  await expect(buildOfflineAreas('valle', content, { buildUrl: 'u', outDir: '/tmp/x', retryDelaysMs: [0],
+    exec: async () => { throw new Error('HTTP error: 429') }, upload: async () => 10, statImpl: async () => ({ size: 10 }) })).rejects.toThrow(/429/)
 })

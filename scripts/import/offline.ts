@@ -53,9 +53,22 @@ export async function buildOfflineAreas(
     exec?: (cmd: string, args: string[]) => Promise<void>
     upload?: (local: string, remote: string) => Promise<number>
     statImpl?: (p: string) => Promise<{ size: number }>
+    /** Backoff delays (ms) between retries of a failed extract; the public build server rate-limits bursts (HTTP 429). */
+    retryDelaysMs?: number[]
   }
 ): Promise<OfflineAreaRow[]> {
-  const exec = opts.exec ?? (async (cmd: string, args: string[]) => { await pexec(cmd, args) })
+  const rawExec = opts.exec ?? (async (cmd: string, args: string[]) => { await pexec(cmd, args) })
+  const delays = opts.retryDelaysMs ?? [15_000, 45_000, 90_000]
+  const exec = async (cmd: string, args: string[]) => {
+    for (let attempt = 0; ; attempt++) {
+      try { await rawExec(cmd, args); return }
+      catch (e) {
+        if (attempt >= delays.length) throw e
+        console.warn(`pmtiles extract failed (attempt ${attempt + 1}/${delays.length + 1}); retrying in ${delays[attempt] / 1000}s`)
+        await new Promise(r => setTimeout(r, delays[attempt]))
+      }
+    }
+  }
   if (!opts.upload) throw new Error('upload required')
   const upload = opts.upload
   const doStat = opts.statImpl ?? stat
