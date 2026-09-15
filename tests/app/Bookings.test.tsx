@@ -158,3 +158,47 @@ test('choosing a file calls upload with that file', async () => {
 
   await waitFor(() => expect(uploadMock).toHaveBeenCalledWith(file))
 })
+
+test('a queued save shows the accent "saved on this phone" message instead of "Saved"', async () => {
+  saveMock.mockResolvedValueOnce({ queued: true })
+  renderBookings(content)
+  const section = screen.getByRole('heading', { name: 'To book' }).closest('section') as HTMLElement
+  fireEvent.click(within(section).getByText(/Trattoria Alba/, { exact: false }).closest('button') as HTMLElement)
+
+  const dialog = screen.getByRole('dialog')
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Save' }))
+
+  const msg = await within(dialog).findByText('Saved on this phone — will sync when online')
+  expect(msg).toHaveClass('form__msg--queued')
+})
+
+test('a queued upload shows the same message and the file input stays usable', async () => {
+  uploadMock.mockResolvedValueOnce({ queued: true })
+  renderBookings(content)
+  const section = screen.getByRole('heading', { name: 'To book' }).closest('section') as HTMLElement
+  fireEvent.click(within(section).getByText(/Trattoria Alba/, { exact: false }).closest('button') as HTMLElement)
+
+  const dialog = screen.getByRole('dialog')
+  const input = within(dialog).getByLabelText('Add PDF or photo') as HTMLInputElement
+  fireEvent.change(input, { target: { files: [new File(['hi'], 'ticket.pdf', { type: 'application/pdf' })] } })
+
+  expect(await within(dialog).findByText('Saved on this phone — will sync when online')).toBeInTheDocument()
+  expect(input.disabled).toBe(false)
+})
+
+test('a pending attachment row is tagged "waiting to upload"', async () => {
+  useAttachmentsMock.mockReturnValue({
+    list: [{
+      id: 'pending:owner-1/valle/T01/1-ticket.pdf', trip: 'valle', booking_id: 'T01',
+      storage_path: 'owner-1/valle/T01/1-ticket.pdf', filename: 'ticket.pdf',
+      mime: 'application/pdf', size: 1234, uploaded_at: '2026-01-01', pendingUpload: true,
+    }],
+    loading: false, upload: uploadMock, url: urlMock, remove: removeMock, error: null,
+  })
+  renderBookings(content)
+  const section = screen.getByRole('heading', { name: 'To book' }).closest('section') as HTMLElement
+  fireEvent.click(within(section).getByText(/Trattoria Alba/, { exact: false }).closest('button') as HTMLElement)
+
+  const dialog = screen.getByRole('dialog')
+  expect(within(dialog).getByText('waiting to upload')).toBeInTheDocument()
+})

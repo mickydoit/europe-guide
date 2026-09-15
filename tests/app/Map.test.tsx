@@ -466,14 +466,17 @@ async function openPlaceSheet() {
   return screen.findByRole('button', { name: 'Save for today' })
 }
 
-test('Save for today while offline says so and never calls savePlace', async () => {
+test('Save for today while offline still saves — the hook queues it and the sheet says so', async () => {
   vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false)
+  savePlace.mockResolvedValueOnce({ queued: true })
   const button = await openPlaceSheet()
 
   fireEvent.click(button)
 
-  expect(await screen.findByText("Can't save while offline")).toBeInTheDocument()
-  expect(savePlace).not.toHaveBeenCalled()
+  expect(savePlace).toHaveBeenCalled()
+  const msg = await screen.findByText('Saved on this phone — will sync when online')
+  expect(msg).toHaveClass('form__msg--queued')
+  expect(screen.queryByText("Can't save while offline")).toBeNull()
 })
 
 test('a rejected save shows the plain-language message, not the raw error', async () => {

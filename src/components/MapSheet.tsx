@@ -18,10 +18,12 @@ export interface MapSheetProps {
   saved?: boolean
   saving?: boolean
   error?: string | null
+  /** Places only: the save went to the outbox, not the server. Accent tone, not salmon. */
+  queuedMsg?: string | null
 }
 
 export function MapSheet({
-  open, kind, title, subtitle, details, walkHref, onClose, photoSrc, onSave, saved, saving, error,
+  open, kind, title, subtitle, details, walkHref, onClose, photoSrc, onSave, saved, saving, error, queuedMsg,
 }: MapSheetProps) {
   return (
     <Sheet open={open} title={title} onClose={onClose}>
@@ -41,6 +43,7 @@ export function MapSheet({
           {saved ? 'Saved' : saving ? 'Saving…' : 'Save for today'}
         </button>
       )}
+      {queuedMsg && <p className="form__msg form__msg--queued">{queuedMsg}</p>}
       {error && <p className="form__msg form__msg--error">{error}</p>}
     </Sheet>
   )

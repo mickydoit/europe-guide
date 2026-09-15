@@ -20,6 +20,8 @@ const { toggle, useChecksMock, removePlace, useDayNotesMock } = vi.hoisted(() =>
   }
 })
 vi.mock('../../src/lib/state', () => ({ useChecks: useChecksMock, useDayNotes: useDayNotesMock }))
+// The Day header carries a SyncBadge; keep the outbox (and its IndexedDB reads) out of these tests.
+vi.mock('../../src/lib/sync', () => ({ useSync: () => ({ pending: 0, failed: 0, syncing: false, lastError: undefined, retryFailed: vi.fn() }) }))
 
 import { Day } from '../../src/screens/Day'
 
@@ -84,6 +86,17 @@ test('a failed toggle surfaces an inline "could not save" message that clears it
   const card = heading.closest('.stop-card') as HTMLElement
   fireEvent.click(within(card).getByRole('button', { name: 'Mark done' }))
   expect(await screen.findByText("Couldn't save — you may be offline")).toBeInTheDocument()
+})
+
+test('a queued toggle surfaces the accent "saved on this phone" message, not the error one', async () => {
+  toggle.mockResolvedValueOnce({ queued: true })
+  renderDay('2026-11-02', content)
+  const heading = await screen.findByText('Piazza Grande', { exact: false })
+  const card = heading.closest('.stop-card') as HTMLElement
+  fireEvent.click(within(card).getByRole('button', { name: 'Mark done' }))
+  const msg = await screen.findByText('Saved on this phone — will sync when online')
+  expect(msg).toHaveClass('form__msg--queued')
+  expect(screen.queryByText("Couldn't save — you may be offline")).toBeNull()
 })
 
 test('a null-block note with a lower sort renders before the Morning heading', async () => {

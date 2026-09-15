@@ -1,7 +1,39 @@
+import '../helpers/blobClone'
 import { renderHook, act, waitFor } from '@testing-library/react'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { useChecks, useBookingState, useAttachments, useDayNotes } from '../../src/lib/state'
 import type { SavedPlace } from '../../src/lib/state'
+import { resetDbForTests } from '../../src/lib/db'
+import { enqueue, listOutbox } from '../../src/lib/outbox'
+import type { AttachmentUploadPayload, CheckSetPayload, DayNotesPayload } from '../../src/lib/outbox'
+import { resetSyncForTests } from '../../src/lib/sync'
+
+// Every write now lands in the outbox when it cannot reach the server, so each test needs
+// a queue of its own — otherwise one test's queued tick reconciles into the next one's load.
+async function wipe() {
+  resetSyncForTests()
+  await resetDbForTests()
+  await new Promise<void>(resolve => {
+    const req = indexedDB.deleteDatabase('europe-guide')
+    req.onsuccess = () => resolve()
+    req.onerror = () => resolve()
+    req.onblocked = () => resolve()
+  })
+}
+
+beforeEach(wipe)
+
+/** Fake-clock milliseconds a hook's initial load needs, IndexedDB outbox read included. */
+const LOAD_MS = 50
+
+/** Pretend the phone lost signal for the duration of one test. */
+function goOffline() {
+  Object.defineProperty(navigator, 'onLine', { value: false, configurable: true })
+}
+
+afterEach(() => {
+  Object.defineProperty(navigator, 'onLine', { value: true, configurable: true })
+})
 
 type Row = Record<string, unknown>
 type Res<T> = { data: T | null; error: { message: string } | null }
@@ -303,7 +335,9 @@ test('useDayNotes: setNote is optimistic and upserts once after the 800 ms debou
   try {
     const { client, calls } = makeFakeClient()
     const { result } = renderHook(() => useDayNotes('valle', '2026-11-02', client))
-    await act(async () => { await vi.advanceTimersByTimeAsync(0) })
+    // The initial load now also reads the outbox from IndexedDB, which needs a few
+    // ticks of the fake clock before `loading` can go false.
+    await act(async () => { await vi.advanceTimersByTimeAsync(LOAD_MS) })
     expect(result.current.loading).toBe(false)
 
     act(() => { result.current.setNote('a') })
@@ -376,7 +410,9 @@ test('useDayNotes: setNote upserts only text, never saved_places', async () => {
       dayNotes: [{ trip: 'valle', date: '2026-11-02', text: '', saved_places: [{ id: 'p1', name: 'A', lat: 1, lng: 2, saved_at: 'x' }] }],
     })
     const { result } = renderHook(() => useDayNotes('valle', '2026-11-02', client))
-    await act(async () => { await vi.advanceTimersByTimeAsync(0) })
+    // The initial load now also reads the outbox from IndexedDB, which needs a few
+    // ticks of the fake clock before `loading` can go false.
+    await act(async () => { await vi.advanceTimersByTimeAsync(LOAD_MS) })
 
     act(() => { result.current.setNote('ferry at 9') })
     await act(async () => { await vi.advanceTimersByTimeAsync(800) })
@@ -394,7 +430,7 @@ test('useDayNotes: unmounting with a pending note flushes it instead of dropping
   try {
     const { client, calls } = makeFakeClient()
     const { result, unmount } = renderHook(() => useDayNotes('valle', '2026-11-02', client))
-    await act(async () => { await vi.advanceTimersByTimeAsync(0) })
+    await act(async () => { await vi.advanceTimersByTimeAsync(LOAD_MS) })
 
     act(() => { result.current.setNote('half typed') })
     expect(calls.filter(c => c.table === 'day_notes' && c.mode === 'upsert')).toHaveLength(0)
@@ -416,10 +452,10 @@ test('useDayNotes: changing the date flushes the previous day’s pending note o
     const { result, rerender } = renderHook(({ date }) => useDayNotes('valle', date, client), {
       initialProps: { date: '2026-11-02' },
     })
-    await act(async () => { await vi.advanceTimersByTimeAsync(0) })
+    await act(async () => { await vi.advanceTimersByTimeAsync(LOAD_MS) })
 
     act(() => { result.current.setNote('monday note') })
-    await act(async () => { rerender({ date: '2026-11-03' }); await vi.advanceTimersByTimeAsync(0) })
+    await act(async () => { rerender({ date: '2026-11-03' }); await vi.advanceTimersByTimeAsync(LOAD_MS) })
 
     const upserts = calls.filter(c => c.table === 'day_notes' && c.mode === 'upsert')
     expect(upserts).toHaveLength(1)
@@ -448,9 +484,10 @@ test('useDayNotes: a savePlace that fails mid-load lets the pending select apply
   })
   expect(result.current.savedPlaces).toEqual([])
 
-  await act(async () => { release(); await Promise.resolve() })
+  // The load also reads the outbox before it applies anything, so wait for it to land.
+  act(() => { release() })
+  await waitFor(() => expect(result.current.savedPlaces).toEqual([serverPlace]))
 
-  expect(result.current.savedPlaces).toEqual([serverPlace])
   expect(warn).toHaveBeenCalled()
   warn.mockRestore()
 })
@@ -464,10 +501,10 @@ test('useDayNotes: an unsent note survives the load while server places still la
   expect(result.current.loading).toBe(true)
 
   act(() => { result.current.setNote('draft') })
-  await act(async () => { release(); await Promise.resolve() })
+  act(() => { release() })
+  await waitFor(() => expect(result.current.savedPlaces).toEqual([serverPlace]))
 
   expect(result.current.note).toBe('draft')
-  expect(result.current.savedPlaces).toEqual([serverPlace])
 })
 
 test('useDayNotes: an empty date is not a query — it keeps the empty state and stops loading', async () => {
@@ -536,4 +573,205 @@ test('useDayNotes: changing the day clears the previous day’s places before th
   await act(async () => { release!() })
   await waitFor(() => expect(result.current.loading).toBe(false))
   expect(result.current.savedPlaces.map(p => p.id)).toEqual(['p2'])
+})
+
+// ---- offline writes go to the outbox ---------------------------------------
+
+test('useChecks: an offline toggle enqueues, keeps the tick and never calls the client', async () => {
+  const { client, calls } = makeFakeClient()
+  const { result } = renderHook(() => useChecks('valle', client))
+  await waitFor(() => expect(result.current.loading).toBe(false))
+  const before = calls.length
+
+  goOffline()
+  let outcome: { queued: boolean } | undefined
+  await act(async () => { outcome = await result.current.toggle('valle/T01') })
+
+  expect(outcome).toEqual({ queued: true })
+  expect(result.current.done.has('valle/T01')).toBe(true)
+  expect(calls.length).toBe(before)
+
+  const ops = await listOutbox()
+  expect(ops).toHaveLength(1)
+  expect(ops[0].kind).toBe('check_set')
+  expect(ops[0].key).toBe('check:valle/T01')
+  expect(ops[0].payload as CheckSetPayload).toEqual({ itemId: 'valle/T01', done: true })
+})
+
+test('useChecks: a network TypeError from the client enqueues instead of reverting', async () => {
+  const calls: string[] = []
+  const client = {
+    from: () => {
+      const q: Record<string, unknown> = {
+        select: () => q, like: () => q, eq: () => q, delete: () => q,
+        insert: () => { calls.push('insert'); throw new TypeError('Failed to fetch') },
+        then: (resolve: (r: { data: unknown[]; error: null }) => void) => resolve({ data: [], error: null }),
+      }
+      return q
+    },
+  } as unknown as SupabaseClient
+
+  const { result } = renderHook(() => useChecks('valle', client))
+  await waitFor(() => expect(result.current.loading).toBe(false))
+
+  let outcome: { queued: boolean } | undefined
+  await act(async () => { outcome = await result.current.toggle('valle/T01') })
+
+  expect(calls).toEqual(['insert'])
+  expect(outcome).toEqual({ queued: true })
+  expect(result.current.done.has('valle/T01')).toBe(true)
+  expect((await listOutbox()).map(o => o.kind)).toEqual(['check_set'])
+})
+
+test('useChecks: a non-network error still reverts, rejects and queues nothing', async () => {
+  const { client } = makeFakeClient({ failInsert: true })
+  const { result } = renderHook(() => useChecks('valle', client))
+  await waitFor(() => expect(result.current.loading).toBe(false))
+
+  const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+  await act(async () => { await expect(result.current.toggle('valle/T01')).rejects.toThrow() })
+  warn.mockRestore()
+
+  expect(result.current.done.has('valle/T01')).toBe(false)
+  expect(await listOutbox()).toHaveLength(0)
+})
+
+test('useChecks: a fresh mount overlays a pending tick the server has not seen', async () => {
+  goOffline()
+  const first = makeFakeClient()
+  const { result, unmount } = renderHook(() => useChecks('valle', first.client))
+  await waitFor(() => expect(result.current.loading).toBe(false))
+  await act(async () => { await result.current.toggle('valle/T01') })
+  unmount()
+
+  // A second mount whose fetch returns nothing: the tick has to come back off the outbox.
+  const second = makeFakeClient()
+  const { result: reloaded } = renderHook(() => useChecks('valle', second.client))
+  await waitFor(() => expect(reloaded.current.loading).toBe(false))
+  await waitFor(() => expect(reloaded.current.done.has('valle/T01')).toBe(true))
+})
+
+test('useChecks: a pending untick hides a row the server still has', async () => {
+  await enqueue({ key: 'check:valle/T01', kind: 'check_set', payload: { itemId: 'valle/T01', done: false } })
+  const { client } = makeFakeClient({ itemChecks: [{ item_id: 'valle/T01' }] })
+  const { result } = renderHook(() => useChecks('valle', client))
+  await waitFor(() => expect(result.current.loading).toBe(false))
+  expect(result.current.done.has('valle/T01')).toBe(false)
+})
+
+test('useBookingState: an offline save enqueues booking_state and keeps the optimistic row', async () => {
+  const { client, calls } = makeFakeClient()
+  const { result } = renderHook(() => useBookingState('valle', client))
+  await waitFor(() => expect(result.current.loading).toBe(false))
+  const before = calls.length
+
+  goOffline()
+  let outcome: { queued: boolean } | undefined
+  await act(async () => { outcome = await result.current.save('T01', { status: 'booked', cost: 12.5 }) })
+
+  expect(outcome).toEqual({ queued: true })
+  expect(calls.length).toBe(before)
+  expect(result.current.state.T01.status).toBe('booked')
+
+  const ops = await listOutbox()
+  expect(ops).toHaveLength(1)
+  expect(ops[0].kind).toBe('booking_state')
+  expect(ops[0].key).toBe('booking:valle:T01')
+  expect(ops[0].payload).toMatchObject({ trip: 'valle', booking_id: 'T01', status: 'booked', cost: 12.5 })
+})
+
+test('useBookingState: a fresh mount merges a pending save over the server row', async () => {
+  await enqueue({
+    key: 'booking:valle:T01',
+    kind: 'booking_state',
+    payload: { trip: 'valle', booking_id: 'T01', status: 'confirmed', updated_at: '2026-09-15T00:00:00.000Z' },
+  })
+  const { client } = makeFakeClient({
+    bookingState: [{ trip: 'valle', booking_id: 'T01', status: 'booked', cost: 9, confirmation_ref: 'ABC', currency: 'EUR', notes: null, updated_at: '2026-09-01T00:00:00.000Z' }],
+  })
+  const { result } = renderHook(() => useBookingState('valle', client))
+  await waitFor(() => expect(result.current.loading).toBe(false))
+  expect(result.current.state.T01.status).toBe('confirmed')
+  // Fields the pending op did not touch still come from the server.
+  expect(result.current.state.T01.confirmation_ref).toBe('ABC')
+})
+
+test('useAttachments: an offline upload enqueues the blob and shows a pending row', async () => {
+  const { client, storageCalls } = makeFakeClient()
+  const { result } = renderHook(() => useAttachments('valle', 'T01', 'owner-1', client))
+  await waitFor(() => expect(result.current.loading).toBe(false))
+
+  goOffline()
+  const file = new File([new Uint8Array(1024)], 'ticket.pdf', { type: 'application/pdf' })
+  let outcome: { queued: boolean } | undefined
+  await act(async () => { outcome = await result.current.upload(file) })
+
+  expect(outcome).toEqual({ queued: true })
+  expect(storageCalls.length).toBe(0)
+  expect(result.current.list).toHaveLength(1)
+  expect(result.current.list[0].pendingUpload).toBe(true)
+  expect(result.current.list[0].filename).toBe('ticket.pdf')
+
+  const ops = await listOutbox()
+  expect(ops).toHaveLength(1)
+  expect(ops[0].kind).toBe('attachment_upload')
+  const payload = ops[0].payload as AttachmentUploadPayload
+  expect(payload.blob).toBeInstanceOf(Blob)
+  expect(await payload.blob.text()).toHaveLength(1024)
+  expect(payload.path).toMatch(/^owner-1\/valle\/T01\/\d+-ticket\.pdf$/)
+  expect(ops[0].key).toBe(payload.path)
+})
+
+test('useAttachments: a fresh mount lists a queued upload, and remove drops the op', async () => {
+  const blob = new Blob([new Uint8Array(4)], { type: 'application/pdf' })
+  await enqueue({
+    key: 'owner-1/valle/T01/1-queued.pdf',
+    kind: 'attachment_upload',
+    payload: { trip: 'valle', bookingId: 'T01', ownerId: 'owner-1', path: 'owner-1/valle/T01/1-queued.pdf', filename: 'queued.pdf', mime: 'application/pdf', size: 4, blob },
+  })
+  const { client } = makeFakeClient()
+  const { result } = renderHook(() => useAttachments('valle', 'T01', 'owner-1', client))
+  await waitFor(() => expect(result.current.loading).toBe(false))
+  await waitFor(() => expect(result.current.list).toHaveLength(1))
+  expect(result.current.list[0].pendingUpload).toBe(true)
+  expect(result.current.list[0].id).toBe('pending:owner-1/valle/T01/1-queued.pdf')
+
+  await act(async () => { await result.current.remove(result.current.list[0]) })
+  expect(result.current.list).toHaveLength(0)
+  expect(await listOutbox()).toHaveLength(0)
+})
+
+test('useDayNotes: an offline savePlace enqueues day_notes with the saved_places patch', async () => {
+  const { client, calls } = makeFakeClient()
+  const { result } = renderHook(() => useDayNotes('valle', '2026-11-02', client))
+  await waitFor(() => expect(result.current.loading).toBe(false))
+  const before = calls.length
+
+  goOffline()
+  const place: SavedPlace = { id: 'p1', name: 'Bar Uno', lat: 1, lng: 2, saved_at: '2026-11-02T08:00:00.000Z' }
+  let outcome: { queued: boolean } | undefined
+  await act(async () => { outcome = await result.current.savePlace(place) })
+
+  expect(outcome).toEqual({ queued: true })
+  expect(calls.length).toBe(before)
+  expect(result.current.savedPlaces.map(p => p.id)).toEqual(['p1'])
+
+  const ops = await listOutbox()
+  expect(ops).toHaveLength(1)
+  expect(ops[0].kind).toBe('day_notes')
+  expect(ops[0].key).toBe('notes:valle:2026-11-02:saved_places')
+  const payload = ops[0].payload as DayNotesPayload
+  expect(payload.trip).toBe('valle')
+  expect(payload.date).toBe('2026-11-02')
+  expect(payload.patch.saved_places).toEqual([place])
+})
+
+test('useDayNotes: a fresh mount overlays a pending note and pending places', async () => {
+  await enqueue({ key: 'notes:valle:2026-11-02:text', kind: 'day_notes', payload: { trip: 'valle', date: '2026-11-02', patch: { text: 'queued note' } } })
+  await enqueue({ key: 'notes:valle:2026-11-02:saved_places', kind: 'day_notes', payload: { trip: 'valle', date: '2026-11-02', patch: { saved_places: [{ id: 'p9', name: 'Queued', lat: 1, lng: 2, saved_at: '2026-11-02T09:00:00.000Z' }] } } })
+  const { client } = makeFakeClient({ dayNotes: [{ trip: 'valle', date: '2026-11-02', text: 'server note', saved_places: [], updated_at: '2026-09-01T00:00:00.000Z' }] })
+  const { result } = renderHook(() => useDayNotes('valle', '2026-11-02', client))
+  await waitFor(() => expect(result.current.loading).toBe(false))
+  expect(result.current.note).toBe('queued note')
+  expect(result.current.savedPlaces.map(p => p.id)).toEqual(['p9'])
 })

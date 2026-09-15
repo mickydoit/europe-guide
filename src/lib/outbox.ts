@@ -22,6 +22,8 @@ export type OutboxOp = {
 }
 
 export type CheckSetPayload = { itemId: string; done: boolean }
+/** The whole `booking_state` upsert row, exactly as `useBookingState.save` sends it. */
+export type BookingStatePayload = { trip: string; booking_id: string; updated_at: string; [key: string]: unknown }
 export type DayNotesPayload = { trip: string; date: string; patch: { text?: string; saved_places?: unknown[] } }
 export type AttachmentUploadPayload = {
   trip: string

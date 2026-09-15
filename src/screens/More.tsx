@@ -8,6 +8,9 @@ import { walkLink } from '../lib/links'
 import { Md } from '../components/Md'
 import { TripPicker } from '../components/TripPicker'
 import { OfflineMapCard } from '../components/OfflineMapCard'
+import { SyncBadge } from '../components/SyncBadge'
+import { useSync, useOutboxOps, flushOutbox } from '../lib/sync'
+import type { OutboxOp } from '../lib/outbox'
 import { buildIcs, downloadIcs } from '../lib/ics'
 
 const NOTE_SECTIONS: Array<{ key: 'standing' | 'walkin' | 'routes'; heading: string }> = [
@@ -16,10 +19,28 @@ const NOTE_SECTIONS: Array<{ key: 'standing' | 'walkin' | 'routes'; heading: str
   { key: 'routes', heading: 'Route notes' },
 ]
 
+// Plain words for what is waiting, in the order the owner is most likely to care about.
+const KIND_LABEL: Array<{ kind: OutboxOp['kind']; one: string; many: string }> = [
+  { kind: 'check_set', one: 'check', many: 'checks' },
+  { kind: 'booking_state', one: 'booking update', many: 'booking updates' },
+  { kind: 'day_notes', one: 'note', many: 'notes' },
+  { kind: 'attachment_upload', one: 'upload', many: 'uploads' },
+]
+
+function summarise(ops: Array<{ kind: string }>): string {
+  return KIND_LABEL
+    .map(({ kind, one, many }) => ({ n: ops.filter(o => o.kind === kind).length, one, many }))
+    .filter(c => c.n > 0)
+    .map(c => `${c.n} ${c.n === 1 ? c.one : c.many}`)
+    .join(' · ')
+}
+
 export function More() {
   const { trips, slug, content, loading, offline, error, setSlug, refresh } = useTrip()
   const [updateMsg, setUpdateMsg] = useState<string | null>(null)
   const { session, signOut } = useAuth()
+  const { pending, failed, lastError, retryFailed } = useSync()
+  const ops = useOutboxOps()
 
   if (loading && !content) {
     return <main className="screen"><p className="caption">Loading…</p></main>
@@ -41,8 +62,31 @@ export function More() {
 
   return (
     <main className="screen more">
-      <h1 className="h5">More</h1>
+      <div className="more-header">
+        <h1 className="h5">More</h1>
+        <SyncBadge />
+      </div>
       {error && <p className="form__msg form__msg--error">{error}</p>}
+
+      {pending + failed > 0 && (
+        <section className="more-section">
+          <h2 className="h5 more-section__heading">Pending changes</h2>
+          <p className="caption">{summarise(ops) || `${pending + failed} waiting`}</p>
+          {failed > 0 && (
+            <p className="caption">
+              {failed} could not be sent{lastError ? ` — ${lastError}` : ''}
+            </p>
+          )}
+          <button type="button" className="btn btn--secondary" onClick={() => { void flushOutbox() }}>
+            Sync now
+          </button>
+          {failed > 0 && (
+            <button type="button" className="btn btn--secondary" onClick={() => { void retryFailed() }}>
+              Retry failed
+            </button>
+          )}
+        </section>
+      )}
 
       <section className="more-section">
         <h2 className="h5 more-section__heading">Trip</h2>

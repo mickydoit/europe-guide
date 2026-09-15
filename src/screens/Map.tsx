@@ -195,6 +195,7 @@ export default function Map() {
   const [downloadError, setDownloadError] = useState<string | null>(null)
   const [promptDismissed, setPromptDismissed] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
+  const [saveQueued, setSaveQueued] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [placesEnabled, setPlacesEnabled] = useState(loadPlacesEnabled)
 
@@ -565,16 +566,13 @@ export default function Map() {
 
   async function handleSave() {
     if (!sheet?.place) return
-    // Saving writes straight to Supabase with no outbox, so offline is a certain failure:
-    // say so up front instead of spinning and surfacing a fetch error.
-    if (typeof navigator !== 'undefined' && !navigator.onLine) {
-      setSaveError("Can't save while offline")
-      return
-    }
+    // Offline is no longer a dead end: useDayNotes queues the write and sync.ts sends it later.
     setSaving(true)
     setSaveError(null)
+    setSaveQueued(null)
     try {
-      await notes.savePlace({ ...sheet.place, saved_at: new Date().toISOString() })
+      const result = await notes.savePlace({ ...sheet.place, saved_at: new Date().toISOString() })
+      if (result?.queued) setSaveQueued('Saved on this phone — will sync when online')
     } catch (e) {
       // The raw PostgREST message is noise to the person holding the phone.
       console.warn('save place', e instanceof Error ? e.message : String(e))
@@ -665,11 +663,12 @@ export default function Map() {
           details={sheet.details}
           photoSrc={sheet.photoSrc}
           walkHref={sheet.walkHref}
-          onClose={() => { setSelected(null); setSaveError(null) }}
+          onClose={() => { setSelected(null); setSaveError(null); setSaveQueued(null) }}
           onSave={sheet.place ? () => { void handleSave() } : undefined}
           saved={alreadySaved}
           saving={saving}
           error={saveError}
+          queuedMsg={saveQueued}
         />
       )}
     </main>

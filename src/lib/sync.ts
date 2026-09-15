@@ -204,3 +204,20 @@ export function useSync(client: SupabaseClient = supabase) {
   const retry = useCallback(() => retryFailed(client), [client])
   return { ...status, retryFailed: retry }
 }
+
+/** The queued ops themselves, for the "Pending changes" list in More. */
+export function useOutboxOps(): OutboxOp[] {
+  const [ops, setOps] = useState<OutboxOp[]>([])
+
+  useEffect(() => {
+    let alive = true
+    const refresh = () => {
+      void listOutbox().then(o => { if (alive) setOps(o) }).catch(() => {})
+    }
+    refresh()
+    const unsubscribe = subscribe(refresh)
+    return () => { alive = false; unsubscribe() }
+  }, [])
+
+  return ops
+}

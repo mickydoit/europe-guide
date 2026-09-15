@@ -29,6 +29,7 @@ button { font: inherit; }
 .form__msg { margin: 0; font-size: 14px; line-height: 18px; }
 .form__msg--error { color: var(--salmon); }
 .form__msg--info { color: var(--text-soft); }
+.form__msg--queued { color: var(--accent); }
 
 /* Day */
 .day { display: flex; flex-direction: column; gap: 0; }
@@ -158,6 +159,7 @@ button { font: inherit; }
 
 /* More */
 .more-section { margin-bottom: 24px; }
+.more-header { display: flex; align-items: center; gap: 8px; }
 .more-section__heading { margin: 0 0 12px; }
 .more-trip__name { font-size: 18px; font-weight: 700; margin: 0 0 4px; overflow-wrap: anywhere; }
 .more-trip__intro { font-size: 14px; color: var(--text-soft); margin: 8px 0 0; overflow-wrap: anywhere; }
