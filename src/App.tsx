@@ -8,6 +8,7 @@ import { ResetPassword } from './screens/ResetPassword'
 import { More } from './screens/More'
 import { Day } from './screens/Day'
 import { Bookings } from './screens/Bookings'
+import { Routes as RoutesScreen } from './screens/Routes'
 function Shell() { return <><Outlet /><TabBar /></> }
 export default function App() {
   return (
@@ -21,6 +22,7 @@ export default function App() {
           <Route path="/day/:date" element={<Day />} />
           <Route path="/map" element={<Placeholder title="Map" />} />
           <Route path="/bookings" element={<Bookings />} />
+          <Route path="/routes" element={<RoutesScreen />} />
           <Route path="/more" element={<More />} />
         </Route>
       </Routes>
