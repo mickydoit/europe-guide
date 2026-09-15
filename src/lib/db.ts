@@ -1,12 +1,19 @@
 import { openDB, type IDBPDatabase } from 'idb'
 import type { CityContent, TripRow } from './types'
+import type { OutboxOp } from './outbox'
 let dbp: Promise<IDBPDatabase> | null = null
 export function openDb() {
-  dbp ??= openDB('europe-guide', 2, {
+  dbp ??= openDB('europe-guide', 3, {
     upgrade(db) {
       if (!db.objectStoreNames.contains('content')) db.createObjectStore('content')
       if (!db.objectStoreNames.contains('meta')) db.createObjectStore('meta')
       if (!db.objectStoreNames.contains('weather')) db.createObjectStore('weather')
+      if (!db.objectStoreNames.contains('outbox')) {
+        // Queued writes waiting for a network. `key` dedupes last-write-wins; `nextAt` is the backoff schedule.
+        const outbox = db.createObjectStore('outbox', { keyPath: 'id' })
+        outbox.createIndex('key', 'key')
+        outbox.createIndex('nextAt', 'nextAt')
+      }
     },
   })
   return dbp
@@ -22,3 +29,7 @@ export async function getCachedTrips() { return ((await (await openDb()).get('me
 export async function putCachedTrips(t: TripRow[]) { await (await openDb()).put('meta', t, 'trips') }
 export async function getWeatherCache<T>(key: string) { return ((await (await openDb()).get('weather', key)) as T | undefined) ?? null }
 export async function putWeatherCache<T>(key: string, value: T) { await (await openDb()).put('weather', value, key) }
+export async function getOutboxAll() { return (await (await openDb()).getAll('outbox')) as OutboxOp[] }
+export async function putOutbox(op: OutboxOp) { await (await openDb()).put('outbox', op) }
+export async function deleteOutbox(id: string) { await (await openDb()).delete('outbox', id) }
+export async function clearOutbox() { await (await openDb()).clear('outbox') }
