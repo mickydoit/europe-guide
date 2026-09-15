@@ -18,12 +18,13 @@ export function stripMd(s: string): string {
     .trim()
 }
 
-function truncateSummary(s: string, max = SUMMARY_MAX): string {
-  if (s.length <= max) return s
-  const cut = s.slice(0, max)
+export function truncateSummary(s: string, max = SUMMARY_MAX): string {
+  const chars = Array.from(s)
+  if (chars.length <= max) return s
+  const cut = chars.slice(0, max)
   const lastSpace = cut.lastIndexOf(' ')
   const trimmed = lastSpace > 0 ? cut.slice(0, lastSpace) : cut
-  return `${trimmed}…`
+  return `${trimmed.join('')}…`
 }
 
 export function foldLine(s: string): string {

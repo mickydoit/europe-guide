@@ -1,5 +1,5 @@
 import { loadValle } from '../helpers/content'
-import { buildIcs, downloadIcs, escapeIcs, foldLine, stripMd } from '../../src/lib/ics'
+import { buildIcs, downloadIcs, escapeIcs, foldLine, stripMd, truncateSummary } from '../../src/lib/ics'
 import type { CityContent } from '../../src/lib/types'
 
 let content: CityContent
@@ -104,4 +104,31 @@ test('UIDs are unique across all events', () => {
 
 test('downloadIcs is exported as a function', () => {
   expect(typeof downloadIcs).toBe('function')
+})
+
+test('truncateSummary never ends on a lone surrogate when cutting inside an astral char', () => {
+  const out = truncateSummary('A' + '😀'.repeat(40))
+  expect(/[\uD800-\uDBFF]$/.test(out)).toBe(false)
+  expect(Array.from(out).length).toBeLessThanOrEqual(61)
+  const bytes = new TextEncoder().encode(out)
+  let hasReplacementChar = false
+  for (let i = 0; i < bytes.length - 2; i++) {
+    if (bytes[i] === 0xef && bytes[i + 1] === 0xbf && bytes[i + 2] === 0xbd) hasReplacementChar = true
+  }
+  expect(hasReplacementChar).toBe(false)
+})
+
+test('truncateSummary cuts a long ASCII sentence at a word boundary and appends an ellipsis', () => {
+  const sentence = 'This is a fairly long sentence made up of plain ASCII words meant to exceed sixty characters easily'
+  const out = truncateSummary(sentence)
+  expect(out.endsWith('…')).toBe(true)
+  expect(out).not.toContain('  ')
+  expect(sentence.startsWith(out.slice(0, -1))).toBe(true)
+  expect(out.slice(0, -1).endsWith(' ')).toBe(false)
+})
+
+test('truncateSummary returns a short string unchanged', () => {
+  const s = 'A short thirty character string'.slice(0, 30)
+  expect(s.length).toBe(30)
+  expect(truncateSummary(s)).toBe(s)
 })
