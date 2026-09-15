@@ -173,6 +173,11 @@ button { font: inherit; }
 .btn--secondary { background: var(--card-alt); color: var(--text); border: 1px solid var(--border); width: 100%; margin-bottom: 12px; }
 .btn--secondary:disabled { opacity: .5; cursor: default; }
 
+.offline-map-card { margin-top: 4px; }
+.offline-map-card__status { font-size: 14px; color: var(--text-soft); margin: 0 0 10px; }
+.offline-map-card__actions { display: flex; gap: 10px; }
+.offline-map-card__actions .btn { flex: 1; margin-bottom: 0; }
+
 /* Map */
 .map-screen { position: fixed; inset: 0; background: var(--bg); }
 .map-close { position: absolute; top: calc(var(--safe-top) + 12px); left: 12px; z-index: 5;
