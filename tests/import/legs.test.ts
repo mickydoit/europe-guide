@@ -27,3 +27,8 @@ test('fetchPolyline posts to Routes API with WALK and reads the first route', as
 test('fetchPolyline returns null when endpoints are not geocoded', async () => {
   expect(await fetchPolyline('KEY', splitLegs(route)[0], 'walking')).toBeNull()
 })
+test('fetchPolyline surfaces non-JSON HTTP errors with status and leg context', async () => {
+  const fetchImpl = (async () => new Response('Quota exceeded', { status: 429 })) as typeof fetch
+  const leg = { ...splitLegs(route)[0], from_lat: 38.71, from_lng: -9.15, to_lat: 38.707, to_lng: -9.136 }
+  await expect(fetchPolyline('KEY', leg, 'walking', fetchImpl)).rejects.toThrow(/HTTP 429/)
+})

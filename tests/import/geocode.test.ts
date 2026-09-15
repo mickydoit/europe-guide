@@ -7,6 +7,12 @@ test('google geocoder parses the first result and returns null on ZERO_RESULTS',
   expect(await g('Senzi, Lisboa')).toEqual({ lat: 1.5, lng: 2.5, formatted: 'F', place_id: 'P' })
   expect(await g('Nowhere')).toBeNull()
 })
+test('google geocoder surfaces non-JSON HTTP errors with status and query', async () => {
+  const fetchImpl = (async () => new Response('<html>Forbidden</html>', { status: 403 })) as typeof fetch
+  const g = makeGoogleGeocoder('K', 'pt', fetchImpl)
+  await expect(g('Senzi, Lisboa')).rejects.toThrow(/HTTP 403/)
+  await expect(g('Senzi, Lisboa')).rejects.toThrow(/Senzi, Lisboa/)
+})
 test('cached geocoder hits cache first and writes on miss', async () => {
   const store = new Map<string, { lat: number; lng: number; formatted: string; place_id: string }>()
   let innerCalls = 0

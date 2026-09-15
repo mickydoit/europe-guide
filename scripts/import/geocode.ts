@@ -6,7 +6,9 @@ export type Geocoder = (query: string) => Promise<GeoPoint | null>
 export function makeGoogleGeocoder(key: string, region: string, fetchImpl: typeof fetch = fetch): Geocoder {
   return async q => {
     const url = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(q)}&region=${region}&key=${key}`
-    const res = await fetchImpl(url); const j = await res.json() as { status: string; results: { geometry: { location: { lat: number; lng: number } }; formatted_address: string; place_id: string }[]; error_message?: string }
+    const res = await fetchImpl(url); const text = await res.text()
+    if (!res.ok) throw new Error(`geocode HTTP ${res.status} for "${q}": ${text.slice(0, 200)}`)
+    const j = JSON.parse(text) as { status: string; results: { geometry: { location: { lat: number; lng: number } }; formatted_address: string; place_id: string }[]; error_message?: string }
     if (j.status === 'ZERO_RESULTS') return null
     if (j.status !== 'OK') throw new Error(`geocode ${j.status}: ${j.error_message ?? ''} for "${q}"`)
     const r = j.results[0]; return { lat: r.geometry.location.lat, lng: r.geometry.location.lng, formatted: r.formatted_address, place_id: r.place_id }

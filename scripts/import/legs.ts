@@ -13,7 +13,9 @@ export async function fetchPolyline(key: string, leg: LegRow, mode: RouteRow['mo
   if (leg.from_lat == null || leg.to_lat == null) return null
   const body = { origin: { location: { latLng: { latitude: leg.from_lat, longitude: leg.from_lng } } }, destination: { location: { latLng: { latitude: leg.to_lat, longitude: leg.to_lng } } }, travelMode: MODE[mode], polylineQuality: 'HIGH_QUALITY' }
   const res = await fetchImpl('https://routes.googleapis.com/directions/v2:computeRoutes', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Goog-Api-Key': key, 'X-Goog-FieldMask': 'routes.polyline.encodedPolyline,routes.distanceMeters,routes.duration' }, body: JSON.stringify(body) })
-  const j = await res.json() as { routes?: { polyline: { encodedPolyline: string }; distanceMeters: number; duration: string }[]; error?: { message: string } }
+  const text = await res.text()
+  if (!res.ok) throw new Error(`routes api HTTP ${res.status} for ${leg.route_id}#${leg.seq}: ${text.slice(0, 200)}`)
+  const j = JSON.parse(text) as { routes?: { polyline: { encodedPolyline: string }; distanceMeters: number; duration: string }[]; error?: { message: string } }
   if (j.error) throw new Error(`routes api: ${j.error.message}`)
   const r = j.routes?.[0]; if (!r) return null
   return { polyline: r.polyline.encodedPolyline, distance_m: r.distanceMeters, duration_s: parseInt(r.duration, 10) }
