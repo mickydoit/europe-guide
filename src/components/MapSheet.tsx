@@ -38,7 +38,7 @@ export function MapSheet({
           disabled={saved || saving}
           onClick={onSave}
         >
-          {saved ? 'Saved' : saving ? 'Saving…' : 'Save to notes'}
+          {saved ? 'Saved' : saving ? 'Saving…' : 'Save for today'}
         </button>
       )}
       {error && <p className="form__msg form__msg--error">{error}</p>}

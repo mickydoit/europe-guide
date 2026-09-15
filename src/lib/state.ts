@@ -185,6 +185,10 @@ export function useDayNotes(trip: string, date: string, client: SupabaseClient =
     let cancelled = false
     dirtyText.current = false
     dirtyPlaces.current = false
+    // Callers that don't have a day yet (the Map screen before the trip resolves) pass ''.
+    // Querying on it returns nothing useful and still burns a round trip, so skip it and
+    // keep the empty state until a real (trip, date) arrives.
+    if (!trip || !date) { setLoading(false); return }
     setLoading(true)
     void (async () => {
       const { data, error } = await client.from('day_notes').select('*').eq('trip', trip).eq('date', date)

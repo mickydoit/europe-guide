@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useLocation, useNavigate, useParams } from 'react-router-dom'
 // maplibre-gl@6 ships named exports only (no default export), so this is a namespace import.
 import * as maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
@@ -19,7 +19,13 @@ const ACCENT = '#11da8f'
 const MUTED = '#5a5b5d'
 const COAL = '#202123'
 const COLUMBIA = '#9ee1fe'
-const TAP_LAYERS = ['stops-circle', 'parked-circle', 'places-circle']
+// Taps land on the invisible wide-radius hit layers, not the small painted circles:
+// a 9 px marker is well under the 44 px touch target a thumb actually aims at.
+const TAP_LAYERS = ['stops-hit', 'parked-hit', 'places-hit']
+const HIT_RADIUS = 20
+// Signed pmtiles URLs expire after an hour; re-sign at most this often so a burst
+// of tile errors cannot turn into a burst of storage calls.
+const RESIGN_COOLDOWN_MS = 5 * 60 * 1000
 const EMPTY: GeoJSON.FeatureCollection = { type: 'FeatureCollection', features: [] }
 
 // One protocol per page load: maplibre keys custom protocols globally, so a second
@@ -33,8 +39,14 @@ function pmtilesProtocol(): Protocol {
   return protocolSingleton
 }
 
+// Archives live on the protocol singleton for the whole page load, so a remount must
+// not re-read the (multi-MB) buffer out of the Cache API and hand the protocol a second
+// copy of an archive it already holds. Keys already registered are skipped entirely.
+const pmtilesRegistry = new globalThis.Set<string>()
+export function resetPmtilesRegistryForTests(): void { pmtilesRegistry.clear() }
+
 type BasemapMode = 'cached' | 'signed' | 'none'
-interface Basemap { mode: BasemapMode; sources: { id: string; url: string }[] }
+interface Basemap { mode: BasemapMode; sources: { id: string; url: string }[]; reason?: 'storage' }
 interface Selected { kind: MapFeatureKind; id: string; properties: Record<string, unknown>; lngLat: [number, number] | null }
 
 function sourceId(area: OfflineAreaRow): string { return `area-${area.seq}` }
@@ -125,6 +137,14 @@ function addLayers(map: maplibregl.Map) {
     id: 'user-dot', type: 'circle', source: 'user',
     paint: { 'circle-radius': 7, 'circle-color': COLUMBIA, 'circle-stroke-color': '#ffffff', 'circle-stroke-width': 2 },
   })
+
+  // Hit targets last, so they sit above every painted layer and always win the tap.
+  for (const source of ['parked', 'stops', 'places'] as const) {
+    map.addLayer({
+      id: `${source}-hit`, type: 'circle', source,
+      paint: { 'circle-radius': HIT_RADIUS, 'circle-opacity': 0 },
+    })
+  }
 }
 
 function setData(map: maplibregl.Map, id: string, data: GeoJSON.FeatureCollection) {
@@ -134,16 +154,21 @@ function setData(map: maplibregl.Map, id: string, data: GeoJSON.FeatureCollectio
 
 export default function Map() {
   const navigate = useNavigate()
+  const location = useLocation()
+  const { date: dateParam } = useParams<{ date?: string }>()
   const { content } = useTrip()
   const trip = content?.trip ?? null
   const slug = trip?.slug ?? ''
   const { done } = useChecks(slug)
 
   const areas = useMemo<OfflineAreaRow[]>(() => content?.areas ?? [], [content])
+  // /map/:date pins the map to the day you came from; anything else (no param, or a
+  // date that isn't in this trip) falls back to today, then to the first day.
   const date = useMemo(() => {
     if (!trip || !content) return null
+    if (dateParam && content.days.some(d => d.date === dateParam)) return dateParam
     return todayInTrip(trip) ?? content.days[0]?.date ?? null
-  }, [trip, content])
+  }, [trip, content, dateParam])
 
   const [showAll, setShowAll] = useState(false)
   const [basemap, setBasemap] = useState<Basemap | null>(null)
@@ -172,6 +197,7 @@ export default function Map() {
   // for a tapped place (the GeoJSON feature only carries the marker fields).
   const placesRef = useRef<globalThis.Map<string, Place>>(new globalThis.Map())
   const lastPlacesQueryRef = useRef<{ lat: number; lng: number; at: number } | null>(null)
+  const lastResignAt = useRef(0)
 
   const placesKey = (import.meta.env.VITE_GOOGLE_BROWSER_KEY as string | undefined) || null
 
@@ -188,44 +214,57 @@ export default function Map() {
   }, [slug])
 
   // ---- basemap resolution -------------------------------------------------
+  // Every storage read in here can throw outright — Safari private mode denies the
+  // Cache API, and a quota-evicted origin can reject `caches.open`. A thrown basemap
+  // must still leave a usable screen, so the whole body is guarded and falls back to
+  // the markers-only style rather than leaving `basemap` null (which renders nothing).
   const resolveBasemap = useCallback(async (isStale: () => boolean) => {
     if (!slug) return
-    const stat = await cachedMapStatus(slug, areas)
-    if (isStale()) return
-    setStatus(stat)
-
-    if (stat.total > 0 && stat.downloaded === stat.total) {
-      const protocol = pmtilesProtocol()
-      const sources: { id: string; url: string }[] = []
-      for (const area of areas) {
-        const buf = await getCachedMap(slug, area.seq)
-        if (!buf) continue
-        const key = `maps/${slug}/${area.seq}`
-        protocol.add(new PMTiles(new MemorySource(buf, key)))
-        sources.push({ id: sourceId(area), url: `pmtiles://${key}` })
-      }
+    try {
+      const stat = await cachedMapStatus(slug, areas)
       if (isStale()) return
-      setBasemap({ mode: 'cached', sources })
-      return
-    }
+      setStatus(stat)
 
-    if (areas.length > 0 && typeof navigator !== 'undefined' && navigator.onLine) {
-      try {
-        pmtilesProtocol()
+      if (stat.total > 0 && stat.downloaded === stat.total) {
+        const protocol = pmtilesProtocol()
         const sources: { id: string; url: string }[] = []
         for (const area of areas) {
-          sources.push({ id: sourceId(area), url: `pmtiles://${await defaultSigner(area.pmtiles_path)}` })
+          const key = `maps/${slug}/${area.seq}`
+          if (!pmtilesRegistry.has(key)) {
+            const buf = await getCachedMap(slug, area.seq)
+            if (!buf) continue
+            protocol.add(new PMTiles(new MemorySource(buf, key)))
+            pmtilesRegistry.add(key)
+          }
+          sources.push({ id: sourceId(area), url: `pmtiles://${key}` })
         }
         if (isStale()) return
-        setBasemap({ mode: 'signed', sources })
+        setBasemap({ mode: 'cached', sources })
         return
-      } catch (e) {
-        console.warn(e instanceof Error ? e.message : String(e))
       }
-    }
 
-    if (isStale()) return
-    setBasemap({ mode: 'none', sources: [] })
+      if (areas.length > 0 && typeof navigator !== 'undefined' && navigator.onLine) {
+        try {
+          pmtilesProtocol()
+          const sources: { id: string; url: string }[] = []
+          for (const area of areas) {
+            sources.push({ id: sourceId(area), url: `pmtiles://${await defaultSigner(area.pmtiles_path)}` })
+          }
+          if (isStale()) return
+          setBasemap({ mode: 'signed', sources })
+          return
+        } catch (e) {
+          console.warn(e instanceof Error ? e.message : String(e))
+        }
+      }
+
+      if (isStale()) return
+      setBasemap({ mode: 'none', sources: [] })
+    } catch (e) {
+      console.warn('map storage', e)
+      if (isStale()) return
+      setBasemap({ mode: 'none', sources: [], reason: 'storage' })
+    }
   }, [slug, areas])
 
   useEffect(() => {
@@ -237,6 +276,22 @@ export default function Map() {
 
   // ---- map instance -------------------------------------------------------
   const basemapKey = basemap ? `${basemap.mode}:${basemap.sources.map(s => s.url).join('|')}` : null
+
+  // The map effect outlives a `resolveBasemap` identity change (areas are memoised on
+  // `content`, which the trip provider can refresh), so reach it through a ref.
+  const resolveRef = useRef(resolveBasemap)
+  useEffect(() => { resolveRef.current = resolveBasemap }, [resolveBasemap])
+
+  // A signed pmtiles URL is good for an hour; a tile error (or coming back online) on a
+  // signed basemap is the symptom of it having expired, so re-sign — rate-limited, since
+  // every failing tile in the viewport fires its own error event.
+  const maybeResign = useCallback(() => {
+    if (basemap?.mode !== 'signed') return
+    const now = Date.now()
+    if (now - lastResignAt.current < RESIGN_COOLDOWN_MS) return
+    lastResignAt.current = now
+    void resolveRef.current(() => !mountedRef.current)
+  }, [basemap?.mode])
 
   useEffect(() => {
     const container = containerRef.current
@@ -255,9 +310,11 @@ export default function Map() {
 
     map.on('load', () => { addLayers(map); setReady(true) })
     map.on('dragstart', () => { followRef.current = false })
-    map.on('error', (e: { error?: unknown }) => {
-      console.warn('map error', e?.error ?? e)
+    // Never log the error's URL: for a signed basemap it carries the storage token.
+    map.on('error', (e: { error?: { status?: number; message?: string } }) => {
+      console.warn('map error', e?.error?.status ?? e?.error?.message ?? 'unknown')
       setTileError(true)
+      maybeResign()
     })
     map.on('sourcedata', (e: { isSourceLoaded?: boolean }) => {
       if (e?.isSourceLoaded) setTileError(false)
@@ -266,7 +323,7 @@ export default function Map() {
       const feature = e.features?.[0]
       if (!feature) return
       const layerId = feature.layer?.id ?? ''
-      const kind: MapFeatureKind = layerId === 'stops-circle' ? 'stop' : layerId === 'parked-circle' ? 'parked' : 'place'
+      const kind: MapFeatureKind = layerId.startsWith('stops') ? 'stop' : layerId.startsWith('parked') ? 'parked' : 'place'
       const properties = (feature.properties ?? {}) as Record<string, unknown>
       const geometry = feature.geometry as GeoJSON.Geometry | undefined
       const lngLat = geometry?.type === 'Point' ? (geometry.coordinates as [number, number]) : null
@@ -377,7 +434,7 @@ export default function Map() {
   }, [position, placesEnabled, placesKey, ready])
 
   useEffect(() => {
-    const goOnline = () => { setOnline(true); setTileError(false) }
+    const goOnline = () => { setOnline(true); setTileError(false); maybeResign() }
     const goOffline = () => setOnline(false)
     window.addEventListener('online', goOnline)
     window.addEventListener('offline', goOffline)
@@ -385,7 +442,7 @@ export default function Map() {
       window.removeEventListener('online', goOnline)
       window.removeEventListener('offline', goOffline)
     }
-  }, [])
+  }, [maybeResign])
 
   function centreOn(lat: number, lng: number) {
     const map = mapRef.current
@@ -411,8 +468,11 @@ export default function Map() {
   }
 
   function close() {
-    if (window.history.length <= 1) navigate('/day')
-    else navigate(-1)
+    // react-router stamps the first entry of a history stack with key 'default'; anything
+    // else means there is a real previous screen to go back to. window.history.length is
+    // the whole tab's history, which on iOS includes entries from before the PWA loaded.
+    if (location.key !== 'default') navigate(-1)
+    else navigate('/day', { replace: true })
   }
 
   async function handleDownload() {
@@ -490,12 +550,20 @@ export default function Map() {
 
   async function handleSave() {
     if (!sheet?.place) return
+    // Saving writes straight to Supabase with no outbox, so offline is a certain failure:
+    // say so up front instead of spinning and surfacing a fetch error.
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      setSaveError("Can't save while offline")
+      return
+    }
     setSaving(true)
     setSaveError(null)
     try {
       await notes.savePlace({ ...sheet.place, saved_at: new Date().toISOString() })
     } catch (e) {
-      setSaveError(e instanceof Error ? e.message : String(e))
+      // The raw PostgREST message is noise to the person holding the phone.
+      console.warn('save place', e instanceof Error ? e.message : String(e))
+      setSaveError("Couldn't save — try again when online")
     } finally {
       setSaving(false)
     }
@@ -504,7 +572,9 @@ export default function Map() {
   // ---- banner -------------------------------------------------------------
   const allCached = !!status && status.total > 0 && status.downloaded === status.total
   let banner: { text: string; actions?: 'download' | null } | null = null
-  if (basemap?.mode === 'none' && areas.length === 0) {
+  if (basemap?.reason === 'storage') {
+    banner = { text: 'Map storage unavailable — markers still shown' }
+  } else if (basemap?.mode === 'none' && areas.length === 0) {
     banner = { text: 'No offline map for this city yet' }
   } else if (basemap?.mode === 'none') {
     banner = { text: 'Offline map not downloaded — connect to wifi and download it from More' }

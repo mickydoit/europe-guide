@@ -1,5 +1,5 @@
 import { render, screen, act, waitFor, fireEvent } from '@testing-library/react'
-import { MemoryRouter } from 'react-router-dom'
+import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { vi, beforeEach, afterEach, test, expect } from 'vitest'
 import { TripProvider } from '../../src/lib/trip'
 import { cacheKey } from '../../src/lib/offlineMaps'
@@ -54,6 +54,20 @@ vi.mock('maplibre-gl', () => {
   return { Map: MapStub, addProtocol: vi.fn(), removeProtocol: vi.fn(), Marker: class {} }
 })
 
+// A counting wrapper, not a stub: the real cache read still runs, so the registry is
+// exercised against real buffers.
+const { getCachedMapCalls } = vi.hoisted(() => ({ getCachedMapCalls: vi.fn() }))
+vi.mock('../../src/lib/offlineMaps', async importOriginal => {
+  const actual = await importOriginal<typeof import('../../src/lib/offlineMaps')>()
+  return {
+    ...actual,
+    getCachedMap: (...args: Parameters<typeof actual.getCachedMap>) => {
+      getCachedMapCalls(...args)
+      return actual.getCachedMap(...args)
+    },
+  }
+})
+
 vi.mock('pmtiles', () => {
   class ProtocolStub {
     tile = vi.fn()
@@ -79,7 +93,7 @@ vi.mock('../../src/lib/places', async importOriginal => {
   return { ...actual, nearbyPlaces: nearbyPlacesMock }
 })
 
-import MapScreen from '../../src/screens/Map'
+import MapScreen, { resetPmtilesRegistryForTests } from '../../src/screens/Map'
 import type { Place } from '../../src/lib/places'
 
 // ---------------------------------------------------------------- cache polyfill
@@ -129,14 +143,23 @@ async function makeContent(withAreas: boolean): Promise<CityContent> {
   return c
 }
 
-function renderMap(c: CityContent) {
+function renderMap(c: CityContent, entry = '/map') {
   return render(
-    <MemoryRouter initialEntries={['/map']}>
+    <MemoryRouter initialEntries={[entry]}>
       <TripProvider initial={{ trips: [c.trip], slug: 'valle', content: c }} client={throwingClient}>
-        <MapScreen />
+        <Routes>
+          <Route path="/map/:date?" element={<MapScreen />} />
+          <Route path="*" element={<p>elsewhere</p>} />
+        </Routes>
       </TripProvider>
     </MemoryRouter>,
   )
+}
+
+function lastStops(): GeoJSON.FeatureCollection {
+  const call = maplibreState.setDataCalls.filter(c => c.id === 'stops').at(-1)
+  expect(call).toBeDefined()
+  return call!.data as GeoJSON.FeatureCollection
 }
 
 async function seedCache(areas: OfflineAreaRow[]) {
@@ -167,6 +190,12 @@ beforeEach(async () => {
   localStorage.clear()
   nearbyPlacesMock.mockReset()
   nearbyPlacesMock.mockResolvedValue([])
+  savePlace.mockReset()
+  savePlace.mockResolvedValue(undefined)
+  getCachedMapCalls.mockReset()
+  // The registry is module-level (it mirrors the protocol singleton), so each test has to
+  // start from an empty one or a later test would inherit an earlier test's registrations.
+  resetPmtilesRegistryForTests()
   content = await makeContent(false)
 })
 
@@ -247,10 +276,14 @@ test('tapping a stop opens the sheet with its title and a Walk there link', asyn
   expect(maplibreState.layers.map(l => l.id)).toEqual([
     'legs-line', 'parked-circle', 'stops-circle', 'stops-label',
     'places-circle', 'places-label', 'user-accuracy', 'user-dot',
+    'parked-hit', 'stops-hit', 'places-hit',
   ])
+  // Taps are bound to the wide invisible layers, never the painted markers.
+  const clickHandler = maplibreState.handlers.find(h => h.ev === 'click')
+  expect(clickHandler?.layers).toEqual(['stops-hit', 'parked-hit', 'places-hit'])
 
   const stop = content.items.find(i => i.kind === 'stop' && i.date === MONDAY && i.time === '11:00')!
-  fire('click', { features: [{ layer: { id: 'stops-circle' }, properties: { id: stop.id, kind: 'stop' } }] })
+  fire('click', { features: [{ layer: { id: 'stops-hit' }, properties: { id: stop.id, kind: 'stop' } }] })
 
   const dialog = await screen.findByRole('dialog')
   expect(dialog).toHaveAttribute('aria-label', stop.place_name ?? stop.plan)
@@ -358,8 +391,144 @@ test('tapping a places-circle feature opens the sheet with the place name', asyn
   act(() => { onPosition({ coords: { latitude: 38.71, longitude: -9.14 } }) })
   await waitFor(() => expect(maplibreState.setDataCalls.some(c => c.id === 'places')).toBe(true))
 
-  fire('click', { features: [{ layer: { id: 'places-circle' }, properties: { id: p.id, kind: 'place' } }] })
+  fire('click', { features: [{ layer: { id: 'places-hit' }, properties: { id: p.id, kind: 'place' } }] })
 
   const dialog = await screen.findByRole('dialog')
   expect(dialog).toHaveAttribute('aria-label', p.name)
+})
+
+// ---------------------------------------------------------------- C1 storage failure
+test('a Cache API that throws leaves a markers-only map and an explanatory banner', async () => {
+  const withAreas = await makeContent(true)
+  vi.stubGlobal('caches', { open: async () => { throw new Error('denied') } } as unknown as CacheStorage)
+  const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+
+  renderMap(withAreas)
+
+  expect(await screen.findByText('Map storage unavailable — markers still shown')).toBeInTheDocument()
+  await waitFor(() => expect(maplibreState.instances.length).toBe(1))
+  const style = maplibreState.instances[0].style as { sources: Record<string, unknown>; layers: unknown[] }
+  expect(Object.keys(style.sources)).toEqual([])
+  expect(style.layers).toHaveLength(1) // buildStyle([]) — background only
+  expect(warn).toHaveBeenCalledWith('map storage', expect.any(Error))
+})
+
+// ---------------------------------------------------------------- I1 re-signing
+test('a tile error on a signed basemap re-signs every area once', async () => {
+  const withAreas = await makeContent(true)
+  vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(true)
+  const createSignedUrl = vi.fn(async (path: string) => ({ data: { signedUrl: `https://signed.example/${path}` }, error: null }))
+  const { supabase } = await import('../../src/lib/supabase')
+  vi.spyOn(supabase.storage, 'from').mockReturnValue({ createSignedUrl } as never)
+
+  renderMap(withAreas)
+
+  await waitFor(() => expect(createSignedUrl).toHaveBeenCalledTimes(2))
+  fire('error', { error: { status: 403 } })
+  await waitFor(() => expect(createSignedUrl).toHaveBeenCalledTimes(4))
+
+  // Rate limited: a second burst inside the 5-minute window signs nothing more.
+  fire('error', { error: { status: 403 } })
+  await waitFor(() => expect(createSignedUrl).toHaveBeenCalledTimes(4))
+})
+
+// ---------------------------------------------------------------- M5 error logging
+test('a tile error logs the status, never the (token-bearing) URL', async () => {
+  const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+  renderMap(content)
+  await waitFor(() => expect(maplibreState.instances.length).toBe(1))
+  warn.mockClear()
+
+  fire('error', { error: { status: 403, url: 'https://signed.example/valle/1.pmtiles?token=secret' } })
+
+  expect(warn).toHaveBeenCalledWith('map error', 403)
+  const logged = JSON.stringify(warn.mock.calls)
+  expect(logged).not.toContain('token')
+  expect(logged).not.toContain('https://')
+})
+
+// ---------------------------------------------------------------- I4 save failures
+async function openPlaceSheet() {
+  vi.stubEnv('VITE_GOOGLE_BROWSER_KEY', 'k')
+  const p = place({ id: 'pl-9', name: 'Bar Sole' })
+  nearbyPlacesMock.mockResolvedValue([p])
+
+  renderMap(content)
+  await waitFor(() => expect(maplibreState.instances.length).toBe(1))
+  fire('load')
+
+  const geo = navigator.geolocation as unknown as { watchPosition: ReturnType<typeof vi.fn> }
+  const onPosition = geo.watchPosition.mock.calls[0][0] as (pos: unknown) => void
+  act(() => { onPosition({ coords: { latitude: 38.71, longitude: -9.14 } }) })
+  await waitFor(() => expect(maplibreState.setDataCalls.some(c => c.id === 'places')).toBe(true))
+
+  fire('click', { features: [{ layer: { id: 'places-hit' }, properties: { id: p.id, kind: 'place' } }] })
+  return screen.findByRole('button', { name: 'Save for today' })
+}
+
+test('Save for today while offline says so and never calls savePlace', async () => {
+  vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false)
+  const button = await openPlaceSheet()
+
+  fireEvent.click(button)
+
+  expect(await screen.findByText("Can't save while offline")).toBeInTheDocument()
+  expect(savePlace).not.toHaveBeenCalled()
+})
+
+test('a rejected save shows the plain-language message, not the raw error', async () => {
+  vi.spyOn(console, 'warn').mockImplementation(() => {})
+  savePlace.mockRejectedValueOnce(new Error('PGRST301 JWT expired'))
+  const button = await openPlaceSheet()
+
+  fireEvent.click(button)
+
+  expect(await screen.findByText("Couldn't save — try again when online")).toBeInTheDocument()
+  expect(screen.queryByText(/PGRST301/)).toBeNull()
+})
+
+// ---------------------------------------------------------------- I6 registry reuse
+test('remounting with everything cached reuses the registered archives', async () => {
+  const withAreas = await makeContent(true)
+  await seedCache(withAreas.areas)
+
+  const first = renderMap(withAreas)
+  await waitFor(() => expect(maplibreState.instances.length).toBe(1))
+  expect(getCachedMapCalls).toHaveBeenCalledTimes(2)
+  expect(maplibreState.protocolAdds).toBe(2)
+  first.unmount()
+
+  renderMap(withAreas)
+  await waitFor(() => expect(maplibreState.instances.length).toBe(2))
+  const style = maplibreState.instances[1].style as { sources: Record<string, { url: string }> }
+  expect(Object.keys(style.sources)).toEqual(['area-1', 'area-2'])
+  // Second mount: same archives, no second multi-MB read and no duplicate protocol entry.
+  expect(getCachedMapCalls).toHaveBeenCalledTimes(2)
+  expect(maplibreState.protocolAdds).toBe(2)
+})
+
+// ---------------------------------------------------------------- I9 /map/:date
+test('/map/:date pins the map to that day, and bare /map falls back', async () => {
+  const { unmount } = renderMap(content, `/map/${MONDAY}`)
+  await waitFor(() => expect(maplibreState.instances.length).toBe(1))
+  fire('load')
+  expect(lastStops().features).toHaveLength(3)
+  unmount()
+
+  maplibreState.instances = []
+  maplibreState.setDataCalls = []
+  renderMap(content) // no param → today (outside the trip) → first day, 2026-11-01
+  await waitFor(() => expect(maplibreState.instances.length).toBe(1))
+  fire('load')
+  expect(lastStops().features).toHaveLength(0)
+})
+
+// ---------------------------------------------------------------- M10 close()
+test('Close on a fresh history entry replaces with /day instead of going back', async () => {
+  renderMap(content)
+  fireEvent.click(await screen.findByRole('button', { name: 'Close map' }))
+  // MemoryRouter's first entry carries key 'default', so close() must not call navigate(-1),
+  // which on a one-entry stack is a no-op and would leave the user stuck on the map.
+  expect(await screen.findByText('elsewhere')).toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: 'Close map' })).toBeNull()
 })

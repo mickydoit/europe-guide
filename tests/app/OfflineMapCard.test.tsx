@@ -57,6 +57,7 @@ beforeEach(() => {
   cacheStorage = new FakeCacheStorage()
   fetchMock = vi.fn(async () => new Response(new Uint8Array([1, 2, 3]).buffer, { status: 200 }))
   vi.stubGlobal('fetch', fetchMock)
+  localStorage.clear()
 })
 
 afterEach(() => {
@@ -136,4 +137,24 @@ test('clicking Delete (after confirm) clears the cache and shows "0 of N"', asyn
   expect(await cache.match('/__maps/valle/2.pmtiles')).toBeUndefined()
 
   confirmSpy.mockRestore()
+})
+
+const EVICTED = 'Map data was cleared by iOS — re-download'
+
+test('a remembered full download that is no longer in the cache blames the eviction', async () => {
+  localStorage.setItem('europe-guide.mapsDownloaded.valle', '2')
+  const signer = vi.fn(async (path: string) => `https://signed.example/${path}`)
+
+  render(<OfflineMapCard trip="valle" areas={areas} signer={signer} cacheStorage={cacheStorage as unknown as CacheStorage} />)
+
+  expect(await screen.findByText(EVICTED)).toBeInTheDocument()
+})
+
+test('a completed download records the watermark and says nothing about eviction', async () => {
+  const signer = vi.fn(async (path: string) => `https://signed.example/${path}`)
+  render(<OfflineMapCard trip="valle" areas={areas} signer={signer} cacheStorage={cacheStorage as unknown as CacheStorage} />)
+  fireEvent.click(await screen.findByRole('button', { name: 'Download' }))
+
+  await waitFor(() => expect(localStorage.getItem('europe-guide.mapsDownloaded.valle')).toBe('2'))
+  expect(screen.queryByText(EVICTED)).toBeNull()
 })

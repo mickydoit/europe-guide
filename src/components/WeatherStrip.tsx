@@ -14,11 +14,27 @@ function conditionEmoji(condition: string): string {
   return '🌡️'
 }
 
-function WeatherIcon({ iconUri, condition }: { iconUri: string | null; condition: string }) {
-  if (!iconUri) {
+function WeatherIcon({ iconUri, condition, failed, onFail }: {
+  iconUri: string | null
+  condition: string
+  failed: Set<string>
+  onFail: (uri: string) => void
+}) {
+  // Google's icon SVGs are remote and uncached: offline (or behind a blocking proxy) the
+  // <img> just fails, leaving a broken-image box. Swap in the emoji the moment it errors.
+  if (!iconUri || failed.has(iconUri)) {
     return <span className="weather__icon weather__icon--fallback" aria-hidden="true">{conditionEmoji(condition)}</span>
   }
-  return <img className="weather__icon" src={`${iconUri}.svg`} alt="" width={28} height={28} />
+  return (
+    <img
+      className="weather__icon"
+      src={`${iconUri}.svg`}
+      alt=""
+      width={28}
+      height={28}
+      onError={() => onFail(iconUri)}
+    />
+  )
 }
 
 export function WeatherStrip({ trip, content, date }: { trip: TripRow; content: CityContent; date: string }) {
@@ -29,6 +45,10 @@ export function WeatherStrip({ trip, content, date }: { trip: TripRow; content: 
   const [daily, setDaily] = useState<DailyForecast | null>(null)
   const [hourly, setHourly] = useState<Hourly | null>(null)
   const [loading, setLoading] = useState(true)
+  const [failedIcons, setFailedIcons] = useState<Set<string>>(new Set())
+  const markIconFailed = (uri: string) => {
+    setFailedIcons(prev => (prev.has(uri) ? prev : new Set(prev).add(uri)))
+  }
 
   useEffect(() => {
     if (!key || !centre) { setLoading(false); return }
@@ -73,7 +93,7 @@ export function WeatherStrip({ trip, content, date }: { trip: TripRow; content: 
   return (
     <div className="weather">
       <div className="weather__summary">
-        <WeatherIcon iconUri={day.iconUri} condition={day.condition} />
+        <WeatherIcon iconUri={day.iconUri} condition={day.condition} failed={failedIcons} onFail={markIconFailed} />
         <span className="weather__text">
           {day.condition} · {Math.round(day.hi)}° / {Math.round(day.lo)}° · ☂ {day.precipPct}%
         </span>
@@ -86,7 +106,7 @@ export function WeatherStrip({ trip, content, date }: { trip: TripRow; content: 
           {hours.map(h => (
             <div key={h.time} className="weather__hour">
               <span className="weather__hour-time">{h.time.slice(0, 2)}</span>
-              <WeatherIcon iconUri={h.iconUri} condition={h.condition} />
+              <WeatherIcon iconUri={h.iconUri} condition={h.condition} failed={failedIcons} onFail={markIconFailed} />
               <span className="weather__hour-temp">{Math.round(h.temp)}°</span>
             </div>
           ))}

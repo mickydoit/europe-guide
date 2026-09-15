@@ -9,7 +9,9 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OUT_DIR="${ROOT_DIR}/public/map"
 
 FONTS=("Noto Sans Regular" "Noto Sans Medium" "Noto Sans Italic")
-RANGES=("0-255" "256-511" "512-767" "768-1023")
+# 8192-8447 is the Private Use Area block the protomaps sprite/label stack uses for
+# its shield glyphs; without it those labels render as tofu on the offline basemap.
+RANGES=("0-255" "256-511" "512-767" "768-1023" "8192-8447")
 SPRITE_FILES=("dark.json" "dark.png" "dark@2x.json" "dark@2x.png")
 
 fail_count=0

@@ -469,3 +469,23 @@ test('useDayNotes: an unsent note survives the load while server places still la
   expect(result.current.note).toBe('draft')
   expect(result.current.savedPlaces).toEqual([serverPlace])
 })
+
+test('useDayNotes: an empty date is not a query — it keeps the empty state and stops loading', async () => {
+  const { client, calls } = makeFakeClient({
+    dayNotes: [{ trip: 'valle', date: '2026-11-02', text: 'ferry at 9', saved_places: [] }],
+  })
+  const { result } = renderHook(() => useDayNotes('valle', '', client))
+
+  await waitFor(() => expect(result.current.loading).toBe(false))
+  expect(calls.filter(c => c.table === 'day_notes')).toEqual([])
+  expect(result.current.note).toBe('')
+  expect(result.current.savedPlaces).toEqual([])
+})
+
+test('useDayNotes: an empty trip is not a query either', async () => {
+  const { client, calls } = makeFakeClient()
+  const { result } = renderHook(() => useDayNotes('', '2026-11-02', client))
+
+  await waitFor(() => expect(result.current.loading).toBe(false))
+  expect(calls.filter(c => c.table === 'day_notes')).toEqual([])
+})

@@ -21,7 +21,7 @@ export default function App() {
           <Route path="/" element={<Navigate to="/day" replace />} />
           <Route path="/day" element={<Day />} />
           <Route path="/day/:date" element={<Day />} />
-          <Route path="/map" element={
+          <Route path="/map/:date?" element={
             <Suspense fallback={<main className="screen"><p className="caption">Loading map…</p></main>}>
               <MapScreen />
             </Suspense>

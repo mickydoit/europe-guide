@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { render, screen, fireEvent } from '@testing-library/react'
 import { vi, describe, test, expect, afterEach } from 'vitest'
 import type { CityContent, ItemRow, TripRow } from '../../src/lib/types'
 
@@ -74,5 +74,26 @@ describe('WeatherStrip', () => {
     const { container } = render(<WeatherStrip trip={trip} content={content()} date="2026-11-02" />)
     expect(container).toBeEmptyDOMElement()
     expect(getDailyForecastMock).not.toHaveBeenCalled()
+  })
+
+  test('an icon that fails to load falls back to the condition emoji', async () => {
+    vi.stubEnv('VITE_GOOGLE_BROWSER_KEY', 'k')
+    getDailyForecastMock.mockResolvedValue({
+      fetchedAt: '2026-11-01T08:00:00Z', stale: false,
+      days: [{
+        date: '2026-11-02', hi: 24, lo: 15, precipPct: 10, condition: 'Rain showers',
+        iconUri: 'https://example.com/icon', sunrise: null, sunset: null,
+      }],
+    })
+
+    const { container } = render(<WeatherStrip trip={trip} content={content()} date="2026-11-02" />)
+
+    const img = await screen.findByRole('presentation')
+    expect(img).toHaveAttribute('src', 'https://example.com/icon.svg')
+
+    fireEvent.error(img)
+
+    expect(container.querySelector('img')).toBeNull()
+    expect(container.querySelector('.weather__icon--fallback')?.textContent).toBe('\u{1F327}\u{FE0F}')
   })
 })
