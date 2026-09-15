@@ -9,6 +9,7 @@ export type Node =
   | { kind: 'hr'; line: number }
 
 export function parseFrontMatter(src: string) {
+  src = src.replace(/\r\n?/g, '\n')
   const lines = src.split('\n')
   if (lines[0].trim() !== '---') return { data: {}, body: src, bodyStartLine: 1 }
   const end = lines.indexOf('---', 1)
@@ -29,6 +30,7 @@ function splitRow(l: string): string[] {
 export const cellText = (s: string) => s.trim()
 
 export function tokenize(body: string, startLine = 1): Node[] {
+  body = body.replace(/\r\n?/g, '\n')
   const lines = body.split('\n'); const out: Node[] = []
   let i = 0
   const ln = () => startLine + i

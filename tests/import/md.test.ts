@@ -36,3 +36,22 @@ test('ImportError carries file and line', () => {
   const e = new ImportError('x.md', 12, 'bad')
   expect(e.message).toBe('x.md:12: bad'); expect(e.line).toBe(12)
 })
+
+test('CRLF line endings do not break front matter or tokenizing', () => {
+  const lfSrc = readFileSync('tests/fixtures/valle/Valle-Bookings-Reminders.md', 'utf8')
+  const crlfSrc = lfSrc.replace(/\n/g, '\r\n')
+  const fm = parseFrontMatter(crlfSrc)
+  expect(fm.data.trip).toBe('Valle')
+
+  const lfItinerary = readFileSync('tests/fixtures/valle/Valle-Itinerary-Full.md', 'utf8')
+  const crlfItinerary = lfItinerary.replace(/\n/g, '\r\n')
+  const lfKinds = tokenize(lfItinerary).map(n => n.kind)
+  const crlfKinds = tokenize(crlfItinerary).map(n => n.kind)
+  expect(crlfKinds).toEqual(lfKinds)
+})
+
+test('table without a separator row throws ImportError', () => {
+  const src = readFileSync('tests/fixtures/broken/no-separator.md', 'utf8')
+  expect(() => tokenize(src)).toThrow(ImportError)
+  expect(() => tokenize(src)).toThrow(/separator/)
+})
