@@ -165,3 +165,16 @@ test('the notes hook is keyed on the day in the URL, never a blank date', async 
   await screen.findByRole('link', { name: 'Map' })
   expect(useDayNotesMock).toHaveBeenCalledWith('valle', '2026-11-03')
 })
+
+test('the saved-places row stays hidden while the notes are still loading', async () => {
+  const saved: SavedPlace = { id: 'p1', name: 'Bar Sole', lat: 38.71, lng: -9.14, saved_at: '2026-11-02T10:00:00.000Z' }
+  useDayNotesMock.mockReturnValue({
+    note: '', savedPlaces: [saved], loading: true, setNote: vi.fn(), savePlace: vi.fn(), removePlace,
+  })
+
+  renderDay('2026-11-02', content)
+
+  await screen.findByRole('link', { name: 'Map' })
+  expect(screen.queryByRole('heading', { name: 'Saved nearby' })).toBeNull()
+  expect(screen.queryByText('Bar Sole')).toBeNull()
+})

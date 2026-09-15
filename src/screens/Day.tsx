@@ -24,7 +24,7 @@ export function Day() {
   const { done, toggle } = useChecks(content?.trip.slug ?? '')
   // Hooks run before this screen knows which day it is showing, so pass the raw param:
   // useDayNotes skips the query until both halves of the key are real.
-  const { savedPlaces, removePlace } = useDayNotes(content?.trip.slug ?? '', dateParam ?? '')
+  const { savedPlaces, loading: notesLoading, removePlace } = useDayNotes(content?.trip.slug ?? '', dateParam ?? '')
   const [now, setNow] = useState(() => new Date())
   const [tickError, setTickError] = useState<string | null>(null)
   const tickErrorTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -158,7 +158,7 @@ export function Day() {
 
       <WeatherStrip trip={trip} content={content} date={date} />
 
-      {savedPlaces.length > 0 && (
+      {!notesLoading && savedPlaces.length > 0 && (
         <section className="saved-places" aria-label="Saved nearby">
           <h2 className="h5 saved-places__heading">Saved nearby</h2>
           <ul className="saved-places__row">

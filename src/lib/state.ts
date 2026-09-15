@@ -185,6 +185,13 @@ export function useDayNotes(trip: string, date: string, client: SupabaseClient =
     let cancelled = false
     dirtyText.current = false
     dirtyPlaces.current = false
+    // Clear before the new load starts, not after it lands: otherwise the previous day's
+    // note and saved places stay on screen for the length of a round trip and read as this
+    // day's. `dirty*` were just reset, so nothing unsent is being discarded here.
+    noteRef.current = ''
+    placesRef.current = []
+    setNoteState('')
+    setSavedPlaces([])
     // Callers that don't have a day yet (the Map screen before the trip resolves) pass ''.
     // Querying on it returns nothing useful and still burns a round trip, so skip it and
     // keep the empty state until a real (trip, date) arrives.

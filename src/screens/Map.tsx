@@ -8,7 +8,7 @@ import { useTrip } from '../lib/trip'
 import { useChecks, useDayNotes, type SavedPlace } from '../lib/state'
 import { buildStyle } from '../lib/mapStyle'
 import { boundsFor, legsGeoJSON, parkedGeoJSON, placesGeoJSON, stopsGeoJSON } from '../lib/mapData'
-import { cachedMapStatus, defaultSigner, downloadCityMaps, getCachedMap, MemorySource } from '../lib/offlineMaps'
+import { cachedMapStatus, defaultSigner, downloadCityMaps, getCachedMap, getMapsGeneration, MemorySource } from '../lib/offlineMaps'
 import { fmtTime, todayInTrip } from '../lib/time'
 import { walkLink } from '../lib/links'
 import { MapSheet, type MapFeatureKind } from '../components/MapSheet'
@@ -43,7 +43,16 @@ function pmtilesProtocol(): Protocol {
 // not re-read the (multi-MB) buffer out of the Cache API and hand the protocol a second
 // copy of an archive it already holds. Keys already registered are skipped entirely.
 const pmtilesRegistry = new globalThis.Set<string>()
-export function resetPmtilesRegistryForTests(): void { pmtilesRegistry.clear() }
+// The generation the registered archives were built from. A download or a delete moves the
+// module's counter on; when it no longer matches, every registration is stale and has to be
+// dropped so the next pass re-reads the cache and calls protocol.add again (which replaces
+// the archive stored under the same key).
+let registryGeneration = getMapsGeneration()
+
+export function resetPmtilesRegistryForTests(): void {
+  pmtilesRegistry.clear()
+  registryGeneration = getMapsGeneration()
+}
 
 type BasemapMode = 'cached' | 'signed' | 'none'
 interface Basemap { mode: BasemapMode; sources: { id: string; url: string }[]; reason?: 'storage' }
@@ -221,6 +230,10 @@ export default function Map() {
   const resolveBasemap = useCallback(async (isStale: () => boolean) => {
     if (!slug) return
     try {
+      if (getMapsGeneration() !== registryGeneration) {
+        pmtilesRegistry.clear()
+        registryGeneration = getMapsGeneration()
+      }
       const stat = await cachedMapStatus(slug, areas)
       if (isStale()) return
       setStatus(stat)

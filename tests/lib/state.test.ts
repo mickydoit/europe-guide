@@ -489,3 +489,51 @@ test('useDayNotes: an empty trip is not a query either', async () => {
   await waitFor(() => expect(result.current.loading).toBe(false))
   expect(calls.filter(c => c.table === 'day_notes')).toEqual([])
 })
+
+test('useDayNotes: changing the day clears the previous day’s places before the new load lands', async () => {
+  const byDate: Record<string, SavedPlace[]> = {
+    '2026-11-02': [{ id: 'p1', name: 'Bar Uno', lat: 1, lng: 2, saved_at: '2026-11-02T08:00:00.000Z' }],
+    '2026-11-03': [{ id: 'p2', name: 'Bar Due', lat: 3, lng: 4, saved_at: '2026-11-03T08:00:00.000Z' }],
+  }
+  let release: (() => void) | null = null
+  // Hand-rolled so the second day's load can be held open: the point of the test is the
+  // window between the key changing and the new row arriving.
+  const client = {
+    from: () => {
+      let date = ''
+      const q: Record<string, unknown> = {
+        select: () => q,
+        eq: (col: string, val: unknown) => { if (col === 'date') date = String(val); return q },
+        then: (resolve: (r: { data: unknown[]; error: null }) => void) => {
+          const payload = {
+            data: [{ trip: 'valle', date, text: `note ${date}`, saved_places: byDate[date] ?? [] }],
+            error: null,
+          }
+          if (date === '2026-11-03') { release = () => resolve(payload); return }
+          resolve(payload)
+        },
+      }
+      return q
+    },
+  } as unknown as SupabaseClient
+
+  const { result, rerender } = renderHook(({ date }) => useDayNotes('valle', date, client), {
+    initialProps: { date: '2026-11-02' },
+  })
+  await waitFor(() => expect(result.current.loading).toBe(false))
+  expect(result.current.savedPlaces.map(p => p.id)).toEqual(['p1'])
+
+  rerender({ date: '2026-11-03' })
+
+  // The new load has not resolved yet — yesterday's chips must already be gone.
+  expect(result.current.loading).toBe(true)
+  expect(result.current.savedPlaces).toEqual([])
+  expect(result.current.note).toBe('')
+
+  // `await thenable` reaches .then on a microtask, so the query only starts after the
+  // clear above — which is the point. Let it start, then let it land.
+  await waitFor(() => expect(release).not.toBeNull())
+  await act(async () => { release!() })
+  await waitFor(() => expect(result.current.loading).toBe(false))
+  expect(result.current.savedPlaces.map(p => p.id)).toEqual(['p2'])
+})

@@ -12,6 +12,13 @@ export const defaultSigner: Signer = async path => {
 
 const CACHE_NAME = 'europe-guide-maps'
 
+// Bumped whenever the bytes behind a cache key change. Callers that hold a decoded copy
+// of an archive (the Map screen hands PMTiles a MemorySource, which never re-reads the
+// Cache API) compare this against the generation they last built from, so an Update that
+// replaces the cached entry cannot go on being served from the old buffer.
+let mapsGeneration = 0
+export function getMapsGeneration(): number { return mapsGeneration }
+
 export function cacheKey(trip: string, seq: number): string {
   return `/__maps/${trip}/${seq}.pmtiles`
 }
@@ -35,6 +42,7 @@ export async function downloadCityMaps(
     done += 1
     onProgress?.(done, total)
   }
+  mapsGeneration += 1
 }
 
 export async function getCachedMap(
@@ -76,6 +84,7 @@ export async function deleteCityMaps(
   for (const area of areas) {
     await cache.delete(cacheKey(trip, area.seq))
   }
+  mapsGeneration += 1
 }
 
 export class MemorySource implements Source {

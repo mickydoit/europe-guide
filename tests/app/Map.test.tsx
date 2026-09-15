@@ -2,7 +2,7 @@ import { render, screen, act, waitFor, fireEvent } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { vi, beforeEach, afterEach, test, expect } from 'vitest'
 import { TripProvider } from '../../src/lib/trip'
-import { cacheKey } from '../../src/lib/offlineMaps'
+import { cacheKey, downloadCityMaps } from '../../src/lib/offlineMaps'
 import { loadValle } from '../helpers/content'
 import type { CityContent, OfflineAreaRow } from '../../src/lib/types'
 
@@ -531,4 +531,53 @@ test('Close on a fresh history entry replaces with /day instead of going back', 
   // which on a one-entry stack is a no-op and would leave the user stuck on the map.
   expect(await screen.findByText('elsewhere')).toBeInTheDocument()
   expect(screen.queryByRole('button', { name: 'Close map' })).toBeNull()
+})
+
+test('re-downloading invalidates the registry so the new bytes are actually served', async () => {
+  const withAreas = await makeContent(true)
+  await seedCache(withAreas.areas)
+
+  const first = renderMap(withAreas)
+  await waitFor(() => expect(maplibreState.instances.length).toBe(1))
+  expect(maplibreState.protocolAdds).toBe(2)
+  expect(getCachedMapCalls).toHaveBeenCalledTimes(2)
+  first.unmount()
+
+  // An "Update" from More (or the in-map Download): the cache entries are replaced, but the
+  // archives the protocol holds are decoded copies that never re-read the Cache API.
+  await downloadCityMaps(
+    'valle',
+    withAreas.areas,
+    async path => `https://signed.example/${path}`,
+    undefined,
+    async () => new Response(new Uint8Array([9, 9, 9]).buffer, { headers: { 'content-length': '3' } }),
+    cacheStorage as unknown as CacheStorage,
+  )
+
+  renderMap(withAreas)
+  await waitFor(() => expect(maplibreState.instances.length).toBe(2))
+  // Registry dropped: both areas read out of the cache again and re-added to the protocol,
+  // which replaces the archive stored under the same key.
+  await waitFor(() => expect(maplibreState.protocolAdds).toBe(4))
+  expect(getCachedMapCalls).toHaveBeenCalledTimes(4)
+  const style = maplibreState.instances[1].style as { sources: Record<string, { url: string }> }
+  expect(Object.keys(style.sources)).toEqual(['area-1', 'area-2'])
+})
+
+test('deleting the offline map also invalidates the registry', async () => {
+  const withAreas = await makeContent(true)
+  await seedCache(withAreas.areas)
+
+  const first = renderMap(withAreas)
+  await waitFor(() => expect(maplibreState.instances.length).toBe(1))
+  expect(maplibreState.protocolAdds).toBe(2)
+  first.unmount()
+
+  const { deleteCityMaps } = await import('../../src/lib/offlineMaps')
+  await deleteCityMaps('valle', withAreas.areas, cacheStorage as unknown as CacheStorage)
+  await seedCache(withAreas.areas)
+
+  renderMap(withAreas)
+  await waitFor(() => expect(maplibreState.instances.length).toBe(2))
+  await waitFor(() => expect(maplibreState.protocolAdds).toBe(4))
 })
