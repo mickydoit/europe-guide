@@ -53,11 +53,14 @@ test('T01 appears under To book with a critical pill, before T02', () => {
   expect(within(t01Row).getByText('critical', { exact: false })).toBeInTheDocument()
 })
 
-test('B01 appears under Booked', () => {
+test('B01 appears under Booked with a Booked pill', () => {
   renderBookings(content)
   const bookedHeading = screen.getByRole('heading', { name: 'Booked' })
   const section = bookedHeading.closest('section') as HTMLElement
-  expect(within(section).getByText(/Trattoria Alba/, { exact: false })).toBeInTheDocument()
+  const nameEl = within(section).getByText(/Trattoria Alba/, { exact: false })
+  expect(nameEl).toBeInTheDocument()
+  const row = nameEl.closest('button') as HTMLElement
+  expect(within(row).getByText('Booked')).toBeInTheDocument()
 })
 
 test('opening T01 shows a tel: link and the humanised Why urgent field', () => {
@@ -70,6 +73,7 @@ test('opening T01 shows a tel: link and the humanised Why urgent field', () => {
   const dialog = screen.getByRole('dialog')
   const tel = within(dialog).getByRole('link', { name: /\+39/ }) as HTMLAnchorElement
   expect(tel.href).toMatch(/^tel:/)
+  expect(tel.getAttribute('href')).toBe('tel:+390123456789')
   expect(within(dialog).getByText('Why urgent')).toBeInTheDocument()
 })
 

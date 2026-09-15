@@ -5,11 +5,16 @@ import { TripProvider } from '../../src/lib/trip'
 import { loadValle } from '../helpers/content'
 import type { CityContent } from '../../src/lib/types'
 
-const { useAuthMock } = vi.hoisted(() => {
+const { useAuthMock, downloadIcsMock } = vi.hoisted(() => {
   const useAuthMock = vi.fn(() => ({ session: { user: { email: 'owner@example.com' } }, signOut: vi.fn() }))
-  return { useAuthMock }
+  const downloadIcsMock = vi.fn()
+  return { useAuthMock, downloadIcsMock }
 })
 vi.mock('../../src/lib/auth', () => ({ useAuth: useAuthMock }))
+vi.mock('../../src/lib/ics', async importOriginal => {
+  const actual = await importOriginal<typeof import('../../src/lib/ics')>()
+  return { ...actual, downloadIcs: downloadIcsMock }
+})
 
 import { More } from '../../src/screens/More'
 
@@ -58,4 +63,16 @@ test('has a Refresh data button that does not throw when clicked', async () => {
   renderMore(content)
   const btn = await screen.findByRole('button', { name: 'Refresh data' })
   expect(() => fireEvent.click(btn)).not.toThrow()
+})
+
+test('has an enabled Export calendar button that calls downloadIcs with the trip ics', async () => {
+  downloadIcsMock.mockClear()
+  renderMore(content)
+  const btn = await screen.findByRole('button', { name: /Export .* calendar \(\.ics\)/ })
+  expect(btn).toBeEnabled()
+  fireEvent.click(btn)
+  expect(downloadIcsMock).toHaveBeenCalledTimes(1)
+  const [filename, text] = downloadIcsMock.mock.calls[0]
+  expect(filename).toBe('europe-2026-valle.ics')
+  expect(text).toContain('BEGIN:VCALENDAR')
 })

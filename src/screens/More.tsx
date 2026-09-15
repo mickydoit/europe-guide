@@ -5,6 +5,7 @@ import { fmtDay } from '../lib/time'
 import { walkLink } from '../lib/links'
 import { Md } from '../components/Md'
 import { TripPicker } from '../components/TripPicker'
+import { buildIcs, downloadIcs } from '../lib/ics'
 
 const NOTE_SECTIONS: Array<{ key: 'standing' | 'walkin' | 'routes'; heading: string }> = [
   { key: 'standing', heading: 'Standing notes' },
@@ -87,11 +88,11 @@ export function More() {
         <button
           type="button"
           className="btn btn--secondary"
-          disabled
-          title="Coming in the next step"
+          onClick={() => downloadIcs(`europe-2026-${trip.slug}.ics`, buildIcs(trip, content.alerts))}
         >
-          Export calendar (.ics)
+          Export {trip.name} calendar (.ics)
         </button>
+        <p className="caption">{"Opens in Calendar on iPhone. Add all events to a new 'Europe 2026' calendar so you can hide it later."}</p>
       </section>
 
       <section className="more-section">

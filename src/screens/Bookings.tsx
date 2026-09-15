@@ -136,7 +136,7 @@ function BookingSheet({ booking, tripSlug, row, save, onClose }: {
             <dt>Contact</dt>
             <dd>
               {isPhone(booking.contact)
-                ? <a href={`tel:${booking.contact.replace(/\s+/g, '')}`}>{booking.contact}</a>
+                ? <a href={`tel:${booking.contact.replace(/(?!^\+)[^\d]/g, '')}`}>{booking.contact}</a>
                 : booking.contact}
             </dd>
           </Fragment>
@@ -248,7 +248,7 @@ function BookingRowButton({ booking, priorityTone, overdue, meta, state, onOpen 
   state: BookingStateRow | undefined
   onOpen(): void
 }) {
-  const effective = state?.status ?? booking.status_from_file
+  const effective = state?.status ?? booking.status_from_file ?? (booking.kind === 'booked' ? 'booked' : null)
   const info = statusInfo(effective)
   return (
     <button
