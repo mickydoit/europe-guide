@@ -1,4 +1,6 @@
+import { useState } from 'react'
 import { Link } from 'react-router-dom'
+import { BUILD_ID, checkForUpdate } from '../lib/updates'
 import { useTrip } from '../lib/trip'
 import { useAuth } from '../lib/auth'
 import { fmtDay } from '../lib/time'
@@ -16,6 +18,7 @@ const NOTE_SECTIONS: Array<{ key: 'standing' | 'walkin' | 'routes'; heading: str
 
 export function More() {
   const { trips, slug, content, loading, offline, error, setSlug, refresh } = useTrip()
+  const [updateMsg, setUpdateMsg] = useState<string | null>(null)
   const { session, signOut } = useAuth()
 
   if (loading && !content) {
@@ -110,6 +113,13 @@ export function More() {
         <button type="button" className="btn btn--secondary" onClick={() => { void signOut() }}>
           Sign out
         </button>
+        <p className="caption more-version">Version {BUILD_ID}</p>
+        <button type="button" className="btn btn--text" onClick={() => {
+          setUpdateMsg('Checking…')
+          void checkForUpdate().then(r => setUpdateMsg(r === 'updated' ? 'Update found — reloading…' : r === 'current' ? 'You have the latest version' : 'Updates unavailable in this browser'))
+            .catch(() => setUpdateMsg('Could not check — are you online?'))
+        }}>Check for updates</button>
+        {updateMsg && <p className="caption">{updateMsg}</p>}
       </section>
     </main>
   )
