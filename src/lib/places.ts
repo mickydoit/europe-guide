@@ -21,10 +21,14 @@ export const INCLUDED_TYPES = [
 export const EXCLUDED_TYPES = ['lodging', 'bank', 'atm', 'gas_station', 'parking']
 
 const SEARCH_URL = 'https://places.googleapis.com/v1/places:searchNearby'
+// places.photos is deliberately excluded: it's billed per photo on every search hit,
+// and most results are never opened. placePhoto() fetches it lazily from Place Details
+// only for the one place a sheet actually opens.
 const FIELD_MASK = [
   'places.id', 'places.displayName', 'places.location', 'places.rating', 'places.userRatingCount',
-  'places.currentOpeningHours.openNow', 'places.types', 'places.photos', 'places.formattedAddress',
+  'places.currentOpeningHours.openNow', 'places.types', 'places.formattedAddress',
 ].join(',')
+const DETAILS_FIELD_MASK = 'photos'
 const RADIUS_M = 300
 // Unrated places are still worth surfacing when they're a landmark-ish type.
 const UNRATED_KEEP_TYPES = new Set(['tourist_attraction', 'historical_landmark', 'church', 'museum'])
@@ -37,7 +41,6 @@ interface RawPlace {
   userRatingCount?: number
   currentOpeningHours?: { openNow?: boolean }
   types?: string[]
-  photos?: { name?: string }[]
   formattedAddress?: string
 }
 
@@ -59,7 +62,9 @@ function mapPlace(p: RawPlace): Place {
     ratingCount: p.userRatingCount ?? null,
     openNow: p.currentOpeningHours?.openNow ?? null,
     types: p.types ?? [],
-    photoName: p.photos?.[0]?.name ?? null,
+    // Photos are no longer part of the nearby search response; a sheet fetches one
+    // lazily via placePhoto() when the place is actually opened.
+    photoName: null,
     address: p.formattedAddress ?? null,
   }
 }
@@ -100,6 +105,34 @@ export function shouldRefetch(
 ): boolean {
   if (!prev) return true
   return haversineM(prev, now) >= 150 && now.at - prev.at >= 60_000
+}
+
+// Place ids from search come back as `places/ChIJ…`. The Details endpoint path is
+// `/v1/{id}` when the id already carries that prefix, and `/v1/places/{id}` when it
+// doesn't — handle both so callers can pass either form.
+function detailsUrl(placeId: string): string {
+  if (placeId.startsWith('places/')) return `https://places.googleapis.com/v1/${placeId}`
+  return `https://places.googleapis.com/v1/places/${encodeURIComponent(placeId)}`
+}
+
+export async function placePhoto(
+  placeId: string,
+  key: string,
+  fetchImpl: typeof fetch = fetch,
+): Promise<string | null> {
+  const res = await fetchImpl(detailsUrl(placeId), {
+    method: 'GET',
+    referrerPolicy: 'no-referrer-when-downgrade',
+    headers: {
+      'X-Goog-Api-Key': key,
+      'X-Goog-FieldMask': DETAILS_FIELD_MASK,
+    },
+  })
+  if (!res.ok) {
+    throw new Error(`place details HTTP ${res.status}`)
+  }
+  const json = await res.json() as { photos?: { name?: string }[] }
+  return json.photos?.[0]?.name ?? null
 }
 
 export function photoUrl(photoName: string, key: string, maxWidth = 480): string {

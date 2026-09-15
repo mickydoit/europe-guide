@@ -86,15 +86,18 @@ vi.mock('../../src/lib/state', () => ({
   QUEUED_COPY: 'Saved on this phone — will sync when online',
 }))
 
-// nearbyPlaces is network; shouldRefetch/nearestN/photoUrl stay real so the merge and
-// distance-sort logic gets exercised for real.
-const { nearbyPlacesMock } = vi.hoisted(() => ({ nearbyPlacesMock: vi.fn() }))
+// nearbyPlaces and placePhoto are network; shouldRefetch/nearestN/photoUrl stay real so
+// the merge, distance-sort and URL-building logic gets exercised for real.
+const { nearbyPlacesMock, placePhotoMock } = vi.hoisted(() => ({
+  nearbyPlacesMock: vi.fn(),
+  placePhotoMock: vi.fn(),
+}))
 vi.mock('../../src/lib/places', async importOriginal => {
   const actual = await importOriginal<typeof import('../../src/lib/places')>()
-  return { ...actual, nearbyPlaces: nearbyPlacesMock }
+  return { ...actual, nearbyPlaces: nearbyPlacesMock, placePhoto: placePhotoMock }
 })
 
-import MapScreen, { resetPmtilesRegistryForTests } from '../../src/screens/Map'
+import MapScreen, { resetPmtilesRegistryForTests, resetPlacePhotoCacheForTests } from '../../src/screens/Map'
 import type { Place } from '../../src/lib/places'
 
 // ---------------------------------------------------------------- cache polyfill
@@ -191,12 +194,16 @@ beforeEach(async () => {
   localStorage.clear()
   nearbyPlacesMock.mockReset()
   nearbyPlacesMock.mockResolvedValue([])
+  placePhotoMock.mockReset()
+  placePhotoMock.mockResolvedValue(null)
   savePlace.mockReset()
   savePlace.mockResolvedValue(undefined)
   getCachedMapCalls.mockReset()
   // The registry is module-level (it mirrors the protocol singleton), so each test has to
   // start from an empty one or a later test would inherit an earlier test's registrations.
   resetPmtilesRegistryForTests()
+  // Same reasoning for the Place Details photo cache: it's a module-level session cache.
+  resetPlacePhotoCacheForTests()
   content = await makeContent(false)
 })
 
@@ -396,6 +403,61 @@ test('tapping a places-circle feature opens the sheet with the place name', asyn
 
   const dialog = await screen.findByRole('dialog')
   expect(dialog).toHaveAttribute('aria-label', p.name)
+})
+
+// ---------------------------------------------------------------- T4 lazy place photo
+test('opening a place sheet online fetches its photo once (Place Details) and renders it at maxWidthPx=480', async () => {
+  vi.stubEnv('VITE_GOOGLE_BROWSER_KEY', 'k')
+  const p = place({ id: 'pl-photo', name: 'Miradouro Foto' })
+  nearbyPlacesMock.mockResolvedValue([p])
+  placePhotoMock.mockResolvedValue('places/pl-photo/photos/1')
+
+  renderMap(content)
+  await waitFor(() => expect(maplibreState.instances.length).toBe(1))
+  fire('load')
+
+  const geo = navigator.geolocation as unknown as { watchPosition: ReturnType<typeof vi.fn> }
+  const onPosition = geo.watchPosition.mock.calls[0][0] as (p: unknown) => void
+  act(() => { onPosition({ coords: { latitude: 38.71, longitude: -9.14 } }) })
+  await waitFor(() => expect(maplibreState.setDataCalls.some(c => c.id === 'places')).toBe(true))
+
+  fire('click', { features: [{ layer: { id: 'places-hit' }, properties: { id: p.id, kind: 'place' } }] })
+  await screen.findByRole('dialog')
+
+  await waitFor(() => expect(placePhotoMock).toHaveBeenCalledWith('pl-photo', 'k'))
+  const img = await waitFor(() => {
+    const el = document.querySelector('.sheet__photo')
+    expect(el).not.toBeNull()
+    return el as HTMLImageElement
+  })
+  expect(img).toHaveAttribute('loading', 'lazy')
+  expect(img).toHaveAttribute(
+    'src',
+    'https://places.googleapis.com/v1/places/pl-photo/photos/1/media?maxWidthPx=480&key=k',
+  )
+  expect(placePhotoMock).toHaveBeenCalledTimes(1)
+})
+
+test('opening a place sheet while offline never fetches its photo', async () => {
+  vi.stubEnv('VITE_GOOGLE_BROWSER_KEY', 'k')
+  vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false)
+  const p = place({ id: 'pl-offline', name: 'Miradouro Offline' })
+  nearbyPlacesMock.mockResolvedValue([p])
+
+  renderMap(content)
+  await waitFor(() => expect(maplibreState.instances.length).toBe(1))
+  fire('load')
+
+  const geo = navigator.geolocation as unknown as { watchPosition: ReturnType<typeof vi.fn> }
+  const onPosition = geo.watchPosition.mock.calls[0][0] as (p: unknown) => void
+  act(() => { onPosition({ coords: { latitude: 38.71, longitude: -9.14 } }) })
+  await waitFor(() => expect(maplibreState.setDataCalls.some(c => c.id === 'places')).toBe(true))
+
+  fire('click', { features: [{ layer: { id: 'places-hit' }, properties: { id: p.id, kind: 'place' } }] })
+  await screen.findByRole('dialog')
+
+  expect(placePhotoMock).not.toHaveBeenCalled()
+  expect(document.querySelector('.sheet__photo')).toBeNull()
 })
 
 // ---------------------------------------------------------------- C1 storage failure

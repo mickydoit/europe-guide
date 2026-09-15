@@ -14,7 +14,7 @@ import { cachedMapStatus, defaultSigner, downloadCityMaps, getCachedMap, getMaps
 import { fmtTime, todayInTrip } from '../lib/time'
 import { walkLink } from '../lib/links'
 import { MapSheet, type MapFeatureKind } from '../components/MapSheet'
-import { nearbyPlaces, nearestN, photoUrl, shouldRefetch, type Place } from '../lib/places'
+import { nearbyPlaces, nearestN, photoUrl, placePhoto, shouldRefetch, type Place } from '../lib/places'
 import type { OfflineAreaRow } from '../lib/types'
 
 const ACCENT = '#11da8f'
@@ -54,6 +54,15 @@ let registryGeneration = getMapsGeneration()
 export function resetPmtilesRegistryForTests(): void {
   pmtilesRegistry.clear()
   registryGeneration = getMapsGeneration()
+}
+
+// Session cache of Place Details photo lookups, keyed by place id: a photo is billed
+// per Details call, so a place opened twice in one page load must fetch it once. Never
+// persisted — a fresh page load starts empty.
+const placePhotoCache = new globalThis.Map<string, Promise<string | null>>()
+
+export function resetPlacePhotoCacheForTests(): void {
+  placePhotoCache.clear()
 }
 
 type BasemapMode = 'cached' | 'signed' | 'none'
@@ -556,13 +565,41 @@ export default function Map() {
       title: place.name,
       subtitle: [rating, open].filter(Boolean).join(' · ') || null,
       details: place.address,
-      photoSrc: place.photoName && placesKey ? photoUrl(place.photoName, placesKey) : null,
       walkHref: walkLink({ lat: place.lat, lng: place.lng, name: place.name, address: place.address }, trip.name),
       place: { id: place.id, name: place.name, lat: place.lat, lng: place.lng } satisfies Omit<SavedPlace, 'saved_at'>,
     }
   }, [selected, content, trip, placesKey])
 
   const alreadySaved = !!sheet?.place && notes.savedPlaces.some(p => p.id === sheet.place!.id)
+
+  // ---- lazy place photo -----------------------------------------------------
+  // Cost trim: the nearby search field mask no longer requests photos, so a place's
+  // photo is fetched from Place Details only when its sheet actually opens, once per
+  // id per session (placePhotoCache), and only when online.
+  const [placePhotoSrc, setPlacePhotoSrc] = useState<string | null>(null)
+  const placeId = sheet?.kind === 'place' ? sheet.place?.id : undefined
+
+  useEffect(() => {
+    setPlacePhotoSrc(null)
+    if (!placeId || !placesKey) return
+    if (typeof navigator !== 'undefined' && !navigator.onLine) return
+
+    let cached = placePhotoCache.get(placeId)
+    if (!cached) {
+      cached = placePhoto(placeId, placesKey).catch(e => {
+        console.warn(e instanceof Error ? e.message : String(e))
+        return null
+      })
+      placePhotoCache.set(placeId, cached)
+    }
+
+    let cancelled = false
+    cached.then(name => {
+      if (cancelled || !name) return
+      setPlacePhotoSrc(photoUrl(name, placesKey))
+    })
+    return () => { cancelled = true }
+  }, [placeId, placesKey])
 
   async function handleSave() {
     if (!sheet?.place) return
@@ -661,7 +698,7 @@ export default function Map() {
           title={sheet.title}
           subtitle={sheet.subtitle}
           details={sheet.details}
-          photoSrc={sheet.photoSrc}
+          photoSrc={sheet.kind === 'place' ? placePhotoSrc : sheet.photoSrc}
           walkHref={sheet.walkHref}
           onClose={() => { setSelected(null); setSaveError(null); setSaveQueued(null) }}
           onSave={sheet.place ? () => { void handleSave() } : undefined}
