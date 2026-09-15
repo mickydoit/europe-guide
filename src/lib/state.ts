@@ -155,3 +155,93 @@ export function useAttachments(trip: string, bookingId: string, ownerId: string,
 
   return { list, loading, upload, url, remove, error }
 }
+
+export interface SavedPlace { id: string; name: string; lat: number; lng: number; saved_at: string }
+
+export interface DayNoteRow {
+  trip: string
+  date: string
+  text: string | null
+  saved_places: SavedPlace[] | null
+  updated_at: string
+}
+
+const NOTE_DEBOUNCE_MS = 800
+
+export function useDayNotes(trip: string, date: string, client: SupabaseClient = supabase) {
+  const [note, setNoteState] = useState('')
+  const [savedPlaces, setSavedPlaces] = useState<SavedPlace[]>([])
+  const [loading, setLoading] = useState(true)
+  const noteRef = useRef('')
+  const placesRef = useRef<SavedPlace[]>([])
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    setLoading(true)
+    void (async () => {
+      const { data, error } = await client.from('day_notes').select('*').eq('trip', trip).eq('date', date)
+      if (cancelled) return
+      if (error) { console.warn(message(error)); setLoading(false); return }
+      const row = ((data ?? []) as DayNoteRow[])[0]
+      noteRef.current = row?.text ?? ''
+      placesRef.current = row?.saved_places ?? []
+      setNoteState(noteRef.current)
+      setSavedPlaces(placesRef.current)
+      setLoading(false)
+    })()
+    return () => { cancelled = true }
+  }, [trip, date, client])
+
+  // The debounce timer outlives a single render; drop it if the day (or the hook) goes away.
+  useEffect(() => () => { if (timer.current) clearTimeout(timer.current) }, [trip, date])
+
+  async function upsert(text: string, places: SavedPlace[]) {
+    const row = { trip, date, text, saved_places: places, updated_at: new Date().toISOString() }
+    const { error } = await client.from('day_notes').upsert(row, { onConflict: 'trip,date' })
+    if (error) { console.warn(message(error)); throw new Error(message(error)) }
+  }
+
+  function setNote(text: string) {
+    noteRef.current = text
+    setNoteState(text)
+    if (timer.current) clearTimeout(timer.current)
+    timer.current = setTimeout(() => {
+      timer.current = null
+      // Nothing awaits a debounced save, so the warn inside upsert is the whole report.
+      void upsert(noteRef.current, placesRef.current).catch(() => {})
+    }, NOTE_DEBOUNCE_MS)
+  }
+
+  async function savePlace(place: SavedPlace) {
+    if (placesRef.current.some(p => p.id === place.id)) return
+    const previous = placesRef.current
+    const next = [...previous, place]
+    placesRef.current = next
+    setSavedPlaces(next)
+    try {
+      await upsert(noteRef.current, next)
+    } catch (e) {
+      placesRef.current = previous
+      setSavedPlaces(previous)
+      throw e
+    }
+  }
+
+  async function removePlace(id: string) {
+    const previous = placesRef.current
+    if (!previous.some(p => p.id === id)) return
+    const next = previous.filter(p => p.id !== id)
+    placesRef.current = next
+    setSavedPlaces(next)
+    try {
+      await upsert(noteRef.current, next)
+    } catch (e) {
+      placesRef.current = previous
+      setSavedPlaces(previous)
+      throw e
+    }
+  }
+
+  return { note, savedPlaces, loading, setNote, savePlace, removePlace }
+}

@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useRef, useState } from 'react'
-import { useParams, useNavigate, Navigate } from 'react-router-dom'
+import { useParams, useNavigate, Navigate, Link } from 'react-router-dom'
 import { useTrip } from '../lib/trip'
 import { useChecks } from '../lib/state'
 import { currentAndNext, currentBlock, dayIndex, fmtDay, nowInTz, todayInTrip } from '../lib/time'
@@ -143,6 +143,7 @@ export function Day() {
         >
           ›
         </button>
+        <Link to="/map" className="btn--text day-header__map">Map</Link>
         {today && !isToday && (
           <button type="button" className="btn--text day-nav__today" onClick={() => navigate(`/day/${today}`)}>
             Today

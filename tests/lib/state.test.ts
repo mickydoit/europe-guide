@@ -1,6 +1,7 @@
 import { renderHook, act, waitFor } from '@testing-library/react'
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { useChecks, useBookingState, useAttachments } from '../../src/lib/state'
+import { useChecks, useBookingState, useAttachments, useDayNotes } from '../../src/lib/state'
+import type { SavedPlace } from '../../src/lib/state'
 
 type Row = Record<string, unknown>
 type Res<T> = { data: T | null; error: { message: string } | null }
@@ -81,7 +82,9 @@ function makeFakeClient(config: {
   itemChecks?: Row[]
   bookingState?: Row[]
   attachments?: Row[]
+  dayNotes?: Row[]
   failInsert?: boolean
+  failUpsert?: boolean
   failUpload?: boolean
 } = {}) {
   const calls: Call[] = []
@@ -92,6 +95,9 @@ function makeFakeClient(config: {
     }),
     booking_state: makeTable('booking_state', config.bookingState ?? [], calls, {}),
     attachments: makeTable('attachments', config.attachments ?? [], calls, {}),
+    day_notes: makeTable('day_notes', config.dayNotes ?? [], calls, {
+      onUpsert: config.failUpsert ? () => ({ data: null, error: { message: 'upsert failed' } }) : undefined,
+    }),
   }
   const bucket = makeStorageBucket(storageCalls, { failUpload: config.failUpload })
   const client = {
@@ -216,4 +222,101 @@ test('useAttachments: url returns a signed url and remove deletes storage object
 
   const deleteCall = calls.find(c => c.table === 'attachments' && c.mode === 'delete')
   expect(deleteCall?.filters).toEqual([['id', attachment.id]])
+})
+
+test('useDayNotes: loads the existing row for (trip, date)', async () => {
+  const { client } = makeFakeClient({
+    dayNotes: [
+      { trip: 'valle', date: '2026-11-02', text: 'ferry at 9', saved_places: [{ id: 'p1', name: 'Bar Uno', lat: 1, lng: 2, saved_at: '2026-11-02T08:00:00.000Z' }] },
+      { trip: 'valle', date: '2026-11-03', text: 'other day', saved_places: [] },
+    ],
+  })
+  const { result } = renderHook(() => useDayNotes('valle', '2026-11-02', client))
+  await waitFor(() => expect(result.current.loading).toBe(false))
+  expect(result.current.note).toBe('ferry at 9')
+  expect(result.current.savedPlaces.map(p => p.id)).toEqual(['p1'])
+})
+
+test('useDayNotes: savePlace upserts an array containing the new place', async () => {
+  const { client, calls } = makeFakeClient()
+  const { result } = renderHook(() => useDayNotes('valle', '2026-11-02', client))
+  await waitFor(() => expect(result.current.loading).toBe(false))
+
+  const place: SavedPlace = { id: 'p9', name: 'Pasticceria', lat: 38.7, lng: -9.1, saved_at: '2026-11-02T10:00:00.000Z' }
+  await act(async () => { await result.current.savePlace(place) })
+
+  const upsertCall = calls.find(c => c.table === 'day_notes' && c.mode === 'upsert')
+  expect(upsertCall?.upsertOpts).toEqual({ onConflict: 'trip,date' })
+  const payload = upsertCall?.payload as { trip: string; date: string; saved_places: SavedPlace[] }
+  expect(payload.trip).toBe('valle')
+  expect(payload.date).toBe('2026-11-02')
+  expect(payload.saved_places).toEqual([place])
+  expect(result.current.savedPlaces).toEqual([place])
+})
+
+test('useDayNotes: savePlace is idempotent for an id already saved', async () => {
+  const existing = { id: 'p1', name: 'Bar Uno', lat: 1, lng: 2, saved_at: '2026-11-02T08:00:00.000Z' }
+  const { client, calls } = makeFakeClient({
+    dayNotes: [{ trip: 'valle', date: '2026-11-02', text: '', saved_places: [existing] }],
+  })
+  const { result } = renderHook(() => useDayNotes('valle', '2026-11-02', client))
+  await waitFor(() => expect(result.current.loading).toBe(false))
+
+  await act(async () => { await result.current.savePlace({ ...existing, saved_at: 'later' }) })
+
+  expect(calls.filter(c => c.table === 'day_notes' && c.mode === 'upsert')).toHaveLength(0)
+  expect(result.current.savedPlaces).toEqual([existing])
+})
+
+test('useDayNotes: removePlace upserts the remaining array', async () => {
+  const a = { id: 'p1', name: 'A', lat: 1, lng: 2, saved_at: 'x' }
+  const b = { id: 'p2', name: 'B', lat: 3, lng: 4, saved_at: 'y' }
+  const { client, calls } = makeFakeClient({
+    dayNotes: [{ trip: 'valle', date: '2026-11-02', text: '', saved_places: [a, b] }],
+  })
+  const { result } = renderHook(() => useDayNotes('valle', '2026-11-02', client))
+  await waitFor(() => expect(result.current.loading).toBe(false))
+
+  await act(async () => { await result.current.removePlace('p1') })
+
+  const upsertCall = calls.find(c => c.table === 'day_notes' && c.mode === 'upsert')
+  expect((upsertCall?.payload as { saved_places: SavedPlace[] }).saved_places).toEqual([b])
+  expect(result.current.savedPlaces).toEqual([b])
+})
+
+test('useDayNotes: a failing savePlace reverts the optimistic list and rejects', async () => {
+  const { client } = makeFakeClient({ failUpsert: true })
+  const { result } = renderHook(() => useDayNotes('valle', '2026-11-02', client))
+  await waitFor(() => expect(result.current.loading).toBe(false))
+
+  const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+  await act(async () => {
+    await expect(result.current.savePlace({ id: 'p9', name: 'X', lat: 0, lng: 0, saved_at: 'z' })).rejects.toThrow()
+  })
+  expect(result.current.savedPlaces).toEqual([])
+  expect(warn).toHaveBeenCalled()
+  warn.mockRestore()
+})
+
+test('useDayNotes: setNote is optimistic and upserts once after the 800 ms debounce', async () => {
+  vi.useFakeTimers()
+  try {
+    const { client, calls } = makeFakeClient()
+    const { result } = renderHook(() => useDayNotes('valle', '2026-11-02', client))
+    await act(async () => { await vi.advanceTimersByTimeAsync(0) })
+    expect(result.current.loading).toBe(false)
+
+    act(() => { result.current.setNote('a') })
+    act(() => { result.current.setNote('ab') })
+    expect(result.current.note).toBe('ab')
+    expect(calls.filter(c => c.table === 'day_notes' && c.mode === 'upsert')).toHaveLength(0)
+
+    await act(async () => { await vi.advanceTimersByTimeAsync(800) })
+
+    const upserts = calls.filter(c => c.table === 'day_notes' && c.mode === 'upsert')
+    expect(upserts).toHaveLength(1)
+    expect((upserts[0].payload as { text: string }).text).toBe('ab')
+  } finally {
+    vi.useRealTimers()
+  }
 })
