@@ -3,6 +3,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { supabase } from './supabase'
 import { fetchCity, fetchCityWith, fetchTrips, fetchTripsWith } from './data'
 import { getCachedCity, putCachedCity, getCachedTrips, putCachedTrips } from './db'
+import { todayInTrip } from './time'
 import type { CityContent, TripRow } from './types'
 
 const STORAGE_KEY = 'europe-guide.trip'
@@ -22,17 +23,13 @@ export const TripContext = createContext<Trip | null>(null)
 
 function message(e: unknown) { return e instanceof Error ? e.message : String(e) }
 
-function todayIn(timezone: string) {
-  return new Intl.DateTimeFormat('en-CA', { timeZone: timezone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date())
-}
-
 function resolveSlug(trips: TripRow[]): string | null {
   if (trips.length === 0) return null
   const fromQuery = new URLSearchParams(location.search).get('trip')
   if (fromQuery) return fromQuery
   const fromStorage = localStorage.getItem(STORAGE_KEY)
   if (fromStorage) return fromStorage
-  const current = trips.find(t => { const now = todayIn(t.timezone); return t.start_date <= now && now <= t.end_date })
+  const current = trips.find(t => todayInTrip(t) !== null)
   return (current ?? trips[0]).slug
 }
 
@@ -49,6 +46,7 @@ export function TripProvider({ children, client, initial }: {
   const [error, setError] = useState<string | null>(null)
   const mounted = useRef(true)
   const skipInitialCityLoad = useRef(!!initial)
+  const loadSeq = useRef(0)
 
   const doFetchTrips = () => (client ? fetchTripsWith(client) : fetchTrips())
   const doFetchCity = (s: string) => (client ? fetchCityWith(client, s) : fetchCity(s))
@@ -59,19 +57,21 @@ export function TripProvider({ children, client, initial }: {
   }, [])
 
   async function loadCity(s: string) {
+    const seq = ++loadSeq.current
+    const stale = () => !mounted.current || seq !== loadSeq.current
     try {
       const c = await doFetchCity(s)
       await putCachedCity(c)
-      if (!mounted.current) return
+      if (stale()) return
       setContent(c); setOffline(false); setError(null)
     } catch (e) {
       const msg = message(e)
       const cached = await getCachedCity(s)
-      if (!mounted.current) return
+      if (stale()) return
       if (cached) { setContent(cached); setOffline(true); setError(null) }
       else { setError(msg) }
     } finally {
-      if (mounted.current) setLoading(false)
+      if (!stale()) setLoading(false)
     }
   }
 
