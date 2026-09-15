@@ -34,7 +34,7 @@ export function OfflineMapCard({ trip, areas, signer = defaultSigner, cacheStora
     }
   }, [])
 
-  const mb = useMemo(() => {
+  const totalMb = useMemo(() => {
     const bytes = areas.reduce((sum, a) => sum + a.size_bytes, 0)
     return (bytes / (1024 * 1024)).toFixed(1)
   }, [areas])
@@ -45,10 +45,10 @@ export function OfflineMapCard({ trip, areas, signer = defaultSigner, cacheStora
     setProgress({ done: 0, total: areas.length })
     try {
       await downloadCityMaps(trip, areas, signer, (done, total) => setProgress({ done, total }), fetch, cacheStorage)
-      await refresh()
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
     } finally {
+      await refresh()
       setDownloading(false)
     }
   }
@@ -75,7 +75,7 @@ export function OfflineMapCard({ trip, areas, signer = defaultSigner, cacheStora
   return (
     <div className="offline-map-card">
       <p className="offline-map-card__status">
-        Offline map — {status.downloaded} of {status.total} areas · {mb} MB
+        Offline map — {status.downloaded} of {status.total} areas · {(status.bytes / (1024 * 1024)).toFixed(1)} of {totalMb} MB
       </p>
       <div className="offline-map-card__actions">
         <button
