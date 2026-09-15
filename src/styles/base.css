@@ -29,3 +29,56 @@ button { font: inherit; }
 .form__msg { margin: 0; font-size: 14px; line-height: 18px; }
 .form__msg--error { color: var(--salmon); }
 .form__msg--info { color: var(--text-soft); }
+
+/* Day */
+.day { display: flex; flex-direction: column; gap: 0; }
+
+.trip-picker { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
+.trip-picker__pill { padding: 8px 14px; border-radius: var(--radius-pill); background: var(--bg-2); border: 0; color: var(--text); font-size: 14px; font-weight: 600; cursor: pointer; }
+.trip-picker__pill--active { background: var(--accent); color: var(--bg); }
+
+.day-header { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+.day-nav__arrow { background: none; border: 0; color: var(--text); font-size: 22px; line-height: 1; padding: 4px 8px; cursor: pointer; }
+.day-nav__arrow:disabled { color: var(--text-dim); cursor: default; }
+.day-title-row { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; flex: 1; min-width: 0; }
+.day-title { font-size: 20px; font-weight: 700; line-height: 1.15; margin: 0; overflow-wrap: anywhere; }
+.status-pill { display: inline-block; padding: 3px 10px; border-radius: var(--radius-pill); font-size: 11px; font-weight: 700; letter-spacing: .03em; white-space: nowrap; }
+.status-pill--locked { border: 1px solid var(--accent); color: var(--accent); }
+.status-pill--dinner { background: var(--banana); color: var(--bg); }
+.day-nav__today { margin-left: auto; }
+
+.nownext { background: var(--card-alt); border-left: 3px solid var(--accent); border-radius: 12px; padding: 12px 14px; margin-bottom: 16px; }
+.nownext__now { margin: 0; font-size: 15px; font-weight: 600; }
+.nownext__next { margin: 6px 0 0; font-size: 13px; color: var(--text-soft); }
+
+.day-block { margin-bottom: 8px; }
+.day-block--current { border-left: 3px solid var(--accent); padding-left: 12px; margin-left: -12px; }
+.day-block__heading { margin-top: 24px; }
+.day-block:first-of-type .day-block__heading { margin-top: 0; }
+
+.route-strip { display: flex; flex-direction: column; gap: 6px; background: var(--card-alt); border-radius: var(--radius-card); padding: 10px 14px; margin-bottom: 16px; }
+.route-strip__item { display: flex; align-items: baseline; flex-wrap: wrap; gap: 6px; font-size: 13px; }
+.route-strip__title { font-weight: 600; }
+.route-strip__distance { color: var(--text-dim); }
+.route-strip__link { margin-left: auto; }
+
+.stop-card { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius-panel); padding: 14px 16px; margin-bottom: 10px; }
+.stop-card.is-done { opacity: .55; }
+.stop-card.is-done .stop-card__plan { text-decoration: line-through; }
+.stop-card__row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.stop-card__time { font-size: 13px; color: var(--text-dim); }
+.stop-card__tick { width: 28px; height: 28px; border-radius: 50%; border: 1px solid var(--border); background: none; color: var(--text-dim); cursor: pointer; flex-shrink: 0; }
+.stop-card.is-done .stop-card__tick { border-color: var(--accent); color: var(--accent); }
+.stop-card__plan { font-size: 16px; font-weight: 600; margin: 6px 0 0; overflow-wrap: anywhere; }
+.stop-card__details { font-size: 14px; color: var(--text-soft); margin: 4px 0 0; overflow-wrap: anywhere; }
+.stop-card__walk { display: inline-block; font-size: 13px; font-weight: 600; margin-top: 8px; }
+.stop-card__expand { display: block; background: none; border: 0; color: var(--text-dim); font-size: 13px; font-weight: 600; padding: 8px 0 0; cursor: pointer; }
+.stop-card__panel { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border); }
+.stop-card__panel-details { font-size: 14px; color: var(--text-soft); margin: 0 0 8px; overflow-wrap: anywhere; }
+.stop-card__option { padding: 8px 0; border-top: 1px solid var(--border); }
+.stop-card__option:first-child { border-top: 0; }
+.stop-card__option-name { font-size: 14px; font-weight: 600; margin: 0; overflow-wrap: anywhere; }
+.stop-card__option-details { font-size: 13px; color: var(--text-soft); margin: 4px 0 0; overflow-wrap: anywhere; }
+
+.note { font-size: 14px; color: var(--text-soft); margin: 10px 0; overflow-wrap: anywhere; }
+.route-link { font-size: 14px; color: var(--text-soft); margin: 10px 0; overflow-wrap: anywhere; }
