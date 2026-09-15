@@ -4,7 +4,7 @@ import type { DailyForecast, Hourly } from '../lib/weather'
 import { fmtDay, nowInTz, todayInTrip } from '../lib/time'
 import type { CityContent, TripRow } from '../lib/types'
 
-function conditionEmoji(condition: string): string {
+export function conditionEmoji(condition: string): string {
   const c = condition.toLowerCase()
   if (c.includes('storm') || c.includes('thunder')) return '⛈️'
   if (c.includes('snow')) return '❄️'
