@@ -16,7 +16,11 @@ const { saveMock, uploadMock, urlMock, removeMock, useBookingStateMock, useAttac
   const useAuthMock = vi.fn(() => ({ session: { user: { id: 'owner-1' } } }))
   return { saveMock, uploadMock, urlMock, removeMock, useBookingStateMock, useAttachmentsMock, useAuthMock }
 })
-vi.mock('../../src/lib/state', () => ({ useBookingState: useBookingStateMock, useAttachments: useAttachmentsMock }))
+vi.mock('../../src/lib/state', () => ({
+  useBookingState: useBookingStateMock,
+  useAttachments: useAttachmentsMock,
+  QUEUED_COPY: 'Saved on this phone — will sync when online',
+}))
 vi.mock('../../src/lib/auth', () => ({ useAuth: useAuthMock }))
 
 import { Bookings } from '../../src/screens/Bookings'

@@ -4,6 +4,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { useChecks, useBookingState, useAttachments, useDayNotes } from '../../src/lib/state'
 import type { SavedPlace } from '../../src/lib/state'
 import { resetDbForTests } from '../../src/lib/db'
+import * as outbox from '../../src/lib/outbox'
 import { enqueue, listOutbox } from '../../src/lib/outbox'
 import type { AttachmentUploadPayload, CheckSetPayload, DayNotesPayload } from '../../src/lib/outbox'
 import { resetSyncForTests } from '../../src/lib/sync'
@@ -774,4 +775,223 @@ test('useDayNotes: a fresh mount overlays a pending note and pending places', as
   await waitFor(() => expect(result.current.loading).toBe(false))
   expect(result.current.note).toBe('queued note')
   expect(result.current.savedPlaces.map(p => p.id)).toEqual(['p9'])
+})
+
+// ---- a failed read is when the overlay matters most ------------------------
+
+/**
+ * A client whose every request fails the way an offline `fetch` does. Reads matter here;
+ * writes are recorded so a test can prove none were attempted.
+ */
+// Hold the returned client in a const: a fresh one per render changes the hooks'
+// effect dependency every render and spins forever.
+function makeOfflineReadClient(seen: string[] = []) {
+  const client = {
+    from() {
+      let mode = 'select'
+      const q: Record<string, unknown> = {
+        select() { return q },
+        order() { return q },
+        eq() { return q },
+        like() { return q },
+        single() { return q },
+        insert() { mode = 'insert'; return q },
+        delete() { mode = 'delete'; return q },
+        upsert() { mode = 'upsert'; return q },
+        then(resolve: (r: Res<unknown>) => void) {
+          seen.push(mode)
+          resolve({ data: null, error: { message: 'TypeError: Failed to fetch' } })
+        },
+      }
+      return q
+    },
+    storage: { from: () => makeStorageBucket([]) },
+  }
+  return client as unknown as SupabaseClient
+}
+
+test('useChecks: a failed read still shows the pending tick', async () => {
+  await enqueue({ key: 'check:valle/T01', kind: 'check_set', payload: { itemId: 'valle/T01', done: true } })
+  const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+  const client = makeOfflineReadClient()
+  const { result } = renderHook(() => useChecks('valle', client))
+  await waitFor(() => expect(result.current.loading).toBe(false))
+  expect(result.current.done.has('valle/T01')).toBe(true)
+  warn.mockRestore()
+})
+
+test('useBookingState: a failed read still shows the pending booking edit', async () => {
+  await enqueue({
+    key: 'booking:valle:T01',
+    kind: 'booking_state',
+    payload: { trip: 'valle', booking_id: 'T01', status: 'booked', updated_at: '2026-09-15T00:00:00.000Z' },
+  })
+  const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+  const client = makeOfflineReadClient()
+  const { result } = renderHook(() => useBookingState('valle', client))
+  await waitFor(() => expect(result.current.loading).toBe(false))
+  expect(result.current.state.T01?.status).toBe('booked')
+  warn.mockRestore()
+})
+
+test('useDayNotes: a failed read still shows the pending saved place', async () => {
+  const place = { id: 'p1', name: 'Bar Uno', lat: 1, lng: 2, saved_at: '2026-11-02T08:00:00.000Z' }
+  await enqueue({
+    key: 'notes:valle:2026-11-02:saved_places',
+    kind: 'day_notes',
+    payload: { trip: 'valle', date: '2026-11-02', patch: { saved_places: [place] } },
+  })
+  const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+  const client = makeOfflineReadClient()
+  const { result } = renderHook(() => useDayNotes('valle', '2026-11-02', client))
+  await waitFor(() => expect(result.current.loading).toBe(false))
+  expect(result.current.savedPlaces.map(p => p.id)).toEqual(['p1'])
+  warn.mockRestore()
+})
+
+test('useAttachments: a failed read still lists the queued upload', async () => {
+  const blob = new Blob([new Uint8Array(4)], { type: 'application/pdf' })
+  await enqueue({
+    key: 'owner-1/valle/T01/1-queued.pdf',
+    kind: 'attachment_upload',
+    payload: { trip: 'valle', bookingId: 'T01', ownerId: 'owner-1', path: 'owner-1/valle/T01/1-queued.pdf', filename: 'queued.pdf', mime: 'application/pdf', size: 4, blob },
+  })
+  const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+  const client = makeOfflineReadClient()
+  const { result } = renderHook(() => useAttachments('valle', 'T01', 'owner-1', client))
+  await waitFor(() => expect(result.current.loading).toBe(false))
+  await waitFor(() => expect(result.current.list).toHaveLength(1))
+  expect(result.current.list[0].pendingUpload).toBe(true)
+  warn.mockRestore()
+})
+
+// ---- a live write supersedes what is queued under the same key -------------
+
+test('useChecks: a successful online untick drops the stale queued tick for that item', async () => {
+  await enqueue({ key: 'check:valle/T01', kind: 'check_set', payload: { itemId: 'valle/T01', done: true } })
+  const { client, calls } = makeFakeClient({ itemChecks: [{ item_id: 'valle/T01' }] })
+  const { result } = renderHook(() => useChecks('valle', client))
+  await waitFor(() => expect(result.current.loading).toBe(false))
+  expect(result.current.done.has('valle/T01')).toBe(true)
+
+  await act(async () => { await result.current.toggle('valle/T01') })
+
+  expect(result.current.done.has('valle/T01')).toBe(false)
+  // Without superseding, the queued done:true would be flushed straight back in.
+  await waitFor(async () => expect(await listOutbox()).toHaveLength(0))
+  expect(calls.filter(c => c.table === 'item_checks' && c.mode === 'insert')).toHaveLength(0)
+})
+
+// ---- blob URLs are not leaked ---------------------------------------------
+
+test('useAttachments: removing a pending row revokes the blob URL it handed out', async () => {
+  if (!URL.createObjectURL) Object.defineProperty(URL, 'createObjectURL', { value: () => '', configurable: true, writable: true })
+  if (!URL.revokeObjectURL) Object.defineProperty(URL, 'revokeObjectURL', { value: () => {}, configurable: true, writable: true })
+  const create = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:queued')
+  const revoke = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {})
+  try {
+    const blob = new Blob([new Uint8Array(4)], { type: 'application/pdf' })
+    await enqueue({
+      key: 'owner-1/valle/T01/1-queued.pdf',
+      kind: 'attachment_upload',
+      payload: { trip: 'valle', bookingId: 'T01', ownerId: 'owner-1', path: 'owner-1/valle/T01/1-queued.pdf', filename: 'queued.pdf', mime: 'application/pdf', size: 4, blob },
+    })
+    const { client } = makeFakeClient()
+    const { result } = renderHook(() => useAttachments('valle', 'T01', 'owner-1', client))
+    await waitFor(() => expect(result.current.list).toHaveLength(1))
+
+    // The same row asked for twice hands back one URL, not two.
+    let first = ''
+    await act(async () => { first = await result.current.url(result.current.list[0]) })
+    await act(async () => { await result.current.url(result.current.list[0]) })
+    expect(first).toBe('blob:queued')
+    expect(create).toHaveBeenCalledTimes(1)
+    expect(revoke).not.toHaveBeenCalled()
+
+    await act(async () => { await result.current.remove(result.current.list[0]) })
+    expect(revoke).toHaveBeenCalledWith('blob:queued')
+  } finally {
+    create.mockRestore()
+    revoke.mockRestore()
+  }
+})
+
+// ---- a broken outbox must not wedge the screen -----------------------------
+
+test('useChecks: a rejected outbox read stops loading instead of wedging on “Loading…”', async () => {
+  const spy = vi.spyOn(outbox, 'listOutbox').mockRejectedValue(new Error('IndexedDB is gone'))
+  const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+  try {
+    const { client } = makeFakeClient()
+    const { result } = renderHook(() => useChecks('valle', client))
+    await waitFor(() => expect(result.current.loading).toBe(false))
+    expect(warn).toHaveBeenCalled()
+  } finally {
+    warn.mockRestore()
+    spy.mockRestore()
+  }
+})
+
+test('useBookingState: a save made while the read is still in flight survives it', async () => {
+  let release!: () => void
+  const gate = new Promise<void>(resolve => { release = resolve })
+  const upserts: unknown[] = []
+  const client = {
+    from() {
+      let mode = 'select'
+      let payload: unknown
+      const q: Record<string, unknown> = {
+        select() { return q },
+        eq() { return q },
+        upsert(p: unknown) { mode = 'upsert'; payload = p; return q },
+        then(resolve: (r: Res<unknown>) => void) {
+          if (mode === 'upsert') { upserts.push(payload); resolve({ data: null, error: null }); return }
+          void gate.then(() => resolve({ data: [], error: null }))
+        },
+      }
+      return q
+    },
+  } as unknown as SupabaseClient
+
+  const { result } = renderHook(() => useBookingState('valle', client))
+  expect(result.current.loading).toBe(true)
+
+  await act(async () => { await result.current.save('T01', { status: 'booked' }) })
+  expect(result.current.state.T01.status).toBe('booked')
+
+  act(() => { release() })
+  await waitFor(() => expect(result.current.loading).toBe(false))
+  expect(upserts).toHaveLength(1)
+  // The empty server response must not wipe the save that overtook it.
+  expect(result.current.state.T01?.status).toBe('booked')
+})
+
+test('useChecks: a toggle made while the read is still in flight survives it', async () => {
+  let release!: () => void
+  const gate = new Promise<void>(resolve => { release = resolve })
+  const client = {
+    from() {
+      let mode = 'select'
+      const q: Record<string, unknown> = {
+        select() { return q },
+        like() { return q },
+        eq() { return q },
+        insert() { mode = 'insert'; return q },
+        delete() { mode = 'delete'; return q },
+        then(resolve: (r: Res<unknown>) => void) {
+          if (mode !== 'select') { resolve({ data: null, error: null }); return }
+          void gate.then(() => resolve({ data: [], error: null }))
+        },
+      }
+      return q
+    },
+  } as unknown as SupabaseClient
+
+  const { result } = renderHook(() => useChecks('valle', client))
+  await act(async () => { await result.current.toggle('valle/T01') })
+  expect(result.current.done.has('valle/T01')).toBe(true)
+
+  act(() => { release() })
+  await waitFor(() => expect(result.current.loading).toBe(false))
+  expect(result.current.done.has('valle/T01')).toBe(true)
 })

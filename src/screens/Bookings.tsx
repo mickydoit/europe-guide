@@ -3,6 +3,7 @@ import type { ChangeEvent } from 'react'
 import { useTrip } from '../lib/trip'
 import { useAuth } from '../lib/auth'
 import { useBookingState, useAttachments } from '../lib/state'
+import { QUEUED_COPY } from '../lib/state'
 import type { AttachmentRow, BookingStateRow, WriteResult } from '../lib/state'
 import { fmtDay, fmtTime, nowInTz, todayInTrip } from '../lib/time'
 import { Pill } from '../components/Pill'
@@ -20,8 +21,6 @@ const STATUS_OPTIONS: Array<{ value: string; label: string }> = [
   { value: 'cancelled', label: 'Cancelled' },
   { value: 'undecided', label: 'Undecided' },
 ]
-
-const QUEUED_MSG = 'Saved on this phone — will sync when online'
 
 function humanize(key: string): string {
   const words = key.replace(/_/g, ' ')
@@ -75,8 +74,12 @@ function BookingSheet({ booking, tripSlug, row, save, onClose }: {
   const [uploadQueued, setUploadQueued] = useState(false)
   const [actionError, setActionError] = useState<string | null>(null)
   const savedTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const uploadMsgTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  useEffect(() => () => { if (savedTimer.current) clearTimeout(savedTimer.current) }, [])
+  useEffect(() => () => {
+    if (savedTimer.current) clearTimeout(savedTimer.current)
+    if (uploadMsgTimer.current) clearTimeout(uploadMsgTimer.current)
+  }, [])
 
   async function handleSave() {
     setSaving(true)
@@ -135,7 +138,12 @@ function BookingSheet({ booking, tripSlug, row, save, onClose }: {
     setUploadQueued(false)
     try {
       const result = await upload(file)
-      if (result?.queued) setUploadQueued(true)
+      if (result?.queued) {
+        // Same lifetime as the Save message: say it, then get out of the way.
+        setUploadQueued(true)
+        if (uploadMsgTimer.current) clearTimeout(uploadMsgTimer.current)
+        uploadMsgTimer.current = setTimeout(() => setUploadQueued(false), 2000)
+      }
     } catch {
       // error already surfaced via the attachments hook's error state
     } finally {
@@ -231,7 +239,7 @@ function BookingSheet({ booking, tripSlug, row, save, onClose }: {
           Save
         </button>
         {saved && <p className="form__msg form__msg--info">Saved</p>}
-        {saveQueued && <p className="form__msg form__msg--queued">{QUEUED_MSG}</p>}
+        {saveQueued && <p className="form__msg form__msg--queued">{QUEUED_COPY}</p>}
         {saveError && <p className="form__msg form__msg--error">{saveError}</p>}
       </div>
 
@@ -264,7 +272,7 @@ function BookingSheet({ booking, tripSlug, row, save, onClose }: {
               onChange={e => void handleFileChange(e)}
             />
           </div>
-          {uploadQueued && <p className="form__msg form__msg--queued">{QUEUED_MSG}</p>}
+          {uploadQueued && <p className="form__msg form__msg--queued">{QUEUED_COPY}</p>}
           {(actionError ?? attError) && <p className="form__msg form__msg--error">{actionError ?? attError}</p>}
         </div>
       )}

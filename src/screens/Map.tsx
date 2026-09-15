@@ -7,7 +7,7 @@ maplibregl.setWorkerUrl(new URL('/europe-guide/map/maplibre-gl-worker.mjs', type
 import 'maplibre-gl/dist/maplibre-gl.css'
 import { PMTiles, Protocol } from 'pmtiles'
 import { useTrip } from '../lib/trip'
-import { useChecks, useDayNotes, type SavedPlace } from '../lib/state'
+import { useChecks, useDayNotes, QUEUED_COPY, type SavedPlace } from '../lib/state'
 import { buildStyle } from '../lib/mapStyle'
 import { boundsFor, legsGeoJSON, parkedGeoJSON, placesGeoJSON, stopsGeoJSON } from '../lib/mapData'
 import { cachedMapStatus, defaultSigner, downloadCityMaps, getCachedMap, getMapsGeneration, MemorySource } from '../lib/offlineMaps'
@@ -572,7 +572,7 @@ export default function Map() {
     setSaveQueued(null)
     try {
       const result = await notes.savePlace({ ...sheet.place, saved_at: new Date().toISOString() })
-      if (result?.queued) setSaveQueued('Saved on this phone — will sync when online')
+      if (result?.queued) setSaveQueued(QUEUED_COPY)
     } catch (e) {
       // The raw PostgREST message is noise to the person holding the phone.
       console.warn('save place', e instanceof Error ? e.message : String(e))

@@ -19,7 +19,11 @@ const { toggle, useChecksMock, removePlace, useDayNotesMock } = vi.hoisted(() =>
     })),
   }
 })
-vi.mock('../../src/lib/state', () => ({ useChecks: useChecksMock, useDayNotes: useDayNotesMock }))
+vi.mock('../../src/lib/state', () => ({
+  useChecks: useChecksMock,
+  useDayNotes: useDayNotesMock,
+  QUEUED_COPY: 'Saved on this phone — will sync when online',
+}))
 // The Day header carries a SyncBadge; keep the outbox (and its IndexedDB reads) out of these tests.
 vi.mock('../../src/lib/sync', () => ({ useSync: () => ({ pending: 0, failed: 0, syncing: false, lastError: undefined, retryFailed: vi.fn() }) }))
 

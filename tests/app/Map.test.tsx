@@ -83,6 +83,7 @@ Object.assign(notesStub, { note: '', savedPlaces: [], loading: false, setNote: v
 vi.mock('../../src/lib/state', () => ({
   useChecks: () => checksStub,
   useDayNotes: () => notesStub,
+  QUEUED_COPY: 'Saved on this phone — will sync when online',
 }))
 
 // nearbyPlaces is network; shouldRefetch/nearestN/photoUrl stay real so the merge and

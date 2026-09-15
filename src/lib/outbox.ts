@@ -72,6 +72,18 @@ export async function removeOp(id: string) {
   await deleteOutbox(id)
 }
 
+/**
+ * Drop every op queued under one key and say how many went.
+ *
+ * Used when a live write has just landed for that key: the queued op is older intent and
+ * replaying it would undo what the server has already accepted.
+ */
+export async function removeOpsByKey(key: string): Promise<number> {
+  const ids = await getOutboxIdsByKey(key)
+  for (const id of ids) await deleteOutbox(id)
+  return ids.length
+}
+
 export async function updateOp(id: string, patch: Partial<OutboxOp>) {
   const current = (await getOutboxAll()).find(o => o.id === id)
   if (!current) return null

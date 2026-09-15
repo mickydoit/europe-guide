@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useRef, useState } from 'react'
 import { useParams, useNavigate, Navigate, Link } from 'react-router-dom'
 import { useTrip } from '../lib/trip'
-import { useChecks, useDayNotes } from '../lib/state'
+import { useChecks, useDayNotes, QUEUED_COPY } from '../lib/state'
 import { currentAndNext, currentBlock, dayIndex, fmtDay, nowInTz, todayInTrip } from '../lib/time'
 import { TripPicker } from '../components/TripPicker'
 import { NowNext } from '../components/NowNext'
@@ -17,7 +17,6 @@ const BLOCK_KEYS: Block[] = ['morning', 'midday', 'evening', null]
 const BLOCK_LABEL: Record<string, string> = { morning: 'Morning', midday: 'Midday', evening: 'Evening' }
 const NOW_TICK_MS = 30_000
 const TICK_MSG_MS = 4_000
-const QUEUED_MSG = 'Saved on this phone — will sync when online'
 
 export function Day() {
   const { date: dateParam } = useParams<{ date?: string }>()
@@ -44,11 +43,20 @@ export function Day() {
     tickMsgTimer.current = setTimeout(() => setTickMsg(null), TICK_MSG_MS)
   }
 
+  async function handleRemovePlace(id: string) {
+    try {
+      const result = await removePlace(id)
+      if (result?.queued) flashTick(QUEUED_COPY, 'queued')
+    } catch {
+      flashTick("Couldn't save — you may be offline", 'error')
+    }
+  }
+
   async function handleToggle(itemId: string) {
     try {
       // Queued is not a failure: the tick is already on screen and the outbox owns the rest.
       const result = await toggle(itemId)
-      if (result?.queued) flashTick(QUEUED_MSG, 'queued')
+      if (result?.queued) flashTick(QUEUED_COPY, 'queued')
     } catch {
       flashTick("Couldn't save — you may be offline", 'error')
     }
@@ -183,7 +191,7 @@ export function Day() {
                     type="button"
                     className="saved-places__remove"
                     aria-label={`Remove ${p.name}`}
-                    onClick={() => { void removePlace(p.id).catch(() => {}) }}
+                    onClick={() => { void handleRemovePlace(p.id) }}
                   >
                     ×
                   </button>
