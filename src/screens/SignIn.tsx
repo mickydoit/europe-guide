@@ -4,23 +4,40 @@ import { useAuth } from '../lib/auth'
 export function SignIn() {
   const { signIn, requestReset } = useAuth(); const nav = useNavigate(); const loc = useLocation()
   const [email, setEmail] = useState(''); const [password, setPassword] = useState('')
+  const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null); const [info, setInfo] = useState<string | null>(null)
   async function submit(e: FormEvent) {
-    e.preventDefault(); setError(null)
-    const err = await signIn(email, password)
+    e.preventDefault(); setError(null); setInfo(null); setBusy(true)
+    const err = await signIn(email, password); setBusy(false)
     if (err) setError(err); else nav((loc.state as { from?: string } | null)?.from ?? '/', { replace: true })
   }
-  async function forgot() { setError(null); const err = await requestReset(email); setInfo(err ?? 'Reset email sent. Check your inbox.') }
+  async function forgot() {
+    setError(null); setInfo(null)
+    const err = await requestReset(email)
+    if (err) setError(err); else setInfo(`Reset link sent to ${email}. Open it on this phone.`)
+  }
   return (
-    <main className="screen" style={{ display: 'grid', alignContent: 'center', gap: 16, maxWidth: 400, margin: '0 auto' }}>
-      <h1 className="h5">Sign in</h1>
-      <form onSubmit={submit} style={{ display: 'grid', gap: 12 }}>
-        <label>Email<input type="email" autoComplete="username" value={email} onChange={e => setEmail(e.target.value)} required /></label>
-        <label>Password<input type="password" autoComplete="current-password" value={password} onChange={e => setPassword(e.target.value)} required /></label>
-        {error && <p role="alert" style={{ color: 'var(--salmon)' }}>{error}</p>}
-        {info && <p className="caption">{info}</p>}
-        <button type="submit">Sign in</button>
-        <button type="button" onClick={forgot} disabled={!email} style={{ background: 'none', border: 0, color: 'var(--accent)' }}>Forgot password</button>
+    <main className="screen auth">
+      <header>
+        <p className="auth__brand">Europe 2026</p>
+        <h1 className="auth__title">Sign in</h1>
+        <p className="auth__lede">Your itinerary, bookings and maps. One sign-in per device.</p>
+      </header>
+      <form onSubmit={submit} className="form" noValidate>
+        <div className="field">
+          <label className="field__label" htmlFor="email">Email</label>
+          <input id="email" className="field__input" type="email" inputMode="email" autoComplete="username" autoCapitalize="none" spellCheck={false}
+            placeholder="you@example.com" value={email} onChange={e => setEmail(e.target.value)} required />
+        </div>
+        <div className="field">
+          <label className="field__label" htmlFor="password">Password</label>
+          <input id="password" className="field__input" type="password" autoComplete="current-password"
+            placeholder="••••••••" value={password} onChange={e => setPassword(e.target.value)} required />
+        </div>
+        {error && <p role="alert" className="form__msg form__msg--error">{error}</p>}
+        {info && <p className="form__msg form__msg--info">{info}</p>}
+        <button type="submit" className="btn btn--primary" disabled={busy || !email || !password}>{busy ? 'Signing in…' : 'Sign in'}</button>
+        <button type="button" className="btn btn--text" onClick={forgot} disabled={!email}>Forgot password? Email me a reset link</button>
       </form>
     </main>
   )
