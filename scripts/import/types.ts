@@ -1,0 +1,13 @@
+export type Block = 'morning' | 'midday' | 'evening' | null
+export type ItemKind = 'stop' | 'option' | 'note' | 'route_link'
+export interface TripRow { slug: string; name: string; country: string; country_code: string; start_date: string; end_date: string; base: string | null; timezone: string; intro: string | null; sort: number }
+export interface DayRow { trip: string; date: string; title: string | null; status: 'locked' | 'locked_except_dinner' | null; intro: string | null }
+export interface ItemRow { id: string; trip: string; date: string; block: Block; time: string | null; time_text: string | null; approx: boolean; kind: ItemKind; parent_item: string | null; plan: string; details: string | null; sort: number; place_name: string | null; address: string | null; lat: number | null; lng: number | null; url: string | null; route_id: string | null }
+export interface BookingRow { id: string; trip: string; kind: 'booked' | 'todo' | 'walkin'; title: string; date: string | null; time: string | null; priority: string | null; book_by: string | null; decide_by: string | null; contact: string | null; address: string | null; notes: string | null; fallback: string | null; relates_to: string | null; options: string | null; status_from_file: string | null; fields: Record<string, string>; sort: number }
+export interface RouteRow { id: string; trip: string; date: string | null; title: string; distance_text: string | null; mode: 'walking' | 'driving' | 'transit'; covers: string[]; note: string | null; google_url: string; sort: number }
+export interface LegRow { trip: string; route_id: string; seq: number; from_name: string; to_name: string; from_lat: number | null; from_lng: number | null; to_lat: number | null; to_lng: number | null; google_url: string; polyline: string | null; distance_m: number | null; duration_s: number | null }
+export interface AlertRow { trip: string; date: string; seq: number; time: string | null; text: string }
+export interface ParkedRow { trip: string; seq: number; name: string; what: string | null; why: string | null; address: string | null; lat: number | null; lng: number | null }
+export interface NoteRow { trip: string; seq: number; section: string; text: string }
+export interface OfflineAreaRow { trip: string; seq: number; name: string; min_lng: number; min_lat: number; max_lng: number; max_lat: number; pmtiles_path: string; size_bytes: number }
+export interface CityContent { trip: TripRow; days: DayRow[]; items: ItemRow[]; bookings: BookingRow[]; routes: RouteRow[]; legs: LegRow[]; alerts: AlertRow[]; parked: ParkedRow[]; notes: NoteRow[]; areas: OfflineAreaRow[] }

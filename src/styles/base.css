@@ -1,0 +1,31 @@
+@import './tokens.css';
+*, *::before, *::after { box-sizing: border-box; }
+html, body, #root { height: 100%; margin: 0; }
+body { background: var(--bg); color: var(--text); font-family: var(--font); -webkit-font-smoothing: antialiased; }
+a { color: var(--accent); }
+button { font: inherit; }
+.screen { padding: calc(var(--safe-top) + 16px) 16px calc(var(--safe-bottom) + 96px); min-height: 100%; }
+.h5 { font-size: 20px; font-weight: 700; line-height: 1; margin: 0 0 16px; }
+.caption { font-size: 14px; line-height: 16px; color: var(--text-dim); }
+
+/* Forms (sign in, reset) */
+.auth { display: flex; flex-direction: column; justify-content: flex-start; gap: 28px; padding-top: calc(var(--safe-top) + 72px); max-width: 440px; }
+.auth__brand { font-size: 13px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--accent); margin: 0; }
+.auth__title { font-size: 34px; font-weight: 700; line-height: 1.05; letter-spacing: -.02em; margin: 6px 0 0; }
+.auth__lede { font-size: 15px; line-height: 20px; color: var(--text-soft); margin: 10px 0 0; max-width: 34ch; }
+.form { display: flex; flex-direction: column; gap: 18px; }
+.field { display: flex; flex-direction: column; gap: 8px; }
+.field__label { font-size: 13px; font-weight: 600; color: var(--text-soft); }
+.field__input { width: 100%; min-height: 52px; padding: 0 16px; border-radius: 12px; border: 1px solid var(--border);
+  background: var(--card-alt); color: var(--text); font: inherit; font-size: 17px; -webkit-appearance: none; appearance: none; outline: none; }
+.field__input::placeholder { color: var(--text-dim); }
+.field__input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(17,218,143,.18); }
+.btn { min-height: 52px; padding: 0 20px; border-radius: 12px; border: 0; font-weight: 700; font-size: 16px; cursor: pointer; }
+.btn--primary { background: var(--accent); color: var(--bg); width: 100%; margin-top: 6px; }
+.btn--primary:active { filter: brightness(.92); }
+.btn--primary:disabled { opacity: .5; }
+.btn--text { background: none; color: var(--accent); padding: 0; min-height: 0; text-align: left; font-weight: 600; font-size: 15px; align-self: flex-start; }
+.btn--text:disabled { color: var(--text-dim); cursor: default; }
+.form__msg { margin: 0; font-size: 14px; line-height: 18px; }
+.form__msg--error { color: var(--salmon); }
+.form__msg--info { color: var(--text-soft); }

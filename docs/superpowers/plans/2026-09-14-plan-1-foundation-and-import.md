@@ -94,7 +94,7 @@ europe-guide/
 cd ~/Developer/Github/europe-guide
 npm init -y >/dev/null
 npm pkg set name=europe-guide private=true type=module
-npm pkg set scripts.dev=vite scripts.build="tsc -b && vite build" scripts.preview=vite\ preview scripts.test="vitest run" scripts.test:watch=vitest scripts.import="tsx scripts/import/cli.ts"
+npm pkg set scripts.dev=vite scripts.build="tsc --noEmit && vite build" scripts.preview=vite\ preview scripts.test="vitest run" scripts.test:watch=vitest scripts.import="tsx scripts/import/cli.ts"
 npm i react@19 react-dom@19 react-router-dom@7 @supabase/supabase-js@2
 npm i -D vite@8 @vitejs/plugin-react@6 typescript@7 vitest@5 jsdom@30 @testing-library/react@16 @testing-library/jest-dom @types/react @types/react-dom vite-plugin-pwa@1 tsx dotenv
 ```
@@ -151,13 +151,13 @@ import '@testing-library/jest-dom/vitest'
     "target": "ES2022", "lib": ["ES2023", "DOM", "DOM.Iterable"], "module": "ESNext",
     "moduleResolution": "bundler", "jsx": "react-jsx", "strict": true, "noEmit": true,
     "skipLibCheck": true, "resolveJsonModule": true, "isolatedModules": true,
-    "types": ["vite/client", "vite-plugin-pwa/client"]
+    "types": ["vite/client", "vite-plugin-pwa/client", "node"]
   },
   "include": ["src", "scripts", "tests"]
 }
 ```
 
-`tsconfig.node.json`: same as above but `"include": ["vite.config.ts", "vitest.config.ts"]` and `"types": ["node"]` (also `npm i -D @types/node`).
+`tsconfig.node.json`: same as above but `"include": ["vite.config.ts", "vitest.config.ts"]` and `"types": ["node"]`. Also `npm i -D @types/node`. Vite 8 and Vitest 5 use `tsx`-free ESM config loading, so no build of the config is needed.
 
 `index.html`:
 ```html
@@ -322,7 +322,7 @@ Run: `npm test` → PASS. Run: `npm run build` → `dist/` produced with `sw.js`
 
 - [ ] **Step 5: Deploy workflow and env example**
 
-`.github/workflows/deploy.yml`: copy the Fitness Tracker workflow verbatim (checkout → setup-node 22 with npm cache → `npm ci` → `npm run build` → configure-pages → upload `dist` → deploy-pages), adding under the build step:
+`.github/workflows/deploy.yml`: copy the Fitness Tracker workflow at `~/Developer/Github/Mickyworksout/.github/workflows/deploy.yml` (checkout → setup-node with npm cache → `npm ci` → `npm run build` → configure-pages → upload `dist` → deploy-pages), with `on.push.branches: [main, plan-1-foundation]`, `node-version: 22`, and under the build step:
 ```yaml
       - run: npm run build
         env:
@@ -831,9 +831,9 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>" && git push
 
 - [ ] **Step 1: Fixtures**
 
-Write `tests/fixtures/valle/Valle-Itinerary-Full.md` with the same grammar as Lisbon but fictional content, covering every shape the parser must handle: intro paragraph under the H1; a day with `✅ LOCKED`; a day with `✅ LOCKED except dinner`; a day with no block headings (like Friday); `Time | Plan | Details` and `Time | Plan` tables; a `— ` time row; a `~18:00` time; an options table `Place | Address | Hours | Why` after a "pick one below" row; a `**[Walking route for this whole block →](https://www.google.com/maps/dir/?api=1&origin=A%2C+Valle&destination=B%2C+Valle&waypoints=C%2C+Valle&travelmode=walking)** — ~2 km` paragraph; a bold-led note paragraph; a plain note paragraph. Minimum two days, five stops, one options table with two rows.
+Write `tests/fixtures/valle/Valle-Itinerary-Full.md` with the same grammar as Lisbon but fictional content, covering every shape the parser must handle: intro paragraph under the H1; a day with `✅ LOCKED`; a day with `✅ LOCKED except dinner`; a day with no block headings (like Friday); `Time | Plan | Details` and `Time | Plan` tables; a `— ` time row; a `~18:00` time; an options table `Place | Address | Hours | Why` placed after the END of the block's stops table, where the "pick one below" row is NOT the last row of that table (mirrors Lisbon: the snack list follows the whole Evening table); a `**[Walking route for this whole block →](https://www.google.com/maps/dir/?api=1&origin=A%2C+Valle&destination=B%2C+Valle&waypoints=C%2C+Valle&travelmode=walking)** — ~2 km` paragraph; a bold-led note paragraph; a plain note paragraph. Minimum two days, five stops, one options table with two rows.
 
-Write `Valle-Bookings-Reminders.md` with front matter (`trip: Valle`, `dates: 2026-11-01 to 2026-11-03`, `base: Old Town`, `travellers: 2`, `country: Italy`, `timezone: Europe/Rome`), sections `## 1.` (table with 2 rows), `## 2.` (two `### T01 · …` entries, one with `for: 2026-11-02, 19:30`, one with `decide_by` and `options`), `## 3.` (names separated by ` · ` plus an `**Exception:**` paragraph), `## 4.` (two weekday headings with `time | alert` tables, one `—` time), `## 5.` (three bullets).
+Write `Valle-Bookings-Reminders.md` with front matter (`trip: Valle`, `dates: 2026-11-01 to 2026-11-03`, `base: Old Town`, `travellers: 2`, `country: Italy`, `timezone: Europe/Rome`), sections `## 1.` (table with 2 rows), `## 2.` (two `### T01 · …` entries; T01 with `book_by: 2026-10-20 (immediately)`, `for: 2026-11-02, 19:30`, `why_urgent`; T02 with `decide_by: 2026-10-25`, `options: A · B`, `status: undecided`), `## 3.` (names separated by ` · ` plus an `**Exception:**` paragraph), `## 4.` (two weekday headings with `time | alert` tables, one `—` time), `## 5.` (three bullets).
 
 Write `Valle-Walking-Routes.md` with front matter, one `## Weekday` heading with two `### V1 — title` entries (one with `- **mode:** driving`), bullet fields `distance`, `covers` (arrow-separated), `note`, `url`; a `**Not walking:** …` paragraph; and a `## Rough daily walking totals` table.
 
@@ -1089,7 +1089,7 @@ export function parseItinerary(file: string, src: string, ctx: { trip: string; y
   const nodes = tokenize(src)
   const days: DayRow[] = []; const items: ItemRow[] = []
   let intro: string[] = []; let day: DayRow | null = null; let block: Block = null
-  let seq = 0; let lastStop: ItemRow | null = null; let sawTrip = false
+  let seq = 0; let lastStop: ItemRow | null = null; let lastPick: ItemRow | null = null; let sawTrip = false
   const fail = (n: Node, msg: string): never => { throw new ImportError(file, n.line, msg) }
   const push = (partial: Omit<ItemRow, 'id' | 'trip' | 'date' | 'block' | 'sort'>): ItemRow => {
     if (!day) fail(nodes[0], 'content before first day heading')
@@ -1103,7 +1103,7 @@ export function parseItinerary(file: string, src: string, ctx: { trip: string; y
       const d = (() => { try { return parseDayHeading(n.text, ctx.year) } catch (e) { return fail(n, (e as Error).message) } })()
       if (!d) { if (!sawTrip && days.length === 0) { sawTrip = true; continue } fail(n, `not a day heading: "${n.text}"`) }
       day = { trip: ctx.trip, date: d!.date, title: d!.title, status: d!.status, intro: null }
-      days.push(day); block = null; seq = 0; lastStop = null; continue
+      days.push(day); block = null; seq = 0; lastStop = null; lastPick = null; continue
     }
     if (n.kind === 'heading' && n.level === 2) {
       if (!(n.text in BLOCKS)) fail(n, `unknown block heading "${n.text}" (expected Morning/Midday/Evening)`)
@@ -1118,12 +1118,14 @@ export function parseItinerary(file: string, src: string, ctx: { trip: string; y
           const t = (() => { try { return parseTime(r[0]) } catch (e) { return fail(n, (e as Error).message) } })()
           const { place_name, address } = extractPlace(r[1])
           lastStop = push({ kind: 'stop', time: t.time, time_text: t.text, approx: t.approx, parent_item: null, plan: r[1], details: r[2] ?? null, place_name, address, lat: null, lng: null, url: null, route_id: null })
+          if (/pick one|options? below|choose one/i.test(`${r[1]} ${r[2] ?? ''}`)) lastPick = lastStop
         }
       } else if (h[0] === 'place') {
-        if (!lastStop) fail(n, 'options table with no preceding stop')
+        const parent = lastPick ?? lastStop
+        if (!parent) fail(n, 'options table with no preceding stop')
         for (const r of n.rows) {
           const { place_name } = extractPlace(r[0]); const name = place_name ?? r[0].replace(/\*\*/g, '')
-          push({ kind: 'option', time: null, time_text: null, approx: false, parent_item: lastStop!.id, plan: name, details: n.header.slice(1).map((k, i) => `**${k}:** ${r[i + 1] ?? ''}`).join(' · '), place_name: name, address: r[1] || null, lat: null, lng: null, url: null, route_id: null })
+          push({ kind: 'option', time: null, time_text: null, approx: false, parent_item: parent!.id, plan: name, details: n.header.slice(1).map((k, i) => `**${k}:** ${r[i + 1] ?? ''}`).join(' · '), place_name: name, address: r[1] || null, lat: null, lng: null, url: null, route_id: null })
         }
       } else fail(n, `unknown table shape [${n.header.join(' | ')}]`)
       continue
@@ -1172,7 +1174,7 @@ test('front matter and booked table', () => {
 test('todo entries with bullet fields', () => {
   const r = parseBookings('b.md', src, ctx)
   const t1 = r.bookings.find(b => b.id === 'T01')!
-  expect(t1.kind).toBe('todo'); expect(t1.priority).toBe('critical'); expect(t1.book_by).toBe('2026-10-20')
+  expect(t1.kind).toBe('todo'); expect(t1.priority).toBe('critical'); expect(t1.book_by).toBe('2026-10-20'); expect(t1.fields.book_by_note).toBe('immediately')
   expect(t1.date).toBe('2026-11-02'); expect(t1.time).toBe('19:30'); expect(t1.contact).toMatch(/^\+39/)
   expect(t1.fields.why_urgent).toBeDefined()
   const t2 = r.bookings.find(b => b.id === 'T02')!
@@ -1242,6 +1244,7 @@ export function parseBookings(file: string, src: string, ctx: { trip: string; ye
           if (k === 'for') { const fm2 = v.match(/^(\d{4}-\d{2}-\d{2})(?:,\s*(\d{1,2}:\d{2}))?(?:,\s*(.*))?$/); if (!fm2) fail(n, `bad "for" value "${v}"`); cur!.date = fm2![1]; cur!.time = fm2![2] ? parseTime(fm2![2]).time : null; if (fm2![3]) cur!.fields.for_note = fm2![3] }
           else if (k === 'note' || k === 'notes') cur!.notes = cur!.notes ? `${cur!.notes}\n${v}` : v
           else if (k === 'status') cur!.status_from_file = v
+          else if (k === 'book_by' || k === 'decide_by') { const dm = v.match(/^(\d{4}-\d{2}-\d{2})\s*(.*)$/); if (!dm) fail(n, `${k} must start with YYYY-MM-DD: "${v}"`); (cur as unknown as Record<string, string>)[k] = dm![1]; if (dm![2]) cur!.fields[`${k}_note`] = dm![2].replace(/^\((.*)\)$/, '$1') }
           else if (COLS.has(k)) (cur as unknown as Record<string, string>)[k] = v
           else cur!.fields[k] = v
         }
@@ -1734,11 +1737,11 @@ export function supabaseUploader(client: SupabaseClient) {
 ```sql
 create or replace function import_city(p jsonb) returns jsonb
 language plpgsql security definer set search_path = public as $$
-declare slug text := p->'trip'->>'slug'; counts jsonb := '{}';
+declare v_slug text := p->'trip'->>'slug'; counts jsonb := '{}';
 begin
-  delete from offline_areas where trip = slug; delete from standing_notes where trip = slug; delete from parked_venues where trip = slug;
-  delete from alerts where trip = slug; delete from legs where trip = slug; delete from routes where trip = slug;
-  delete from bookings where trip = slug; delete from items where trip = slug; delete from days where trip = slug; delete from trips where slug = slug;
+  delete from offline_areas where trip = v_slug; delete from standing_notes where trip = v_slug; delete from parked_venues where trip = v_slug;
+  delete from alerts where trip = v_slug; delete from legs where trip = v_slug; delete from routes where trip = v_slug;
+  delete from bookings where trip = v_slug; delete from items where trip = v_slug; delete from days where trip = v_slug; delete from trips where slug = v_slug;
   insert into trips select * from jsonb_populate_record(null::trips, p->'trip');
   insert into days select * from jsonb_populate_recordset(null::days, p->'days');
   insert into items select * from jsonb_populate_recordset(null::items, p->'items') order by (parent_item is not null), sort;
