@@ -7,6 +7,7 @@ import { SignIn } from './screens/SignIn'
 import { ResetPassword } from './screens/ResetPassword'
 import { More } from './screens/More'
 import { Day } from './screens/Day'
+import { Bookings } from './screens/Bookings'
 function Shell() { return <><Outlet /><TabBar /></> }
 export default function App() {
   return (
@@ -19,7 +20,7 @@ export default function App() {
           <Route path="/day" element={<Day />} />
           <Route path="/day/:date" element={<Day />} />
           <Route path="/map" element={<Placeholder title="Map" />} />
-          <Route path="/bookings" element={<Placeholder title="Bookings" />} />
+          <Route path="/bookings" element={<Bookings />} />
           <Route path="/more" element={<More />} />
         </Route>
       </Routes>
