@@ -23,8 +23,14 @@ export function minutesOf(hhmm: string): number {
   return h * 60 + m
 }
 
+// PostgREST returns Postgres `time` columns as HH:MM:SS; the app works in HH:MM throughout.
+export function normaliseTime(t: string | null): string | null {
+  return t ? t.slice(0, 5) : null
+}
+
 export function fmtTime(time: string | null, text: string | null): string {
-  if (time) return time
+  const t = normaliseTime(time)
+  if (t) return t
   if (text && text.startsWith('~')) return text
   if (!text) return '—'
   return text

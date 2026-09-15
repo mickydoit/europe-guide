@@ -26,16 +26,21 @@ function legMetric(leg: LegRow): string | null {
 }
 
 export function Routes() {
-  const { trips, content, loading, error } = useTrip()
+  const { trips, content, loading, error, refresh } = useTrip()
 
   if (loading && !content) {
     return <main className="screen"><p className="caption">Loading…</p></main>
   }
+  if (error && !content) {
+    return (
+      <main className="screen">
+        <p className="caption">{error}</p>
+        <button type="button" className="btn--text" onClick={() => { void refresh() }}>Retry</button>
+      </main>
+    )
+  }
   if (trips.length === 0) {
     return <main className="screen"><p className="caption">No trips yet. Run the import on your laptop.</p></main>
-  }
-  if (error && !content) {
-    return <main className="screen"><p className="caption">{error}</p></main>
   }
   if (!content) return null
 

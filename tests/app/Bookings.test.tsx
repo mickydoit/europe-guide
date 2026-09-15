@@ -4,6 +4,7 @@ import { vi } from 'vitest'
 import { TripProvider } from '../../src/lib/trip'
 import { loadValle } from '../helpers/content'
 import type { CityContent } from '../../src/lib/types'
+import type { AttachmentRow } from '../../src/lib/state'
 
 const { saveMock, uploadMock, urlMock, removeMock, useBookingStateMock, useAttachmentsMock, useAuthMock } = vi.hoisted(() => {
   const saveMock = vi.fn().mockResolvedValue(undefined)
@@ -11,7 +12,7 @@ const { saveMock, uploadMock, urlMock, removeMock, useBookingStateMock, useAttac
   const urlMock = vi.fn().mockResolvedValue('https://signed.example/file.pdf')
   const removeMock = vi.fn().mockResolvedValue(undefined)
   const useBookingStateMock = vi.fn(() => ({ state: {}, loading: false, save: saveMock }))
-  const useAttachmentsMock = vi.fn(() => ({ list: [], loading: false, upload: uploadMock, url: urlMock, remove: removeMock, error: null }))
+  const useAttachmentsMock = vi.fn(() => ({ list: [] as AttachmentRow[], loading: false, upload: uploadMock, url: urlMock, remove: removeMock, error: null as string | null }))
   const useAuthMock = vi.fn(() => ({ session: { user: { id: 'owner-1' } } }))
   return { saveMock, uploadMock, urlMock, removeMock, useBookingStateMock, useAttachmentsMock, useAuthMock }
 })
@@ -89,6 +90,58 @@ test('selecting status booked and pressing Save calls save with the patch', asyn
   fireEvent.click(within(dialog).getByRole('button', { name: 'Save' }))
 
   await waitFor(() => expect(saveMock).toHaveBeenCalledWith('T01', expect.objectContaining({ status: 'booked' })))
+})
+
+test('opening an attachment opens the window synchronously before the signed url resolves (iOS popup safety)', async () => {
+  let resolveUrl: (v: string) => void = () => {}
+  urlMock.mockImplementationOnce(() => new Promise<string>(resolve => { resolveUrl = resolve }))
+  const attachment = {
+    id: 'a1', trip: 'valle', booking_id: 'T01', storage_path: 'p/ticket.pdf',
+    filename: 'ticket.pdf', mime: 'application/pdf', size: 1234, uploaded_at: '2026-01-01',
+  }
+  useAttachmentsMock.mockReturnValue({ list: [attachment], loading: false, upload: uploadMock, url: urlMock, remove: removeMock, error: null })
+  const fakeWindow = { location: { href: '' }, close: vi.fn() }
+  const openSpy = vi.spyOn(window, 'open').mockReturnValue(fakeWindow as unknown as Window)
+
+  renderBookings(content)
+  const toBookHeading = screen.getByRole('heading', { name: 'To book' })
+  const section = toBookHeading.closest('section') as HTMLElement
+  const row = within(section).getByText(/Trattoria Alba/, { exact: false }).closest('button') as HTMLElement
+  fireEvent.click(row)
+
+  const dialog = screen.getByRole('dialog')
+  fireEvent.click(within(dialog).getByRole('button', { name: 'ticket.pdf' }))
+
+  // window.open must already have been called before the mocked url() resolves.
+  expect(openSpy).toHaveBeenCalledTimes(1)
+  expect(openSpy).toHaveBeenCalledWith('', '_blank', 'noopener')
+  expect(urlMock).toHaveBeenCalledWith(attachment)
+
+  resolveUrl('https://signed.example/ticket.pdf')
+  await waitFor(() => expect(fakeWindow.location.href).toBe('https://signed.example/ticket.pdf'))
+
+  openSpy.mockRestore()
+})
+
+test('a rejected attachment delete surfaces an inline error in the sheet', async () => {
+  removeMock.mockRejectedValueOnce(new Error('network down'))
+  const attachment = {
+    id: 'a1', trip: 'valle', booking_id: 'T01', storage_path: 'p/ticket.pdf',
+    filename: 'ticket.pdf', mime: 'application/pdf', size: 1234, uploaded_at: '2026-01-01',
+  }
+  useAttachmentsMock.mockReturnValue({ list: [attachment], loading: false, upload: uploadMock, url: urlMock, remove: removeMock, error: null })
+  vi.spyOn(window, 'confirm').mockReturnValue(true)
+
+  renderBookings(content)
+  const toBookHeading = screen.getByRole('heading', { name: 'To book' })
+  const section = toBookHeading.closest('section') as HTMLElement
+  const row = within(section).getByText(/Trattoria Alba/, { exact: false }).closest('button') as HTMLElement
+  fireEvent.click(row)
+
+  const dialog = screen.getByRole('dialog')
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Delete' }))
+
+  expect(await within(dialog).findByText('network down')).toBeInTheDocument()
 })
 
 test('choosing a file calls upload with that file', async () => {

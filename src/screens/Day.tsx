@@ -1,4 +1,4 @@
-import { Fragment } from 'react'
+import { Fragment, useEffect, useRef, useState } from 'react'
 import { useParams, useNavigate, Navigate } from 'react-router-dom'
 import { useTrip } from '../lib/trip'
 import { useChecks } from '../lib/state'
@@ -10,29 +10,56 @@ import { StopCard } from '../components/StopCard'
 import { Md } from '../components/Md'
 import type { Block, ItemRow } from '../lib/types'
 
-const BLOCK_ORDER: Block[] = ['morning', 'midday', 'evening', null]
+const BLOCK_KEYS: Block[] = ['morning', 'midday', 'evening', null]
 const BLOCK_LABEL: Record<string, string> = { morning: 'Morning', midday: 'Midday', evening: 'Evening' }
+const NOW_TICK_MS = 30_000
+const TICK_ERROR_MS = 4_000
 
 export function Day() {
   const { date: dateParam } = useParams<{ date?: string }>()
   const navigate = useNavigate()
-  const { trips, slug, content, loading, error, setSlug } = useTrip()
+  const { trips, slug, content, loading, error, setSlug, refresh } = useTrip()
   const { done, toggle } = useChecks(content?.trip.slug ?? '')
+  const [now, setNow] = useState(() => new Date())
+  const [tickError, setTickError] = useState<string | null>(null)
+  const tickErrorTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  useEffect(() => {
+    const id = setInterval(() => setNow(new Date()), NOW_TICK_MS)
+    return () => clearInterval(id)
+  }, [])
+
+  useEffect(() => () => { if (tickErrorTimer.current) clearTimeout(tickErrorTimer.current) }, [])
+
+  async function handleToggle(itemId: string) {
+    try {
+      await toggle(itemId)
+    } catch {
+      setTickError("Couldn't save — you may be offline")
+      if (tickErrorTimer.current) clearTimeout(tickErrorTimer.current)
+      tickErrorTimer.current = setTimeout(() => setTickError(null), TICK_ERROR_MS)
+    }
+  }
 
   if (loading && !content) {
     return <main className="screen"><p className="caption">Loading…</p></main>
   }
+  if (error && !content) {
+    return (
+      <main className="screen">
+        <p className="caption">{error}</p>
+        <button type="button" className="btn--text" onClick={() => { void refresh() }}>Retry</button>
+      </main>
+    )
+  }
   if (trips.length === 0) {
     return <main className="screen"><p className="caption">No trips yet. Run the import on your laptop.</p></main>
-  }
-  if (error && !content) {
-    return <main className="screen"><p className="caption">{error}</p></main>
   }
   if (!content) return null
 
   const trip = content.trip
   const days = content.days
-  const today = todayInTrip(trip)
+  const today = todayInTrip(trip, now)
   const resolvedDate = dateParam ?? today ?? days[0]?.date ?? null
 
   if (!dateParam && resolvedDate) {
@@ -44,6 +71,10 @@ export function Day() {
 
   const date = resolvedDate
   const idx = dayIndex(days, date)
+  if (idx < 0 && days.length > 0) {
+    const fallback = today ?? days[0].date
+    return <Navigate to={`/day/${fallback}`} replace />
+  }
   const day = idx >= 0 ? days[idx] : null
   const prevDay = idx > 0 ? days[idx - 1] : null
   const nextDay = idx >= 0 && idx < days.length - 1 ? days[idx + 1] : null
@@ -58,14 +89,17 @@ export function Day() {
     }
   }
   const mainItems = dayItems.filter(i => i.kind !== 'option').sort((a, b) => a.sort - b.sort)
-  const blocks = BLOCK_ORDER
+  // Groups are ordered by the minimum `sort` of their items (not a fixed block order):
+  // mainItems is already sort-ascending, so each group's first item is its minimum.
+  const blocks = BLOCK_KEYS
     .map(block => ({ block, items: mainItems.filter(i => i.block === block) }))
     .filter(g => g.items.length > 0)
+    .sort((a, b) => a.items[0].sort - b.items[0].sort)
 
   const dayRoutes = content.routes.filter(r => r.date === date)
 
   const isToday = date === today
-  const nowMinutes = nowInTz(trip.timezone).minutes
+  const nowMinutes = nowInTz(trip.timezone, now).minutes
   const activeBlock = isToday ? currentBlock(nowMinutes) : null
   const { current, next, minutesToNext } = isToday
     ? currentAndNext(content.alerts, date, nowMinutes)
@@ -118,6 +152,8 @@ export function Day() {
 
       {isToday && <NowNext current={current} next={next} minutesToNext={minutesToNext} />}
 
+      {tickError && <p className="form__msg form__msg--error">{tickError}</p>}
+
       {blocks.map((g, gi) => (
         <Fragment key={g.block ?? 'none'}>
           {gi === 0 && <RouteStrip routes={dayRoutes} />}
@@ -132,7 +168,7 @@ export function Day() {
                     options={optionsByParent.get(item.id) ?? []}
                     tripName={trip.name}
                     done={done.has(item.id)}
-                    onToggle={() => toggle(item.id)}
+                    onToggle={() => { void handleToggle(item.id) }}
                   />
                 )
               }

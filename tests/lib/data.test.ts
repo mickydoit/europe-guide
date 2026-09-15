@@ -22,3 +22,13 @@ test('a failing table throws with its name', async () => {
   const bad = mockSupabaseContent(content, { failTable: 'legs' })
   await expect(fetchCityWith(bad.client, 'valle')).rejects.toThrow(/legs/)
 })
+
+test('normalises a Postgres HH:MM:SS alert time to HH:MM', async () => {
+  const content = await loadValle()
+  const alert = content.alerts.find(a => a.time === '09:15')!
+  alert.time = '09:15:00'
+  const mock = mockSupabaseContent(content)
+  const c = await fetchCityWith(mock.client, 'valle')
+  const found = c.alerts.find(a => a.date === alert.date && a.seq === alert.seq)
+  expect(found?.time).toBe('09:15')
+})

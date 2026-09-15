@@ -23,14 +23,26 @@ export const TripContext = createContext<Trip | null>(null)
 
 function message(e: unknown) { return e instanceof Error ? e.message : String(e) }
 
-function resolveSlug(trips: TripRow[]): string | null {
-  if (trips.length === 0) return null
-  const fromQuery = new URLSearchParams(location.search).get('trip')
-  if (fromQuery) return fromQuery
-  const fromStorage = localStorage.getItem(STORAGE_KEY)
-  if (fromStorage) return fromStorage
+function defaultSlug(trips: TripRow[]): string {
   const current = trips.find(t => todayInTrip(t) !== null)
   return (current ?? trips[0]).slug
+}
+
+// Validates a candidate slug against the known trips list, falling back to the
+// today-match / trips[0] rule when it names a trip that no longer exists (e.g. a
+// stale ?trip= or localStorage value left over from a since-removed trip).
+function pickSlug(trips: TripRow[], candidate: string | null): string | null {
+  if (candidate && trips.some(t => t.slug === candidate)) return candidate
+  return null
+}
+
+function resolveSlug(trips: TripRow[]): string | null {
+  if (trips.length === 0) return null
+  const fromQuery = pickSlug(trips, new URLSearchParams(location.search).get('trip'))
+  if (fromQuery) return fromQuery
+  const fromStorage = pickSlug(trips, localStorage.getItem(STORAGE_KEY))
+  if (fromStorage) return fromStorage
+  return defaultSlug(trips)
 }
 
 export function TripProvider({ children, client, initial }: {

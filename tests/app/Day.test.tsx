@@ -1,9 +1,9 @@
-import { render, screen, fireEvent, within } from '@testing-library/react'
+import { render, screen, fireEvent, within, act } from '@testing-library/react'
 import { MemoryRouter, Routes, Route } from 'react-router-dom'
 import { vi, beforeEach, afterEach } from 'vitest'
 import { TripProvider } from '../../src/lib/trip'
 import { loadValle } from '../helpers/content'
-import type { CityContent } from '../../src/lib/types'
+import type { CityContent, ItemRow } from '../../src/lib/types'
 
 const { toggle, useChecksMock } = vi.hoisted(() => {
   const toggle = vi.fn()
@@ -62,6 +62,34 @@ test('clicking the tick calls toggle with the item id', async () => {
   expect(toggle).toHaveBeenCalledWith('valle/2026-11-02/0830/piazza-grande')
 })
 
+test('a failed toggle surfaces an inline "could not save" message that clears itself', async () => {
+  toggle.mockRejectedValueOnce(new Error('offline'))
+  renderDay('2026-11-02', content)
+  const heading = await screen.findByText('Piazza Grande', { exact: false })
+  const card = heading.closest('.stop-card') as HTMLElement
+  fireEvent.click(within(card).getByRole('button', { name: 'Mark done' }))
+  expect(await screen.findByText("Couldn't save — you may be offline")).toBeInTheDocument()
+})
+
+test('a null-block note with a lower sort renders before the Morning heading', async () => {
+  const date = '2026-11-02'
+  const note: ItemRow = {
+    id: 'valle/2026-11-02/note', trip: 'valle', date, block: null, time: null, time_text: null,
+    approx: false, kind: 'note', parent_item: null, plan: 'A note before Morning', details: null,
+    sort: 0, place_name: null, address: null, lat: null, lng: null, url: null, route_id: null,
+  }
+  content.items = [
+    note,
+    ...content.items.filter(i => i.date === date).map(i => ({ ...i, sort: i.sort + 1 })),
+    ...content.items.filter(i => i.date !== date),
+  ]
+  renderDay(date, content)
+  const heading = await screen.findByRole('heading', { name: 'Morning' })
+  const note_el = await screen.findByText('A note before Morning')
+  // eslint-disable-next-line no-bitwise
+  expect(note_el.compareDocumentPosition(heading) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+})
+
 test("the options table's two options appear under their parent", async () => {
   renderDay('2026-11-02', content)
   const heading = await screen.findByText('pick one below', { exact: false })
@@ -84,4 +112,12 @@ test('NowNext shows next text when Date is fixed inside the trip', async () => {
   vi.useFakeTimers({ now: new Date('2026-11-02T08:00:00Z') })
   renderDay('2026-11-02', content)
   expect(screen.getByText('in 15 min', { exact: false })).toBeInTheDocument()
+})
+
+test('the live banner updates the countdown 30s at a time', async () => {
+  vi.useFakeTimers({ now: new Date('2026-11-02T08:00:00Z') })
+  renderDay('2026-11-02', content)
+  expect(screen.getByText('in 15 min', { exact: false })).toBeInTheDocument()
+  act(() => { vi.advanceTimersByTime(60_000) })
+  expect(screen.getByText('in 14 min', { exact: false })).toBeInTheDocument()
 })

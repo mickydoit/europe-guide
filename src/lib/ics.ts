@@ -1,3 +1,4 @@
+import { normaliseTime } from './time'
 import type { AlertRow, TripRow } from './types'
 
 const SUMMARY_MAX = 60
@@ -55,7 +56,7 @@ export function buildIcs(trip: TripRow, alerts: AlertRow[], now: Date = new Date
   lines.push('PRODID:-//europe-guide//EN')
   lines.push('CALSCALE:GREGORIAN')
   lines.push('METHOD:PUBLISH')
-  lines.push(`X-WR-CALNAME:Europe 2026 — ${trip.name}`)
+  lines.push(`X-WR-CALNAME:${escapeIcs(`Europe 2026 — ${trip.name}`)}`)
   lines.push(`X-WR-TIMEZONE:${trip.timezone}`)
 
   const stamp = fmtStampUtc(now)
@@ -65,12 +66,13 @@ export function buildIcs(trip: TripRow, alerts: AlertRow[], now: Date = new Date
     const summary = escapeIcs(truncateSummary(plain))
     const description = escapeIcs(plain)
     const dateCompact = alert.date.replace(/-/g, '')
+    const time = normaliseTime(alert.time)
 
     lines.push('BEGIN:VEVENT')
     lines.push(`UID:${trip.slug}-${alert.date}-${alert.seq}@europe-guide`)
     lines.push(`DTSTAMP:${stamp}`)
-    if (alert.time) {
-      const timeCompact = `${alert.time.replace(':', '')}00`
+    if (time) {
+      const timeCompact = `${time.replace(':', '')}00`
       lines.push(`DTSTART;TZID=${trip.timezone}:${dateCompact}T${timeCompact}`)
       lines.push('DURATION:PT15M')
     } else {
@@ -78,7 +80,7 @@ export function buildIcs(trip: TripRow, alerts: AlertRow[], now: Date = new Date
     }
     lines.push(`SUMMARY:${summary}`)
     lines.push(`DESCRIPTION:${description}`)
-    if (alert.time) {
+    if (time) {
       lines.push('BEGIN:VALARM')
       lines.push('TRIGGER:PT0M')
       lines.push('ACTION:DISPLAY')

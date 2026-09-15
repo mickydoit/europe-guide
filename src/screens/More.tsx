@@ -20,11 +20,16 @@ export function More() {
   if (loading && !content) {
     return <main className="screen"><p className="caption">Loading…</p></main>
   }
+  if (error && !content) {
+    return (
+      <main className="screen">
+        <p className="caption">{error}</p>
+        <button type="button" className="btn--text" onClick={() => { void refresh() }}>Retry</button>
+      </main>
+    )
+  }
   if (trips.length === 0) {
     return <main className="screen"><p className="caption">No trips yet. Run the import on your laptop.</p></main>
-  }
-  if (error && !content) {
-    return <main className="screen"><p className="caption">{error}</p></main>
   }
   if (!content) return null
 
@@ -50,7 +55,7 @@ export function More() {
           {content.parked.map(p => {
             const link = walkLink({ lat: p.lat, lng: p.lng, name: p.name, address: p.address }, trip.name)
             return (
-              <div key={p.name} className="parked-card">
+              <div key={p.seq} className="parked-card">
                 <p className="parked-card__name">{p.name}</p>
                 {p.what && <p className="parked-card__what">{p.what}</p>}
                 {p.why && <p className="parked-card__why">{p.why}</p>}

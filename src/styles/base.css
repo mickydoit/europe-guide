@@ -67,8 +67,11 @@ button { font: inherit; }
 .stop-card.is-done .stop-card__plan { text-decoration: line-through; }
 .stop-card__row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .stop-card__time { font-size: 13px; color: var(--text-dim); }
-.stop-card__tick { width: 28px; height: 28px; border-radius: 50%; border: 1px solid var(--border); background: none; color: var(--text-dim); cursor: pointer; flex-shrink: 0; }
-.stop-card.is-done .stop-card__tick { border-color: var(--accent); color: var(--accent); }
+.stop-card__tick { position: relative; width: 44px; height: 44px; border: 0; background: none; color: var(--text-dim);
+  cursor: pointer; flex-shrink: 0; display: flex; align-items: center; justify-content: center; }
+.stop-card__tick::before { content: ''; position: absolute; width: 28px; height: 28px; border-radius: 50%; border: 1px solid var(--border); }
+.stop-card.is-done .stop-card__tick { color: var(--accent); }
+.stop-card.is-done .stop-card__tick::before { border-color: var(--accent); }
 .stop-card__plan { font-size: 16px; font-weight: 600; margin: 6px 0 0; overflow-wrap: anywhere; }
 .stop-card__details { font-size: 14px; color: var(--text-soft); margin: 4px 0 0; overflow-wrap: anywhere; }
 .stop-card__walk { display: inline-block; font-size: 13px; font-weight: 600; margin-top: 8px; }

@@ -45,6 +45,10 @@ function isPhone(contact: string): boolean {
   return /^[+\d]/.test(contact.trim())
 }
 
+function normalisePriority(p: string): string {
+  return p.trim().toLowerCase().split(/\W/)[0]
+}
+
 function BookingSheet({ booking, tripSlug, row, save, onClose }: {
   booking: BookingRow
   tripSlug: string
@@ -65,6 +69,7 @@ function BookingSheet({ booking, tripSlug, row, save, onClose }: {
   const [saved, setSaved] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
   const [uploading, setUploading] = useState(false)
+  const [actionError, setActionError] = useState<string | null>(null)
   const savedTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => () => { if (savedTimer.current) clearTimeout(savedTimer.current) }, [])
@@ -91,13 +96,27 @@ function BookingSheet({ booking, tripSlug, row, save, onClose }: {
   }
 
   async function handleOpenAttachment(a: AttachmentRow) {
-    const signedUrl = await url(a)
-    window.open(signedUrl, '_blank')
+    // Open the window synchronously in the click handler (before any await) so iOS
+    // Safari's popup blocker treats it as a direct result of the user gesture; navigate
+    // it to the signed URL once that resolves.
+    const w = window.open('', '_blank', 'noopener')
+    try {
+      const signedUrl = await url(a)
+      if (w) w.location.href = signedUrl
+      else window.location.assign(signedUrl)
+    } catch (e) {
+      if (w) w.close()
+      setActionError(e instanceof Error ? e.message : String(e))
+    }
   }
 
   async function handleDeleteAttachment(a: AttachmentRow) {
     if (!window.confirm(`Delete ${a.filename}?`)) return
-    await remove(a)
+    try {
+      await remove(a)
+    } catch (e) {
+      setActionError(e instanceof Error ? e.message : String(e))
+    }
   }
 
   async function handleFileChange(e: ChangeEvent<HTMLInputElement>) {
@@ -233,7 +252,7 @@ function BookingSheet({ booking, tripSlug, row, save, onClose }: {
               onChange={e => void handleFileChange(e)}
             />
           </div>
-          {attError && <p className="form__msg form__msg--error">{attError}</p>}
+          {(actionError ?? attError) && <p className="form__msg form__msg--error">{actionError ?? attError}</p>}
         </div>
       )}
     </Sheet>
@@ -269,18 +288,23 @@ function BookingRowButton({ booking, priorityTone, overdue, meta, state, onOpen 
 }
 
 export function Bookings() {
-  const { trips, content, loading, error } = useTrip()
+  const { trips, content, loading, error, refresh } = useTrip()
   const { state, save } = useBookingState(content?.trip.slug ?? '')
   const [selectedId, setSelectedId] = useState<string | null>(null)
 
   if (loading && !content) {
     return <main className="screen"><p className="caption">Loading…</p></main>
   }
+  if (error && !content) {
+    return (
+      <main className="screen">
+        <p className="caption">{error}</p>
+        <button type="button" className="btn--text" onClick={() => { void refresh() }}>Retry</button>
+      </main>
+    )
+  }
   if (trips.length === 0) {
     return <main className="screen"><p className="caption">No trips yet. Run the import on your laptop.</p></main>
-  }
-  if (error && !content) {
-    return <main className="screen"><p className="caption">{error}</p></main>
   }
   if (!content) return null
 
@@ -320,7 +344,7 @@ export function Bookings() {
             <BookingRowButton
               key={b.id}
               booking={b}
-              priorityTone={b.priority ? PRIORITY_TONE[b.priority] : undefined}
+              priorityTone={b.priority ? PRIORITY_TONE[normalisePriority(b.priority)] : undefined}
               overdue={overdue}
               meta={meta}
               state={state[b.id]}
@@ -334,7 +358,7 @@ export function Bookings() {
         <h2 className="h5 bookings-section__heading">Booked</h2>
         {booked.length === 0 && <p className="caption">Nothing booked yet.</p>}
         {booked.map(b => {
-          const meta = [b.date ? fmtDay(b.date) : null, fmtTime(b.time, null)].filter(Boolean).join(' · ')
+          const meta = [b.date ? fmtDay(b.date) : null, b.time ? fmtTime(b.time, null) : null].filter(Boolean).join(' · ')
           return (
             <BookingRowButton
               key={b.id}

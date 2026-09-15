@@ -25,7 +25,7 @@ export function Sheet({ open, title, onClose, children }: {
 
   return (
     <div className="sheet-root">
-      <button type="button" className="sheet-backdrop" aria-label="Close" onClick={onClose} />
+      <button type="button" className="sheet-backdrop" aria-hidden="true" tabIndex={-1} onClick={onClose} />
       <div className="sheet" role="dialog" aria-modal="true" aria-label={title}>
         <div className="sheet__header">
           <h2 className="sheet__title">{title}</h2>

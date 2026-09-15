@@ -43,6 +43,13 @@ test('the untimed Sunday alert yields an all-day DTSTART and no VALARM', () => {
   expect(event).not.toContain('VALARM')
 })
 
+test('an alert time in HH:MM:SS form is normalised before building DTSTART', () => {
+  const trip = content.trip
+  const alerts = [{ trip: trip.slug, date: '2026-11-02', seq: 0, time: '09:15:00', text: 'test' }]
+  const ics = buildIcs(trip, alerts)
+  expect(ics).toContain('DTSTART;TZID=Europe/Rome:20261102T091500')
+})
+
 test('escapeIcs escapes backslash, semicolon, comma, and newline', () => {
   expect(escapeIcs('a, b; c\\d\nnew')).toBe('a\\, b\\; c\\\\d\\nnew')
 })

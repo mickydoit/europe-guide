@@ -26,6 +26,7 @@ describe('minutesOf', () => {
 
 describe('fmtTime', () => {
   it('formats an exact time', () => { expect(fmtTime('08:00', null)).toBe('08:00') })
+  it('normalises a Postgres HH:MM:SS time to HH:MM', () => { expect(fmtTime('09:15:00', null)).toBe('09:15') })
   it('formats an approximate time when text starts with ~', () => { expect(fmtTime(null, '~18:00')).toBe('~18:00') })
   it('formats an em-dash when both are null', () => { expect(fmtTime(null, null)).toBe('—') })
   it('falls back to text otherwise', () => { expect(fmtTime(null, 'Evening')).toBe('Evening') })

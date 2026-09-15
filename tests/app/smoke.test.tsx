@@ -4,7 +4,7 @@ import { vi } from 'vitest'
 
 function chain(): Record<string, unknown> {
   const q: Record<string, unknown> = {
-    select: () => q, eq: () => q, order: () => q, limit: () => q,
+    select: () => q, eq: () => q, order: () => q, limit: () => q, like: () => q,
     then: (res: (v: { data: unknown[]; error: null }) => void) => res({ data: [], error: null }),
   }
   return q
@@ -20,8 +20,8 @@ vi.mock('../../src/lib/supabase', () => ({
 }))
 import App from '../../src/App'
 
-test('renders the Home placeholder and five tabs', async () => {
+test('redirects from / to the Day screen (empty state, since no trips are seeded) and shows five tabs', async () => {
   render(<MemoryRouter><App /></MemoryRouter>)
-  expect(await screen.findByRole('heading', { name: 'Home' })).toBeInTheDocument()
+  expect(await screen.findByText(/No trips yet/)).toBeInTheDocument()
   expect(screen.getAllByRole('link')).toHaveLength(5)
 })

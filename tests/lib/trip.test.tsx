@@ -102,6 +102,14 @@ test('setSlug persists the choice to localStorage', async () => {
   await waitFor(() => expect(screen.getByTestId('error')).toHaveTextContent(/not found/))
 })
 
+test('a stale slug in localStorage that no longer names a trip falls back to the resolution rule', async () => {
+  const content = await loadValle()
+  localStorage.setItem('europe-guide.trip', 'ghost')
+  const mock = mockSupabaseContent(content)
+  render(<TripProvider client={mock.client}><Probe /></TripProvider>)
+  await waitFor(() => expect(screen.getByTestId('slug')).toHaveTextContent('valle'))
+})
+
 test('the ?trip= query param wins over localStorage', async () => {
   const content = await loadValle()
   localStorage.setItem('europe-guide.trip', 'other')
