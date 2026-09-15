@@ -38,7 +38,7 @@ vi.mock('maplibre-gl', () => {
       return this
     }
     addSource(id: string) { maplibreState.sources.push({ id }) }
-    addLayer(layer: { id: string }) { maplibreState.layers.push({ id: layer.id }) }
+    addLayer(layer: { id: string }) { maplibreState.layers.push(layer) }
     getLayer(id: string) { return maplibreState.layers.find(l => l.id === id) }
     getSource(id: string) {
       return { setData: (data: unknown) => maplibreState.setDataCalls.push({ id, data }) }
@@ -282,7 +282,7 @@ test('tapping a stop opens the sheet with its title and a Walk there link', asyn
 
   fire('load')
   expect(maplibreState.layers.map(l => l.id)).toEqual([
-    'legs-line', 'parked-circle', 'stops-circle', 'stops-label',
+    'legs-line', 'legs-line-dashed', 'parked-circle', 'stops-circle', 'stops-label',
     'places-circle', 'places-label', 'user-accuracy', 'user-dot',
     'parked-hit', 'stops-hit', 'places-hit',
   ])
@@ -297,6 +297,24 @@ test('tapping a stop opens the sheet with its title and a Walk there link', asyn
   expect(dialog).toHaveAttribute('aria-label', stop.place_name ?? stop.plan)
   const walk = screen.getByRole('link', { name: 'Walk there' })
   expect(walk).toHaveAttribute('href', expect.stringContaining('destination='))
+})
+
+test('legs are split into a solid walking layer and a dashed driving/transit layer, both colored by mode', async () => {
+  renderMap(content)
+  await waitFor(() => expect(maplibreState.instances.length).toBe(1))
+  fire('load')
+
+  const legColor = ['match', ['get', 'mode'], 'driving', '#fbdd40', 'transit', '#9ee1fe', '#11da8f']
+  const solid = maplibreState.layers.find(l => l.id === 'legs-line') as { id: string; filter?: unknown; paint?: Record<string, unknown> }
+  const dashed = maplibreState.layers.find(l => l.id === 'legs-line-dashed') as { id: string; filter?: unknown; paint?: Record<string, unknown> }
+
+  expect(solid.filter).toEqual(['==', ['get', 'mode'], 'walking'])
+  expect(solid.paint?.['line-color']).toEqual(legColor)
+  expect(solid.paint?.['line-dasharray']).toBeUndefined()
+
+  expect(dashed.filter).toEqual(['!=', ['get', 'mode'], 'walking'])
+  expect(dashed.paint?.['line-color']).toEqual(legColor)
+  expect(dashed.paint?.['line-dasharray']).toEqual([2, 2])
 })
 
 test('geolocation is watched on mount and cleared on unmount, and the map is removed', async () => {

@@ -1,7 +1,7 @@
 import { render, screen, fireEvent, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { vi } from 'vitest'
-import { TripProvider } from '../../src/lib/trip'
+import { TripProvider, TripContext } from '../../src/lib/trip'
 import { loadValle } from '../helpers/content'
 import type { CityContent } from '../../src/lib/types'
 
@@ -107,6 +107,23 @@ test('has a Refresh data button that does not throw when clicked', async () => {
   renderMore(content)
   const btn = await screen.findByRole('button', { name: 'Refresh data' })
   expect(() => fireEvent.click(btn)).not.toThrow()
+})
+
+test('Refresh data is disabled and reads "Refreshing…" while the trip context is loading', async () => {
+  // useTrip() is fed via context rather than TripProvider's own fetch/refresh cycle here,
+  // so this stands in for mocking the hook: it forces `loading: true` directly.
+  render(
+    <MemoryRouter initialEntries={['/more']}>
+      <TripContext.Provider value={{
+        trips: [content.trip], slug: 'valle', content, loading: true, offline: false, error: null,
+        setSlug: () => {}, refresh: async () => {},
+      }}>
+        <More />
+      </TripContext.Provider>
+    </MemoryRouter>,
+  )
+  const btn = await screen.findByRole('button', { name: 'Refreshing…' })
+  expect(btn).toBeDisabled()
 })
 
 test('has an enabled Export calendar button that calls downloadIcs with the trip ics', async () => {

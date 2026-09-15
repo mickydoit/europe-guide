@@ -3,7 +3,10 @@ import { useLocation, useNavigate, useParams } from 'react-router-dom'
 // maplibre-gl@6 ships named exports only (no default export), so this is a namespace import.
 import * as maplibregl from 'maplibre-gl'
 // The bundler does not emit MapLibre's module worker; serve the copies in public/map/ instead.
-maplibregl.setWorkerUrl(new URL('/europe-guide/map/maplibre-gl-worker.mjs', typeof location !== 'undefined' ? location.origin : 'https://mickydoit.github.io').href)
+// import.meta.env.BASE_URL is Vite's configured base path (`/europe-guide/` in this
+// deployment) rather than a literal, so this keeps working if the base path changes.
+const WORKER_BASE = (import.meta.env.BASE_URL ?? '/').replace(/\/$/, '')
+maplibregl.setWorkerUrl(new URL(`${WORKER_BASE}/map/maplibre-gl-worker.mjs`, typeof location !== 'undefined' ? location.origin : 'https://mickydoit.github.io').href)
 import 'maplibre-gl/dist/maplibre-gl.css'
 import { PMTiles, Protocol } from 'pmtiles'
 import { useTrip } from '../lib/trip'
@@ -99,11 +102,23 @@ function addLayers(map: maplibregl.Map) {
   map.addSource('places', { type: 'geojson', data: placesGeoJSON([]) })
   map.addSource('user', { type: 'geojson', data: EMPTY })
 
+  // Walking legs are solid; driving and transit legs are dashed (MapLibre can't set
+  // line-dasharray per-feature within one layer, so the mode split needs two layers).
+  // Untyped to the style spec (like `isDone` below): a nested array literal here infers
+  // as a plain array, not the tuple `match` expects.
+  const legColor: unknown = ['match', ['get', 'mode'], 'driving', '#fbdd40', 'transit', '#9ee1fe', ACCENT]
   map.addLayer({
     id: 'legs-line', type: 'line', source: 'legs',
+    filter: ['==', ['get', 'mode'], 'walking'],
     layout: { 'line-join': 'round', 'line-cap': 'round' },
-    paint: { 'line-color': ACCENT, 'line-width': 4, 'line-opacity': 0.8 },
-  })
+    paint: { 'line-color': legColor, 'line-width': 4, 'line-opacity': 0.8 },
+  } as maplibregl.AddLayerObject)
+  map.addLayer({
+    id: 'legs-line-dashed', type: 'line', source: 'legs',
+    filter: ['!=', ['get', 'mode'], 'walking'],
+    layout: { 'line-join': 'round', 'line-cap': 'round' },
+    paint: { 'line-color': legColor, 'line-width': 4, 'line-opacity': 0.8, 'line-dasharray': [2, 2] },
+  } as maplibregl.AddLayerObject)
   map.addLayer({
     id: 'parked-circle', type: 'circle', source: 'parked',
     paint: { 'circle-radius': 5, 'circle-color': MUTED, 'circle-stroke-color': COAL, 'circle-stroke-width': 1 },

@@ -51,7 +51,12 @@ export function Routes() {
     arr.push(r)
     groups.set(key, arr)
   }
-  const dateKeys = Array.from(groups.keys()).sort((a, b) => a.localeCompare(b))
+  // Undated routes ('') sort last, after every dated group.
+  const dateKeys = Array.from(groups.keys()).sort((a, b) => {
+    if (a === '') return 1
+    if (b === '') return -1
+    return a.localeCompare(b)
+  })
 
   return (
     <main className="screen routes">

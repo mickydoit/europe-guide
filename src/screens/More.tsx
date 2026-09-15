@@ -134,8 +134,8 @@ export function More() {
       <section className="more-section">
         <h2 className="h5 more-section__heading">Tools</h2>
         <Link className="btn--text more-tools__link" to="/routes">All walking routes</Link>
-        <button type="button" className="btn btn--secondary" onClick={() => { void refresh() }}>
-          Refresh data
+        <button type="button" className="btn btn--secondary" disabled={loading} onClick={() => { void refresh() }}>
+          {loading ? 'Refreshing…' : 'Refresh data'}
         </button>
         {offline && <p className="caption">Offline — showing saved data</p>}
         <button
