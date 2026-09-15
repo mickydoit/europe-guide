@@ -205,3 +205,17 @@ button { font: inherit; }
 .map-geo-caption { position: absolute; left: 12px; right: 72px; bottom: calc(var(--safe-bottom) + 24px); z-index: 5; margin: 0; }
 
 .day-header__map { margin-left: 4px; }
+
+/* Weather */
+.weather { display: flex; flex-direction: column; gap: 6px; margin-bottom: 16px; }
+.weather__loading { margin: 0; }
+.weather__opens { margin: 0; }
+.weather__summary { display: flex; align-items: center; gap: 8px; }
+.weather__icon { display: block; flex-shrink: 0; }
+.weather__icon--fallback { font-size: 20px; line-height: 1; width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; }
+.weather__text { font-size: 14px; font-weight: 600; overflow-wrap: anywhere; }
+.weather__caption { margin: 0; }
+.weather__hours { display: flex; gap: 14px; overflow-x: auto; padding-bottom: 2px; -webkit-overflow-scrolling: touch; }
+.weather__hour { display: flex; flex-direction: column; align-items: center; gap: 2px; flex-shrink: 0; }
+.weather__hour-time { font-size: 11px; color: var(--text-dim); }
+.weather__hour-temp { font-size: 12px; font-weight: 600; color: var(--text-soft); }

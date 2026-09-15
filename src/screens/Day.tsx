@@ -7,6 +7,7 @@ import { TripPicker } from '../components/TripPicker'
 import { NowNext } from '../components/NowNext'
 import { RouteStrip } from '../components/RouteStrip'
 import { StopCard } from '../components/StopCard'
+import { WeatherStrip } from '../components/WeatherStrip'
 import { Md } from '../components/Md'
 import type { Block, ItemRow } from '../lib/types'
 
@@ -150,6 +151,8 @@ export function Day() {
           </button>
         )}
       </div>
+
+      <WeatherStrip trip={trip} content={content} date={date} />
 
       {isToday && <NowNext current={current} next={next} minutesToNext={minutesToNext} />}
 
