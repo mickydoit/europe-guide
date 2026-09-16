@@ -1047,6 +1047,7 @@ test('tickets row lists the rest of today without the next-up booking', () => {
 })
 
 test('tours and events row shows timed, named stops that are not bookings', () => {
+  vi.setSystemTime(new Date('2026-11-02T11:00:00Z'))   // Mon 2 Nov: the day with named stops (Piazza Grande, Caffè Nord, Belvedere, Castello Alto, Trattoria Alba)
   renderHome(content)
   const row = screen.getByRole('heading', { name: 'Tours and events' }).closest('section') as HTMLElement
   const links = within(row).getAllByRole('link')
@@ -1881,17 +1882,17 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 Append to `tests/app/Day.test.tsx` (inside the existing describe/setup, using its `renderDay` and `content`):
 ```tsx
 test('stops render as rows; a booked stop shows a ticket glyph linking to its ticket; others open the place', () => {
-  renderDay('2026-11-01', content)
+  renderDay('2026-11-02', content)   // Monday carries the named stops; the Trattoria stop resolves to T01 (same date) not B01
   const rows = document.querySelectorAll('.stop-row')
   expect(rows.length).toBeGreaterThan(0)
   const ticketLink = screen.getByRole('link', { name: /Open ticket/ })
-  expect(ticketLink).toHaveAttribute('href', '/ticket/valle/B01')
+  expect(ticketLink).toHaveAttribute('href', '/ticket/valle/T01')
   const placeLinks = screen.getAllByRole('link').filter(l => l.getAttribute('href')?.startsWith('/place/'))
   expect(placeLinks.length).toBeGreaterThan(0)
 })
 
 test('no weather strip and no trip picker on Day', () => {
-  renderDay('2026-11-01', content)
+  renderDay('2026-11-02', content)
   expect(document.querySelector('.weather')).toBeNull()
   expect(document.querySelector('.trip-picker')).toBeNull()
 })
