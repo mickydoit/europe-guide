@@ -1323,7 +1323,7 @@ test('bookings grouped by day with headers, walk-ins absent, cards link to detai
 
 test('tapping the status pill cycles through save()', () => {
   mount(content)
-  const card = screen.getByRole('link', { name: /Train south/ })
+  const card = screen.getByRole('link', { name: /Train south/ }).closest('.ticket-card') as HTMLElement   // the status button is a sibling of the link, not inside it
   fireEvent.click(within(card).getByRole('button', { name: /Status/ }))
   expect(saveMock).toHaveBeenCalledWith('B02', { status: 'confirmed' })
 })
