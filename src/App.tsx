@@ -1,5 +1,5 @@
 import { lazy, Suspense } from 'react'
-import { Routes, Route, Outlet } from 'react-router-dom'
+import { Routes, Route, Outlet, Navigate } from 'react-router-dom'
 import { AuthProvider, RequireAuth } from './lib/auth'
 import { TripProvider } from './lib/trip'
 import { TabBar } from './components/TabBar'
@@ -9,10 +9,11 @@ import { ResetPassword } from './screens/ResetPassword'
 import { More } from './screens/More'
 import { Home } from './screens/Home'
 import { Day } from './screens/Day'
-import { Bookings } from './screens/Bookings'
+import { Tickets } from './screens/Tickets'
 import { Routes as RoutesScreen } from './screens/Routes'
 const MapScreen = lazy(() => import('./screens/Map'))
 function Shell() { return <><ScrollReset /><Outlet /><TabBar /></> }
+export const bookingsRedirect = <Navigate to="/tickets" replace />
 export default function App() {
   return (
     <AuthProvider>
@@ -28,8 +29,8 @@ export default function App() {
               <MapScreen />
             </Suspense>
           } />
-          <Route path="/bookings" element={<Bookings />} />
-          <Route path="/tickets" element={<Bookings />} />
+          <Route path="/tickets" element={<Tickets />} />
+          <Route path="/bookings" element={bookingsRedirect} />
           <Route path="/routes" element={<RoutesScreen />} />
           <Route path="/more" element={<More />} />
         </Route>
