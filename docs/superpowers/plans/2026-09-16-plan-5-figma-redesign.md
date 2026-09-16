@@ -431,9 +431,14 @@ describe('nextTicket', () => {
     const r = nextTicket(content, '2026-11-01', 23 * 60)
     expect(r?.booking.id).toBe('B01')
   })
-  test('rolls to the next dated booking when the day has none', () => {
+  test('a later booking on the day wins over tomorrow', () => {
+    // T01 (the to-book dinner) is dated 2026-11-02 19:30 in the fixture.
     const r = nextTicket(content, '2026-11-02', 9 * 60)
-    expect(r?.booking.id).toBe('B02'); expect(r?.date).toBe('2026-11-03')
+    expect(r?.booking.id).toBe('T01'); expect(r?.date).toBe('2026-11-02')
+  })
+  test('rolls forward to the first dated booking when the day has none', () => {
+    const r = nextTicket(content, '2026-10-31', 0)
+    expect(r?.booking.id).toBe('B01'); expect(r?.date).toBe('2026-11-01')
   })
   test('null when nothing dated remains', () => {
     expect(nextTicket({ ...content, bookings: [] }, '2026-11-02', 0)).toBeNull()
@@ -1026,12 +1031,19 @@ test('next-up card is the first booking still ahead today and opens its ticket',
   expect(screen.getByText('Ticket screen')).toBeInTheDocument()
 })
 
-test('tickets row lists the rest of today without the next-up booking', () => {
-  renderHome(content)
+test('tickets row shows the empty state when the next-up booking is the only one today', () => {
+  renderHome(content)   // Sun 1 Nov: B01 is the only dated booking, and it is the next-up card
   const row = screen.getByRole('heading', { name: 'Tickets' }).closest('section') as HTMLElement
-  // Valle day one has one dated booking (B01 dinner) and the todo T01 for the same dinner.
-  expect(within(row).queryByText(/Trattoria Alba — dinner/)).not.toBeNull()
-  expect(within(row).getAllByRole('link').length).toBeGreaterThan(0)
+  expect(within(row).getByText('No more tickets today')).toBeInTheDocument()
+})
+
+test('tickets row lists the rest of today without the next-up booking', () => {
+  vi.setSystemTime(new Date('2026-11-03T11:00:00Z'))   // Tue 3 Nov 12:00 Rome: B02 09:10 has passed, T02 20:00 is next
+  renderHome(content)
+  expect(screen.getByRole('region', { name: 'Next up' })).toHaveTextContent('Saturday dinner')
+  const row = screen.getByRole('heading', { name: 'Tickets' }).closest('section') as HTMLElement
+  expect(within(row).getByRole('link', { name: /Train south/ })).toBeInTheDocument()
+  expect(within(row).queryByText(/Saturday dinner/)).toBeNull()
 })
 
 test('tours and events row shows timed, named stops that are not bookings', () => {
@@ -1260,7 +1272,7 @@ vi.mock('../../src/lib/state', () => ({ useBookingState: useBookingStateMock, QU
 vi.mock('../../src/lib/sync', () => ({ useSync: () => ({ pending: 0, failed: 0, syncing: false, lastError: undefined, retryFailed: vi.fn() }) }))
 
 import { Tickets } from '../../src/screens/Tickets'
-import App from '../../src/App'
+import { bookingsRedirect } from '../../src/App'
 
 const throwingClient = new Proxy({}, { get() { throw new Error('no network in tests') } }) as never
 
@@ -1329,7 +1341,7 @@ test('/bookings redirects to /tickets', () => {
   render(
     <MemoryRouter initialEntries={['/bookings']}>
       <Routes>
-        <Route path="/bookings" element={App.bookingsRedirect} />
+        <Route path="/bookings" element={bookingsRedirect} />
         <Route path="/tickets" element={<p>Tickets screen</p>} />
       </Routes>
     </MemoryRouter>,
@@ -1450,7 +1462,7 @@ In `src/App.tsx`: import `Navigate`; import `Tickets` from `./screens/Tickets`; 
 ```tsx
 export const bookingsRedirect = <Navigate to="/tickets" replace />
 ```
-above `export default function App()` and attach it as a static: after the function, `App.bookingsRedirect = bookingsRedirect` is not valid TS on a function declaration — instead export it as a named export and in the test import `{ bookingsRedirect }` (adjust the test's import line to `import App, { bookingsRedirect } from '../../src/App'` and use `element={bookingsRedirect}`). Routes:
+above `export default function App()` as a named export (the test imports `{ bookingsRedirect }`). Routes:
 ```tsx
 <Route path="/tickets" element={<Tickets />} />
 <Route path="/bookings" element={bookingsRedirect} />
