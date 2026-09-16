@@ -28,7 +28,7 @@ export function parseBookings(file: string, src: string, ctx: { trip: string; ye
       else target.fields[k] = v
     }
   }
-  const blank = (id: string, kind: BookingRow['kind'], title: string): BookingRow => ({ id, trip: ctx.trip, kind, title, date: null, time: null, priority: null, book_by: null, decide_by: null, contact: null, address: null, notes: null, fallback: null, relates_to: null, options: null, status_from_file: null, fields: {}, sort: sort++ })
+  const blank = (id: string, kind: BookingRow['kind'], title: string): BookingRow => ({ id, trip: ctx.trip, kind, title, date: null, time: null, priority: null, book_by: null, decide_by: null, contact: null, address: null, notes: null, fallback: null, relates_to: null, options: null, status_from_file: null, fields: {}, sort: sort++, photo_path: null, photo_credit: null })
   for (const n of nodes) {
     if (n.kind === 'hr') continue
     if (n.kind === 'heading' && n.level === 1) continue

@@ -7,6 +7,11 @@ test('assembleCity parses the Valle fixture into a CityContent', async () => {
   const rl = content.items.find(i => i.kind === 'route_link')!; expect(rl.route_id).toBe('V1')
   expect(warnings).toEqual([])
 })
+test('assembled rows carry null photo fields until the photo step fills them', async () => {
+  const { content } = await assembleCity('tests/fixtures/valle', 'valle')
+  expect(content.items.every(i => i.photo_path === null && i.photo_credit === null)).toBe(true)
+  expect(content.bookings.every(b => b.photo_path === null && b.photo_credit === null)).toBe(true)
+})
 test('stampOwner sets owner on every row', async () => {
   const { content } = await assembleCity('tests/fixtures/valle', 'valle')
   const p = stampOwner(content, 'uuid-1') as Record<string, unknown>

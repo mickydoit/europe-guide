@@ -12,7 +12,7 @@ beforeEach(async () => { content = await loadValle() })
 const b = (over: Partial<BookingRow>): BookingRow => ({
   id: 'X1', trip: 'valle', kind: 'todo', title: 'Thing', date: '2026-11-02', time: '10:00', priority: null,
   book_by: null, decide_by: null, contact: null, address: null, notes: null, fallback: null, relates_to: null,
-  options: null, status_from_file: null, fields: {}, sort: 0, ...over,
+  options: null, status_from_file: null, fields: {}, sort: 0, photo_path: null, photo_credit: null, ...over,
 })
 
 describe('inferKind', () => {

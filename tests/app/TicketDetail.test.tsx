@@ -112,7 +112,7 @@ test('the stub shows the status pill and the notes', () => {
 const baseBooking: BookingRow = {
   id: 'X', trip: 'valle', kind: 'booked', title: '', date: null, time: null, priority: null,
   book_by: null, decide_by: null, contact: null, address: null, notes: null, fallback: null,
-  relates_to: null, options: null, status_from_file: null, fields: {}, sort: 0,
+  relates_to: null, options: null, status_from_file: null, fields: {}, sort: 0, photo_path: null, photo_credit: null,
 }
 
 test('routeEnds splits an arrow-separated title', () => {

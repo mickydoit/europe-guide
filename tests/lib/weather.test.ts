@@ -18,7 +18,7 @@ function item(overrides: Partial<ItemRow> = {}): ItemRow {
     id: 'valle/2026-11-02/0830/x', trip: 'valle', date: '2026-11-02', block: 'morning',
     time: '08:30', time_text: null, approx: false, kind: 'stop', parent_item: null,
     plan: 'X', details: null, sort: 0, place_name: null, address: null,
-    lat: null, lng: null, url: null, route_id: null,
+    lat: null, lng: null, url: null, route_id: null, photo_path: null, photo_credit: null,
     ...overrides,
   }
 }

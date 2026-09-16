@@ -10,7 +10,7 @@ const booking: BookingRow = {
   id: 'T01', trip: 'valle', kind: 'todo', title: 'Trattoria Alba — dinner', date: '2026-11-02', time: '19:30',
   priority: 'critical', book_by: '2026-10-20', decide_by: null, contact: '+39 0123 456 789', address: null,
   notes: null, fallback: 'Osteria Blu, Via Corta 9', relates_to: null, options: null, status_from_file: 'not booked',
-  fields: {}, sort: 2,
+  fields: {}, sort: 2, photo_path: null, photo_credit: null,
 }
 
 type Save = (bookingId: string, patch: Partial<Omit<BookingStateRow, 'trip' | 'booking_id' | 'updated_at'>>) => Promise<WriteResult>

@@ -8,7 +8,7 @@ import type { BookingRow } from '../../src/lib/types'
 const booking: BookingRow = {
   id: 'T04', trip: 'seville', kind: 'todo', title: 'AVE Seville → Barcelona', date: '2026-10-07', time: '08:45', priority: 'critical',
   book_by: '2026-09-17', decide_by: null, contact: null, address: null, notes: null, fallback: null, relates_to: null, options: null,
-  status_from_file: 'not booked', fields: { cost: '€120 for two' }, sort: 3,
+  status_from_file: 'not booked', fields: { cost: '€120 for two' }, sort: 3, photo_path: null, photo_credit: null,
 }
 
 test('transport card: teal tone, Poppins title, lines, icon, link', () => {

@@ -100,6 +100,7 @@ test('a null-block note with a lower sort renders before the Morning heading', a
     id: 'valle/2026-11-02/note', trip: 'valle', date, block: null, time: null, time_text: null,
     approx: false, kind: 'note', parent_item: null, plan: 'A note before Morning', details: null,
     sort: 0, place_name: null, address: null, lat: null, lng: null, url: null, route_id: null,
+    photo_path: null, photo_credit: null,
   }
   content.items = [
     note,
