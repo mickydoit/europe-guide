@@ -25,7 +25,7 @@ test('transport card: teal tone, Poppins title, lines, icon, link', () => {
   expect(screen.getByText('Departs')).toBeInTheDocument()
   expect(screen.getByText('08:45')).toBeInTheDocument()
   expect(screen.getByText('€120 for two')).toBeInTheDocument()
-  expect(link.querySelector('.ticket-card__icon')).toBeNull()   // the faded 72px art is gone from cards
+  expect(link.querySelector('.ticket-card__icon')).not.toBeNull()   // the faded kind glyph, right, as in Figma 1:208
   const badges = link.closest('.ticket-card')!.querySelector('.ticket-card__badges')!
   expect(badges.querySelector('.badge--kind')).not.toBeNull()
   expect(badges.querySelector('.badge--status')!.className).toContain('badge--todo')
@@ -58,23 +58,12 @@ test('status tap does not navigate; link click does', () => {
   expect(screen.getByText('Navigated')).toBeInTheDocument()
 })
 
-test('a booking with a photo_path renders the card photo; without, no art at all', () => {
+test('the card never draws a photo, even for a booking that has one; photos belong to the hero', () => {
   const withPhoto: BookingRow = { ...booking, photo_path: 'valle/x.jpg', photo_credit: 'Ana P.' }
-  const { rerender } = render(<MemoryRouter><TicketCard booking={withPhoto} kind="transport" status="not_booked" to="/ticket/seville/T04" /></MemoryRouter>)
-  expect(screen.getByRole('link').querySelector('.ticket-card__photo')).toHaveAttribute('src', 'blob:valle/x.jpg')
-
-  rerender(<MemoryRouter><TicketCard booking={booking} kind="transport" status="not_booked" to="/ticket/seville/T04" /></MemoryRouter>)
-  expect(screen.getByRole('link').querySelector('.ticket-card__art')).toBeNull()
-})
-
-test('a photo_path whose bytes are not available leaves the card art out entirely', () => {
-  // Offline, not warmed yet, object gone: the path is set but usePhoto has nothing to show.
-  usePhotoMock.mockReturnValue(null)
-  const withPhoto: BookingRow = { ...booking, photo_path: 'valle/x.jpg', photo_credit: 'Ana P.' }
-  render(<MemoryRouter><TicketCard booking={withPhoto} kind="transport" status="not_booked" to="/x" /></MemoryRouter>)
+  render(<MemoryRouter><TicketCard booking={withPhoto} kind="transport" status="not_booked" to="/ticket/seville/T04" /></MemoryRouter>)
   const card = screen.getByRole('link').closest('.ticket-card')!
-  expect(card.querySelector('.ticket-card__art')).toBeNull()
   expect(card.querySelector('img')).toBeNull()
+  expect(card.querySelector('.ticket-card__icon')).not.toBeNull()
   expect(card.className).not.toContain('ticket-card--photo')
 })
 

@@ -19,10 +19,10 @@ export function TabBar() {
           key={t.to}
           to={t.to}
           end={t.to === '/'}
+          aria-label={t.label}
           className={({ isActive }) => `tabbar__tab${isActive ? ' tabbar__tab--active' : ''}`}
         >
-          <Icon set="nav" name={t.icon} size={24} />
-          <span className="tabbar__label">{t.label}</span>
+          <Icon set="nav" name={t.icon} size={32} />
         </NavLink>
       ))}
     </nav>

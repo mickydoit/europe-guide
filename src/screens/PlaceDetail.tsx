@@ -51,6 +51,8 @@ export function PlaceDetail() {
   const walk = walkLink({ lat: item.lat, lng: item.lng, name: item.place_name, address: item.address }, content.trip.name)
   const booking = bookingForStop(content.bookings, item)
   const duration = item.details?.match(DURATION_RE)?.[0] ?? null
+  const when = fmtTime(item.time, item.time_text)
+  const meta = [when !== '—' ? when : null, duration].filter(Boolean).join(' · ') || null
   const isDone = done.has(item.id)
   const walkNext = nextWalk(content, item)
   const route = routeFor(content, item)
@@ -59,16 +61,13 @@ export function PlaceDetail() {
     <main className="screen">
       <button type="button" className="back" onClick={() => (location.key !== 'default' ? navigate(-1) : navigate(`/day/${item.date}`, { replace: true }))}>‹ Back</button>
       <article className="place-detail" aria-label={name}>
-        <PlaceHero photoPath={item.photo_path} credit={item.photo_credit} title={name} />
+        <PlaceHero photoPath={item.photo_path} credit={item.photo_credit} title={name} description={item.details} meta={meta} />
         <div className="place-detail__facts">
           <span>{fmtDay(item.date)}</span>
-          <span>{fmtTime(item.time, item.time_text)}</span>
-          {duration && <span>{duration}</span>}
           <button type="button" className={`tick${isDone ? ' tick--done' : ''}`} aria-label={isDone ? 'Mark not done' : 'Mark done'} onClick={() => { void handleToggle(item.id) }}>✓</button>
         </div>
         {msg && <p className={`form__msg form__msg--${msg.tone}`}>{msg.text}</p>}
         {item.plan && item.place_name && <p className="place-detail__plan"><Md text={item.plan} /></p>}
-        {item.details && <p className="place-detail__text"><Md text={item.details} /></p>}
         {item.address && <p className="place-detail__address"><Icon set="nav" name="map" size={14} /> {item.address}</p>}
         <div className="place-detail__actions">
           {walk && <a className="btn--text" href={walk} target="_blank" rel="noopener noreferrer">Walk there</a>}

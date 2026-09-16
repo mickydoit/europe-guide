@@ -64,14 +64,12 @@ export function TicketDetail() {
       <main className="screen">
         <button type="button" className="back" onClick={back}>‹ Back</button>
         <article className="place-detail" aria-label={booking.title}>
-          <PlaceHero photoPath={booking.photo_path} credit={booking.photo_credit} title={booking.title} modifier="place-detail__hero--event" />
+          <PlaceHero photoPath={booking.photo_path} credit={booking.photo_credit} title={booking.title} description={booking.notes}
+            meta={[booking.time ? fmtTime(booking.time, null) : null, booking.fields.cost].filter(Boolean).join(' · ') || null} modifier="place-detail__hero--event" />
           <div className="place-detail__facts">
             {booking.date && <span>{fmtDay(booking.date)}</span>}
-            {booking.time && <span>{fmtTime(booking.time, null)}</span>}
-            {booking.fields.cost && <span>{booking.fields.cost}</span>}
             <StatusPill status={status} />
           </div>
-          {booking.notes && <p className="place-detail__text"><Md text={booking.notes} /></p>}
           {booking.address && <p className="place-detail__address"><Icon set="nav" name="map" size={14} /> {booking.address}</p>}
           <div className="place-detail__actions">
             {walk && <a className="btn--text" href={walk} target="_blank" rel="noopener noreferrer">Walk there</a>}

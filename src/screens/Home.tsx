@@ -96,14 +96,21 @@ export function Home() {
     <main className="screen home">
       <header className="home-header">
         <div className="home-header__text">
-          <h1 className="home-header__title">Hello...{OWNER_NAME ? ` ${OWNER_NAME}` : ''}</h1>
-          <p className="home-header__date">{fmtDay(todayISO)} · {hhmm}</p>
+          <h1 className="home-header__title">
+            <span className="home-header__hello">Hello...</span>
+            {OWNER_NAME && <> <span className="home-header__name">{OWNER_NAME}</span></>}
+          </h1>
+          <div className="home-header__sub">
+            <span className="home-header__date">{fmtDay(todayISO)} · {hhmm}</span>
+            <WeatherStrip trip={trip} content={content} date={date} variant="line" />
+          </div>
           {!today && <p className="caption home-header__caption">Plans for {fmtDay(date)}</p>}
         </div>
-        <SyncBadge />
+        <div className="home-header__side">
+          <img className="home-header__smile" src={`${import.meta.env.BASE_URL}icons/smile.svg`} alt="" width={56} height={35} />
+          <SyncBadge />
+        </div>
       </header>
-
-      <WeatherStrip trip={trip} content={content} date={date} variant="hero" />
 
       <WorldHero trips={trips} trip={trip} content={content} date={date} />
 
