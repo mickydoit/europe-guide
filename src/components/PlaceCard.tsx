@@ -16,7 +16,7 @@ export function PlaceCard({ item, to, photoSrc }: { item: ItemRow; to: string; p
       </span>
       <span className="place-card__body">
         <span className="place-card__title">{name}</span>
-        {item.details && <span className="place-card__text"><Md text={firstLine(item.details)} /></span>}
+        {item.details && <span className="place-card__text"><Md text={firstLine(item.details)} noLinks /></span>}
         <span className="place-card__meta">{fmtTime(item.time, item.time_text)}</span>
       </span>
     </Link>

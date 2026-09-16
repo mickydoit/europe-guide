@@ -19,9 +19,9 @@ export function StopRow({ item, tripSlug, booking, done, onToggle }: {
     <div className={`stop-row${done ? ' is-done' : ''}`}>
       <span className="stop-row__time">{fmtTime(item.time, item.time_text)}</span>
       <Link to={`/place/${encodeURIComponent(item.id)}`} className="stop-row__main">
-        <span className="stop-row__plan"><Md text={item.plan} /></span>
-        {details && <span className="stop-row__details"><Md text={details} /></span>}
-        {booking && <span className="stop-row__ticket"><Icon set="nav" name="suitcase" size={14} /> ticket</span>}
+        <span className="stop-row__plan"><Md text={item.plan} noLinks /></span>
+        {details && <span className="stop-row__details"><Md text={details} noLinks /></span>}
+        {booking && <span className="stop-row__ticket"><Icon set="nav" name="suitcase" size={14} /></span>}
       </Link>
       {booking && <Link to={`/ticket/${tripSlug}/${booking.id}`} className="stop-row__ticket-link" aria-label={`Open ticket ${booking.title}`}>Open ticket</Link>}
       <button type="button" className={`tick${done ? ' tick--done' : ''}`} aria-label={done ? 'Mark not done' : 'Mark done'} onClick={onToggle}>✓</button>

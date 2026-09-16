@@ -401,5 +401,5 @@ button.status-pill { border: 0; font: inherit; font-size: 11px; font-weight: 700
 .option-card { background: var(--surface); border-radius: var(--radius-panel); padding: 14px 16px; }
 .option-card__name { margin: 0; font-weight: 700; }
 .option-card__details { margin: 6px 0 8px; font-size: 14px; color: var(--text-soft); }
-.tick { width: 40px; height: 40px; border-radius: 50%; border: 1px solid var(--border); background: none; color: var(--text-dim); cursor: pointer; margin-left: auto; }
+.tick { width: 44px; height: 44px; border-radius: 50%; border: 1px solid var(--border); background: none; color: var(--text-dim); cursor: pointer; margin-left: auto; }
 .tick--done { color: var(--text-on-lavender); background: var(--accent); border-color: var(--accent); }

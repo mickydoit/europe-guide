@@ -36,7 +36,7 @@ function summarise(ops: Array<{ kind: string }>): string {
 }
 
 export function More() {
-  const { trips, slug, content, loading, offline, error, setSlug, refresh } = useTrip()
+  const { trips, content, loading, offline, error, refresh } = useTrip()
   const [updateMsg, setUpdateMsg] = useState<string | null>(null)
   const { session, signOut } = useAuth()
   const { pending, failed, lastError, retryFailed } = useSync()

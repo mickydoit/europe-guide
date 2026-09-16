@@ -24,7 +24,7 @@ import type { OfflineAreaRow } from '../lib/types'
 const ACCENT = '#11da8f'
 const MUTED = '#5a5b5d'
 const COAL = '#202123'
-const COLUMBIA = '#9ee1fe'
+const LAVENDER = '#BCA5ED'
 // Taps land on the invisible wide-radius hit layers, not the small painted circles:
 // a 9 px marker is well under the 44 px touch target a thumb actually aims at.
 const TAP_LAYERS = ['stops-hit', 'parked-hit', 'places-hit']
@@ -115,7 +115,7 @@ function addLayers(map: maplibregl.Map) {
   // line-dasharray per-feature within one layer, so the mode split needs two layers).
   // Untyped to the style spec (like `isDone` below): a nested array literal here infers
   // as a plain array, not the tuple `match` expects.
-  const legColor: unknown = ['match', ['get', 'mode'], 'driving', '#fbdd40', 'transit', '#9ee1fe', ACCENT]
+  const legColor: unknown = ['match', ['get', 'mode'], 'driving', '#F7FF88', 'transit', LAVENDER, ACCENT]
   map.addLayer({
     id: 'legs-line', type: 'line', source: 'legs',
     filter: ['==', ['get', 'mode'], 'walking'],
@@ -175,11 +175,11 @@ function addLayers(map: maplibregl.Map) {
   })
   map.addLayer({
     id: 'user-accuracy', type: 'circle', source: 'user',
-    paint: { 'circle-radius': 24, 'circle-color': COLUMBIA, 'circle-opacity': 0.15 },
+    paint: { 'circle-radius': 24, 'circle-color': LAVENDER, 'circle-opacity': 0.15 },
   })
   map.addLayer({
     id: 'user-dot', type: 'circle', source: 'user',
-    paint: { 'circle-radius': 7, 'circle-color': COLUMBIA, 'circle-stroke-color': '#ffffff', 'circle-stroke-width': 2 },
+    paint: { 'circle-radius': 7, 'circle-color': LAVENDER, 'circle-stroke-color': '#ffffff', 'circle-stroke-width': 2 },
   })
 
   // Hit targets last, so they sit above every painted layer and always win the tap.

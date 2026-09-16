@@ -57,6 +57,13 @@ describe('Md', () => {
     expect(container.textContent).toBe('[x](javascript:alert(1))')
   })
 
+  test('noLinks renders the link label as plain text with no <a>', () => {
+    const { container } = render(<Md text="**Route** — [here](https://example.com)" noLinks />)
+    expect(container.querySelector('a')).toBeNull()
+    expect(container.textContent).toBe('Route — here')
+    expect(container.querySelector('strong')?.textContent).toBe('Route')
+  })
+
   test('renders a tel: link as an <a> with that href', () => {
     const { container } = render(<Md text="[call](tel:+351123)" />)
     const a = container.querySelector('a')

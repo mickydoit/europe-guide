@@ -188,6 +188,19 @@ test('stops render as rows; a booked stop shows a ticket glyph linking to its ti
   expect(placeLinks.length).toBeGreaterThan(0)
 })
 
+test('a stop whose details begin with a markdown link renders no nested <a> inside the place link', () => {
+  const date = '2026-11-02'
+  content.items = content.items.map(i =>
+    i.id === 'valle/2026-11-02/0830/piazza-grande'
+      ? { ...i, details: '**[Route](https://www.google.com/maps/dir/a/b)** — 3 min' }
+      : i,
+  )
+  renderDay(date, content)
+  const heading = screen.getByText('Piazza Grande', { exact: false })
+  const main = heading.closest('.stop-row__main') as HTMLElement
+  expect(within(main).queryByRole('link')).toBeNull()
+})
+
 test('no weather strip and no trip picker on Day', () => {
   renderDay('2026-11-02', content)
   expect(document.querySelector('.weather')).toBeNull()
