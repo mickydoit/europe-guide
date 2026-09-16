@@ -1,19 +1,28 @@
 import { NavLink, useLocation } from 'react-router-dom'
-const tabs = [
-  { to: '/', label: 'Home' }, { to: '/day', label: 'Day' }, { to: '/map', label: 'Map' },
-  { to: '/bookings', label: 'Bookings' }, { to: '/more', label: 'More' },
-]
+import { Icon } from './Icon'
+
+export const TABS = [
+  { to: '/', label: 'Home', icon: 'home' },
+  { to: '/day', label: 'Day', icon: 'calendar' },
+  { to: '/map', label: 'Map', icon: 'map' },
+  { to: '/tickets', label: 'Tickets', icon: 'suitcase' },
+  { to: '/more', label: 'More', icon: 'profile' },
+] as const
+
 export function TabBar() {
   const location = useLocation()
   if (location.pathname.startsWith('/map')) return null
   return (
-    <nav style={{ position: 'fixed', left: 0, right: 0, bottom: 0, height: 'calc(64px + var(--safe-bottom))',
-      paddingBottom: 'var(--safe-bottom)', background: 'var(--bg-nav)', borderTop: '1px solid rgba(255,255,255,.15)',
-      display: 'flex', justifyContent: 'space-around', alignItems: 'center' }}>
-      {tabs.map(t => (
-        <NavLink key={t.to} to={t.to} end={t.to === '/'} style={({ isActive }) => ({
-          color: 'white', opacity: isActive ? 1 : 0.4, textDecoration: 'none', fontSize: 12, fontWeight: 700 })}>
-          {t.label}
+    <nav className="tabbar">
+      {TABS.map(t => (
+        <NavLink
+          key={t.to}
+          to={t.to}
+          end={t.to === '/'}
+          className={({ isActive }) => `tabbar__tab${isActive ? ' tabbar__tab--active' : ''}`}
+        >
+          <Icon set="nav" name={t.icon} size={24} />
+          <span className="tabbar__label">{t.label}</span>
         </NavLink>
       ))}
     </nav>

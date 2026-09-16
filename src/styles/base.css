@@ -349,3 +349,18 @@ button { font: inherit; }
 .reminder-chip { display: block; padding: 10px 16px; border-radius: var(--radius-pill); background: var(--pill);
   color: var(--text-soft); font-size: 16px; font-weight: 700; text-decoration: none; white-space: nowrap; }
 .reminder-chip--overdue { color: var(--salmon); }
+
+/* Icons */
+.icon { display: inline-block; flex-shrink: 0; background-color: currentColor;
+  -webkit-mask-repeat: no-repeat; mask-repeat: no-repeat; -webkit-mask-position: center; mask-position: center;
+  -webkit-mask-size: contain; mask-size: contain; }
+
+/* Tab bar — Figma 1:85 */
+.tabbar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 20; height: calc(64px + var(--safe-bottom));
+  padding: 0 8px var(--safe-bottom); background: var(--bg-nav); backdrop-filter: blur(15px); -webkit-backdrop-filter: blur(15px);
+  border-top: 1px solid var(--border); display: flex; justify-content: space-around; align-items: center; }
+.tabbar__tab { position: relative; display: flex; flex-direction: column; align-items: center; gap: 4px; min-width: 56px;
+  color: rgba(255,255,255,.4); text-decoration: none; font-size: 11px; font-weight: 700; padding: 6px 0; }
+.tabbar__tab--active { color: var(--highlight); }
+.tabbar__tab--active::after { content: ''; position: absolute; bottom: -1px; width: 20px; height: 3px; border-radius: 2px; background: var(--highlight); }
+.tabbar__label { line-height: 1; }

@@ -29,6 +29,7 @@ export default function App() {
             </Suspense>
           } />
           <Route path="/bookings" element={<Bookings />} />
+          <Route path="/tickets" element={<Bookings />} />
           <Route path="/routes" element={<RoutesScreen />} />
           <Route path="/more" element={<More />} />
         </Route>

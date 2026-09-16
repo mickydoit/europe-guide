@@ -17,7 +17,7 @@ function mount(initial: string) {
           <Route path="/" element={<h1>Home</h1>} />
           <Route path="/day" element={<h1>Day</h1>} />
           <Route path="/day/:date" element={<h1>Day dated</h1>} />
-          <Route path="/bookings" element={<h1>Bookings</h1>} />
+          <Route path="/tickets" element={<h1>Tickets</h1>} />
           <Route path="/more" element={<h1>More</h1>} />
         </Route>
       </Routes>
@@ -31,8 +31,8 @@ afterEach(() => vi.unstubAllGlobals())
 test('tapping a tab scrolls the document back to the top', () => {
   mount('/more')
   scrollTo.mockClear()
-  fireEvent.click(screen.getByRole('link', { name: 'Bookings' }))
-  expect(screen.getByRole('heading', { name: 'Bookings' })).toBeInTheDocument()
+  fireEvent.click(screen.getByRole('link', { name: 'Tickets' }))
+  expect(screen.getByRole('heading', { name: 'Tickets' })).toBeInTheDocument()
   expect(scrollTo).toHaveBeenCalledWith(0, 0)
 })
 
