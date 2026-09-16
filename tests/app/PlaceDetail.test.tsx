@@ -58,3 +58,20 @@ test('a queued tick says it will sync later', async () => {
   const msg = await screen.findByText('q')
   expect(msg.className).toContain('form__msg--queued')
 })
+
+test('shows the walk to the next stop from the route leg and the route this stop belongs to', () => {
+  const piazza = content.items.find(i => i.kind === 'stop' && i.place_name === 'Piazza Grande')!
+  const leg = content.legs.find(l => l.route_id === 'V1' && l.seq === 0)!
+  render(
+    <MemoryRouter initialEntries={[`/place/${encodeURIComponent(piazza.id)}`]}>
+      <TripProvider initial={{ trips: [content.trip], slug: 'valle', content }} client={throwingClient}>
+        <Routes><Route path="/place/:id" element={<PlaceDetail />} /></Routes>
+      </TripProvider>
+    </MemoryRouter>,
+  )
+  const walk = screen.getByRole('link', { name: /Walk to Caffè Nord/ })
+  expect(walk).toHaveAttribute('href', leg.google_url)
+  const route = screen.getByRole('link', { name: /Open route/ })
+  expect(route).toHaveAttribute('href', content.routes.find(r => r.id === 'V1')!.google_url)
+  expect(screen.getByText(/Part of/)).toHaveTextContent(/Piazza to the belvedere/)
+})

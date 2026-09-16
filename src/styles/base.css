@@ -41,14 +41,13 @@ button { font: inherit; }
 .day { display: flex; flex-direction: column; gap: 0; }
 
 .day-header { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
-.day-nav__arrow { background: none; border: 0; color: var(--text); font-size: 22px; line-height: 1; padding: 4px 8px; cursor: pointer; }
-.day-nav__arrow:disabled { color: var(--text-dim); cursor: default; }
 .day-title-row { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; flex: 1; min-width: 0; }
-.day-title { font-size: 20px; font-weight: 700; line-height: 1.15; margin: 0; overflow-wrap: anywhere; }
+.day-title { display: flex; flex-direction: column; gap: 2px; margin: 0; overflow-wrap: anywhere; }
+.day-title__date { font-size: 13px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--text-dim); }
+.day-title__name { font-size: 22px; font-weight: 800; line-height: 1.1; }
 .status-pill { display: inline-block; padding: 3px 10px; border-radius: var(--radius-pill); font-size: 11px; font-weight: 700; letter-spacing: .03em; white-space: nowrap; }
 .status-pill--locked { border: 1px solid var(--accent); color: var(--accent); }
 .status-pill--dinner { background: var(--highlight); color: var(--bg); }
-.day-nav__today { margin-left: auto; }
 
 .nownext { background: var(--surface); border-left: 3px solid var(--accent); border-radius: 12px; padding: 12px 14px; margin-bottom: 16px; }
 .nownext__now { margin: 0; font-size: 15px; font-weight: 600; }
@@ -59,11 +58,6 @@ button { font: inherit; }
 .day-block__heading { margin-top: 24px; font-size: 20px; font-weight: 800; }
 .day-block:first-of-type .day-block__heading { margin-top: 0; }
 
-.route-strip { display: flex; flex-direction: column; gap: 6px; background: var(--surface); border-radius: var(--radius-card); padding: 10px 14px; margin-bottom: 16px; }
-.route-strip__item { display: flex; align-items: baseline; flex-wrap: wrap; gap: 6px; font-size: 13px; }
-.route-strip__title { font-weight: 600; }
-.route-strip__distance { color: var(--text-dim); }
-.route-strip__link { margin-left: auto; }
 
 .stop-row { display: grid; grid-template-columns: 52px 1fr auto auto; align-items: center; gap: 10px; padding: 12px 0; border-bottom: 1px solid var(--border); }
 .stop-row.is-done { opacity: .5; }
@@ -76,7 +70,6 @@ button { font: inherit; }
 .stop-row__ticket-link { font-size: 12px; font-weight: 700; white-space: nowrap; }
 
 .note { font-size: 14px; color: var(--text-soft); margin: 10px 0; overflow-wrap: anywhere; }
-.route-link { font-size: 14px; color: var(--text-soft); margin: 10px 0; overflow-wrap: anywhere; }
 
 /* Bookings */
 .pill { display: inline-block; padding: 3px 10px; border-radius: var(--radius-pill); font-size: 11px; font-weight: 700; letter-spacing: .03em; white-space: nowrap; }
@@ -436,3 +429,21 @@ button.status-pill::before { content: ''; position: absolute; inset: -12px -6px;
 .section-heading__icon { color: var(--accent); }
 .tickets-day__heading { display: flex; align-items: center; gap: 8px; }
 .tickets-day__icon { color: var(--text-dim); }
+
+/* Day strip — one chip per day, the shown day in yellow */
+.day-strip { display: flex; gap: 8px; list-style: none; margin: 0 -16px 14px; padding: 0 16px 4px; overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none; }
+.day-strip::-webkit-scrollbar { display: none; }
+.day-strip__item { flex-shrink: 0; }
+.day-chip { position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; width: 54px; height: 60px;
+  border-radius: 16px; background: var(--surface); color: var(--text-soft); text-decoration: none; }
+.day-chip__wd { font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; opacity: .8; }
+.day-chip__d { font-size: 20px; font-weight: 800; line-height: 1; }
+.day-chip--selected { background: var(--highlight); color: var(--text-on-light); }
+.day-chip--today::after { content: ''; position: absolute; bottom: 6px; width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
+
+/* Walks on the place screen */
+.place-walks { display: flex; flex-direction: column; gap: 10px; }
+.place-walks__next { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; padding: 14px 16px; border-radius: var(--radius-panel);
+  background: var(--surface); color: var(--text); text-decoration: none; font-weight: 700; }
+.place-walks__metric { font-size: 13px; font-weight: 600; color: var(--accent); white-space: nowrap; }
+.place-walks__route { margin: 0; font-size: 14px; color: var(--text-soft); }

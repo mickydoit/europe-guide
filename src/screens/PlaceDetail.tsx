@@ -4,7 +4,8 @@ import { useTrip } from '../lib/trip'
 import { useChecks, QUEUED_COPY } from '../lib/state'
 import { fmtDay, fmtTime } from '../lib/time'
 import { bookingForStop } from '../lib/tickets'
-import { walkLink } from '../lib/links'
+import { routeLink, walkLink } from '../lib/links'
+import { nextWalk, routeFor, walkMetric } from '../lib/walks'
 import { Icon } from '../components/Icon'
 import { Md } from '../components/Md'
 
@@ -50,6 +51,8 @@ export function PlaceDetail() {
   const booking = bookingForStop(content.bookings, item)
   const duration = item.details?.match(DURATION_RE)?.[0] ?? null
   const isDone = done.has(item.id)
+  const walkNext = nextWalk(content, item)
+  const route = routeFor(content, item)
 
   return (
     <main className="screen">
@@ -73,6 +76,22 @@ export function PlaceDetail() {
           {walk && <a className="btn--text" href={walk} target="_blank" rel="noopener noreferrer">Walk there</a>}
           {booking && <Link className="btn--text" to={`/ticket/${content.trip.slug}/${booking.id}?trip=${content.trip.slug}`}>Open ticket</Link>}
         </div>
+        {(walkNext || route) && (
+          <section className="place-walks" aria-label="Walking">
+            {walkNext && (
+              <a className="place-walks__next" href={walkNext.href} target="_blank" rel="noopener noreferrer">
+                <span className="place-walks__label">Walk to {walkNext.to}</span>
+                {walkMetric(walkNext) && <span className="place-walks__metric">{walkMetric(walkNext)}</span>}
+              </a>
+            )}
+            {route && (
+              <p className="place-walks__route">
+                Part of <strong>{route.title}</strong>{route.distance_text ? ` · ${route.distance_text}` : ''}
+                {' '}<a className="btn--text" href={routeLink(route)} target="_blank" rel="noopener noreferrer">Open route</a>
+              </p>
+            )}
+          </section>
+        )}
         {options.length > 0 && (
           <section className="place-detail__options">
             <h2 className="h5">Pick one</h2>

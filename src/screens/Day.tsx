@@ -1,10 +1,10 @@
 import { Fragment, useEffect, useRef, useState } from 'react'
-import { useParams, useNavigate, Navigate, Link } from 'react-router-dom'
+import { useParams, Navigate, Link } from 'react-router-dom'
 import { useTrip } from '../lib/trip'
 import { useChecks, useDayNotes, QUEUED_COPY } from '../lib/state'
 import { currentAndNext, currentBlock, dayIndex, fmtDay, nowInTz, todayInTrip } from '../lib/time'
+import { DayStrip } from '../components/DayStrip'
 import { NowNext } from '../components/NowNext'
-import { RouteStrip } from '../components/RouteStrip'
 import { StopRow } from '../components/StopRow'
 import { Md } from '../components/Md'
 import { SyncBadge } from '../components/SyncBadge'
@@ -19,7 +19,6 @@ const TICK_MSG_MS = 4_000
 
 export function Day() {
   const { date: dateParam } = useParams<{ date?: string }>()
-  const navigate = useNavigate()
   const { trips, content, loading, error, refresh } = useTrip()
   const { done, toggle } = useChecks(content?.trip.slug ?? '')
   // Hooks run before this screen knows which day it is showing, so pass the raw param:
@@ -96,8 +95,6 @@ export function Day() {
     return <Navigate to={`/day/${fallback}`} replace />
   }
   const day = idx >= 0 ? days[idx] : null
-  const prevDay = idx > 0 ? days[idx - 1] : null
-  const nextDay = idx >= 0 && idx < days.length - 1 ? days[idx + 1] : null
 
   const dayItems = content.items.filter(i => i.date === date)
   const mainItems = dayItems.filter(i => i.kind !== 'option').sort((a, b) => a.sort - b.sort)
@@ -108,8 +105,6 @@ export function Day() {
     .filter(g => g.items.length > 0)
     .sort((a, b) => a.items[0].sort - b.items[0].sort)
 
-  const dayRoutes = content.routes.filter(r => r.date === date)
-
   const isToday = date === today
   const nowMinutes = nowInTz(trip.timezone, now).minutes
   const activeBlock = isToday ? currentBlock(nowMinutes) : null
@@ -119,42 +114,21 @@ export function Day() {
 
   return (
     <main className="screen day">
+      <DayStrip days={days} selected={date} today={today} />
+
       <div className="day-header">
-        <button
-          type="button"
-          className="day-nav__arrow"
-          aria-label="Previous day"
-          disabled={!prevDay}
-          onClick={() => prevDay && navigate(`/day/${prevDay.date}`)}
-        >
-          ‹
-        </button>
         <div className="day-title-row">
           <h1 className="day-title">
-            {fmtDay(date)}
-            {day?.title ? ` — ${day.title}` : ''}
+            <span className="day-title__date">{fmtDay(date)}</span>
+            {day?.title && <span className="day-title__name">{day.title}</span>}
           </h1>
           {day?.status === 'locked' && <span className="status-pill status-pill--locked">LOCKED</span>}
           {day?.status === 'locked_except_dinner' && (
             <span className="status-pill status-pill--dinner">LOCKED except dinner</span>
           )}
         </div>
-        <button
-          type="button"
-          className="day-nav__arrow"
-          aria-label="Next day"
-          disabled={!nextDay}
-          onClick={() => nextDay && navigate(`/day/${nextDay.date}`)}
-        >
-          ›
-        </button>
         <SyncBadge />
         <Link to={`/map/${date}`} className="btn--text day-header__map">Map</Link>
-        {today && !isToday && (
-          <button type="button" className="btn--text day-nav__today" onClick={() => navigate(`/day/${today}`)}>
-            Today
-          </button>
-        )}
       </div>
 
       {!notesLoading && savedPlaces.length > 0 && (
@@ -188,9 +162,8 @@ export function Day() {
 
       {tickMsg && <p className={`form__msg form__msg--${tickMsg.tone}`}>{tickMsg.text}</p>}
 
-      {blocks.map((g, gi) => (
+      {blocks.map(g => (
         <Fragment key={g.block ?? 'none'}>
-          {gi === 0 && <RouteStrip routes={dayRoutes} />}
           <section className={`day-block${isToday && g.block === activeBlock ? ' day-block--current' : ''}`}>
             {g.block && <h2 className="h5 day-block__heading">{BLOCK_LABEL[g.block]}</h2>}
             {g.items.map(item => {
@@ -202,14 +175,7 @@ export function Day() {
               if (item.kind === 'note') {
                 return <p key={item.id} className="note"><Md text={item.plan} /></p>
               }
-              if (item.kind === 'route_link') {
-                return (
-                  <p key={item.id} className="route-link">
-                    <a href={item.url ?? undefined} target="_blank" rel="noopener noreferrer">{item.plan}</a>
-                    {item.details ? ` — ${item.details}` : ''}
-                  </p>
-                )
-              }
+              // route_link items are not shown here: the walk lives on each stop's own screen.
               return null
             })}
           </section>

@@ -217,3 +217,22 @@ test('a row with a booking shows the kind and status badges', () => {
   expect(row.querySelector('.badge--kind')).not.toBeNull()
   expect(row.querySelector('.badge--status')).not.toBeNull()
 })
+
+test('a chip per day replaces the arrows; the shown day is marked and tapping another navigates', () => {
+  renderDay('2026-11-02', content)
+  const strip = screen.getByRole('list', { name: 'Days' })
+  const chips = within(strip).getAllByRole('link')
+  expect(chips).toHaveLength(content.days.length)
+  expect(chips.map(c => c.textContent)).toEqual(['Sun1', 'Mon2', 'Tue3'])
+  expect(chips[1]).toHaveAttribute('aria-current', 'date')
+  expect(screen.queryByRole('button', { name: 'Previous day' })).toBeNull()
+  fireEvent.click(chips[2])
+  expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(/Tuesday 3 November/)
+})
+
+test('the routes panel and per-block route links are gone from Day', () => {
+  renderDay('2026-11-02', content)
+  expect(document.querySelector('.route-strip')).toBeNull()
+  expect(document.querySelector('.route-link')).toBeNull()
+  expect(screen.queryByRole('link', { name: /Open route/ })).toBeNull()
+})
