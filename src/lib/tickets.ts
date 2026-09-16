@@ -84,7 +84,8 @@ export function ticketLines(b: BookingRow, kind: TicketKind): { label: string; v
   return { label: 'At', value: time, sub: joinParts([b.fields.cost || b.address]) }
 }
 
-const HIDDEN_FIELDS = new Set(['for_note', 'book_by_note', 'decide_by_note', 'tier', 'kind', 'cost'])
+// Route-strip fields (from/to/arrives/departs) and the ref are drawn on the pass itself, never as cells.
+const HIDDEN_FIELDS = new Set(['for_note', 'book_by_note', 'decide_by_note', 'tier', 'kind', 'cost', 'ref', 'from', 'to', 'arrives', 'departs'])
 function humanize(key: string): string { const w = key.replace(/_/g, ' '); return w.charAt(0).toUpperCase() + w.slice(1) }
 
 export function fourCells(b: BookingRow): { key: string; value: string }[] {

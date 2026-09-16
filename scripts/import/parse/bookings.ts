@@ -9,6 +9,25 @@ export function parseBookings(file: string, src: string, ctx: { trip: string; ye
   const bookings: BookingRow[] = []; const alerts: AlertRow[] = []; const notes: NoteRow[] = []
   let section = 0; let cur: BookingRow | null = null; let alertDate: string | null = null; let alertSeq = 0; let noteSeq = 0; let sort = 0; let walkinSeq = 0
   const fail = (n: Node, msg: string): never => { throw new ImportError(file, n.line, msg) }
+  // "**key:** value" bullets, shared by to-book entries (section 2) and detail blocks under an
+  // already-booked row (section 1): the same keys mean the same thing in both places.
+  const applyFieldBullets = (n: Extract<Node, { kind: 'bullets' }>, target: BookingRow): void => {
+    for (const it of n.items) {
+      const m = it.match(/^\*\*([\w_]+):\*\*\s*(.*)$/); if (!m) fail(n, `field bullet must be "**key:** value": "${it}"`)
+      const [, k, v] = m!
+      if (k === 'for') {
+        const fm2 = v.match(/^(\d{4}-\d{2}-\d{2})(?:,\s*(\d{1,2}:\d{2}))?(?:,\s*(.*))?$/); if (!fm2) fail(n, `bad "for" value "${v}"`)
+        target.date = fm2![1]
+        target.time = (() => { try { return fm2![2] ? parseTime(fm2![2]).time : null } catch (e) { return fail(n, (e as Error).message) } })()
+        if (fm2![3]) target.fields.for_note = fm2![3]
+      }
+      else if (k === 'note' || k === 'notes') target.notes = target.notes ? `${target.notes}\n${v}` : v
+      else if (k === 'status') target.status_from_file = v
+      else if (k === 'book_by' || k === 'decide_by') { const dm = v.match(/^(\d{4}-\d{2}-\d{2})\s*(.*)$/); if (!dm) fail(n, `${k} must start with YYYY-MM-DD: "${v}"`); (target as unknown as Record<string, string>)[k] = dm![1]; if (dm![2]) target.fields[`${k}_note`] = dm![2].replace(/^\((.*)\)$/, '$1') }
+      else if (COLS.has(k)) (target as unknown as Record<string, string>)[k] = v
+      else target.fields[k] = v
+    }
+  }
   const blank = (id: string, kind: BookingRow['kind'], title: string): BookingRow => ({ id, trip: ctx.trip, kind, title, date: null, time: null, priority: null, book_by: null, decide_by: null, contact: null, address: null, notes: null, fallback: null, relates_to: null, options: null, status_from_file: null, fields: {}, sort: sort++ })
   for (const n of nodes) {
     if (n.kind === 'hr') continue
@@ -19,6 +38,18 @@ export function parseBookings(file: string, src: string, ctx: { trip: string; ye
     }
     if (section === 0) { continue }
     if (section === 1) {
+      // Optional detail block for a row of the booked table: "### B04 · title" then field bullets.
+      if (n.kind === 'heading' && n.level === 3) {
+        const m = n.text.match(/^([A-Z]+\d+)\s*·\s*(.+)$/); if (!m) fail(n, `booked detail heading needs "ID · title": "${n.text}"`)
+        const row = bookings.find(b => b.kind === 'booked' && b.id === m![1])
+        if (!row) fail(n, `detail heading ${m![1]} has no row in the booked table above it`)
+        cur = row!; continue
+      }
+      if (n.kind === 'bullets') {
+        if (!cur) fail(n, 'detail bullets before any "### ID · title" heading')
+        applyFieldBullets(n, cur!)
+        continue
+      }
       if (n.kind !== 'table') continue
       if (n.header.map(s => s.toLowerCase()).join('|') !== 'id|item|date|time|notes') fail(n, `booked table must be id|item|date|time|notes`)
       for (const r of n.rows) {
@@ -32,6 +63,7 @@ export function parseBookings(file: string, src: string, ctx: { trip: string; ye
         if (!/^[A-Z]+\d+$/.test(b.id)) fail(n, `bad booking id "${b.id}"`)
         bookings.push(b)
       }
+      cur = null
       continue
     }
     if (section === 2) {
@@ -41,21 +73,7 @@ export function parseBookings(file: string, src: string, ctx: { trip: string; ye
       }
       if (n.kind === 'bullets') {
         if (!cur) fail(n, 'fields before any booking heading')
-        for (const it of n.items) {
-          const m = it.match(/^\*\*([\w_]+):\*\*\s*(.*)$/); if (!m) fail(n, `field bullet must be "**key:** value": "${it}"`)
-          const [, k, v] = m!
-          if (k === 'for') {
-            const fm2 = v.match(/^(\d{4}-\d{2}-\d{2})(?:,\s*(\d{1,2}:\d{2}))?(?:,\s*(.*))?$/); if (!fm2) fail(n, `bad "for" value "${v}"`)
-            cur!.date = fm2![1]
-            cur!.time = (() => { try { return fm2![2] ? parseTime(fm2![2]).time : null } catch (e) { return fail(n, (e as Error).message) } })()
-            if (fm2![3]) cur!.fields.for_note = fm2![3]
-          }
-          else if (k === 'note' || k === 'notes') cur!.notes = cur!.notes ? `${cur!.notes}\n${v}` : v
-          else if (k === 'status') cur!.status_from_file = v
-          else if (k === 'book_by' || k === 'decide_by') { const dm = v.match(/^(\d{4}-\d{2}-\d{2})\s*(.*)$/); if (!dm) fail(n, `${k} must start with YYYY-MM-DD: "${v}"`); (cur as unknown as Record<string, string>)[k] = dm![1]; if (dm![2]) cur!.fields[`${k}_note`] = dm![2].replace(/^\((.*)\)$/, '$1') }
-          else if (COLS.has(k)) (cur as unknown as Record<string, string>)[k] = v
-          else cur!.fields[k] = v
-        }
+        applyFieldBullets(n, cur!)
         continue
       }
       continue

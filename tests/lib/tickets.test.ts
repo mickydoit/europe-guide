@@ -167,3 +167,8 @@ test('kindIcon', () => {
   expect(kindIcon('event', 'Dinner')).toBe('event')
   expect(kindIcon('transport', 'Ryanair FR3628 LIS → SVQ')).toBe('plane')
 })
+
+test('fourCells hides the route-strip fields (from/to/arrives/ref) but keeps seats and bags', () => {
+  const cells = fourCells(b({ fields: { ref: 'S151VF', from: 'LIS', to: 'SVQ', arrives: '10:00', seats: '21A, 21B', bags: '2 × 20 kg' } }))
+  expect(cells).toEqual([{ key: 'Seats', value: '21A, 21B' }, { key: 'Bags', value: '2 × 20 kg' }])
+})

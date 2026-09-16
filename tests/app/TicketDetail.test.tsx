@@ -214,3 +214,25 @@ test('a save does not remount BookingForm and lose its queued message or the typ
   expect(screen.getByLabelText('Confirmation ref')).toHaveValue('ZZ9')
   expect(screen.getByText(QUEUED_COPY)).toHaveClass('form__msg--queued')
 })
+
+test('routeEnds prefers explicit from/to fields over the title', () => {
+  const b = { ...content.bookings.find(x => x.id === 'B02')!, title: 'Ryanair FR3628 LIS → SVQ', fields: { from: 'LIS', to: 'SVQ' } }
+  expect(routeEnds(b)).toEqual({ from: 'LIS', to: 'SVQ' })
+})
+
+test('a flight with from/to/arrives/ref fields fills both ends of the route strip and the ref', () => {
+  const modified = structuredClone(content)
+  const b02 = modified.bookings.find(x => x.id === 'B02')!
+  b02.title = 'Ryanair FR3628 LIS → SVQ'
+  b02.fields = { ref: 'S151VF', from: 'LIS', to: 'SVQ', arrives: '10:00', seats: '21A, 21B' }
+  mount(modified, '/ticket/valle/B02')
+  const pass = screen.getByRole('article', { name: /Ryanair/ })
+  expect(within(pass).getByText('LIS')).toBeInTheDocument()
+  expect(within(pass).getByText('SVQ')).toBeInTheDocument()
+  expect(within(pass).getByText('09:10')).toBeInTheDocument()
+  expect(within(pass).getByText('Arrives')).toBeInTheDocument()
+  expect(within(pass).getByText('10:00')).toBeInTheDocument()
+  expect(within(pass).getByText('S151VF')).toBeInTheDocument()
+  expect(within(pass).getByText('Seats')).toBeInTheDocument()
+  expect(within(pass).queryByText('From')).toBeNull()   // route fields never appear as cells
+})

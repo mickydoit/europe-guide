@@ -14,6 +14,7 @@ import type { BookingRow } from '../lib/types'
 
 /** "Lisbon → Seville" / "LIS - SVQ" / "Airport to Benfica" → two labels; otherwise the title and the address. */
 export function routeEnds(b: BookingRow): { from: string; to: string } {
+  if (b.fields.from && b.fields.to) return { from: b.fields.from, to: b.fields.to }
   const m = b.title.match(/^(.*?)\s*(?:→|->|—>|\bto\b| - | – )\s*(.+)$/i)
   if (m && m[1].trim() && m[2].trim()) return { from: m[1].trim().replace(/^(AVE|Flight|Train|Taxi|Bolt)\s+/i, ''), to: m[2].trim() }
   return { from: b.title, to: b.address ?? '' }
@@ -94,7 +95,7 @@ export function TicketDetail() {
         <section className="pass__route">
           <div className="pass__end"><span className="pass__date">{booking.date ? fmtDay(booking.date) : '—'}</span><span className="pass__time">{fmtTime(booking.time, null)}</span><span className="pass__place">{ends.from}</span></div>
           <div className="pass__mid"><Icon set="kind" name={kindIcon(kind, booking.title)} size={26} className="pass__glyph" /><span className="pass__dots" /></div>
-          <div className="pass__end pass__end--to"><span className="pass__date">{kind === 'accommodation' ? 'Check-out' : ''}</span><span className="pass__time">{kind === 'accommodation' && booking.fields.nights ? `${booking.fields.nights} nights` : ''}</span><span className="pass__place">{ends.to}</span></div>
+          <div className="pass__end pass__end--to"><span className="pass__date">{kind === 'accommodation' ? 'Check-out' : booking.fields.arrives ? 'Arrives' : ''}</span><span className="pass__time">{kind === 'accommodation' && booking.fields.nights ? `${booking.fields.nights} nights` : booking.fields.arrives ?? ''}</span><span className="pass__place">{ends.to}</span></div>
         </section>
         <section className="pass__body">
           <div className="pass__head">
