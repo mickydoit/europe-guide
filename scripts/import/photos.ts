@@ -30,6 +30,17 @@ const FIELD_MASK = 'places.id,places.photos.name,places.photos.authorAttribution
 const WIDTH = 800
 /** Text Search answers anything, so an admin chore titled like one must never be asked. */
 const CHORE_RE = /^(confirm|reconfirm|decide|book|lisboa card|airport)\b/i
+
+/**
+ * "At the meeting point", "decision needed", "Alfama wander", "Triana ceramic streets": a phrase
+ * of several words with no capital letter or digit after the first character is a description,
+ * not a venue name — Text Search would still answer it with some nearby business. Single words
+ * (Prado, Miolo) and anything with an address are kept.
+ */
+export function looksGeneric(name: string): boolean {
+  const words = name.trim().split(/\s+/)
+  return words.length > 1 && !/[A-Z0-9]/.test(name.trim().slice(1))
+}
 /** After this many refusals in a row the key or the quota is wrong, not the query. */
 const REFUSAL_LIMIT = 3
 const REFUSAL_RE = /HTTP (403|429)/
@@ -63,7 +74,8 @@ export function photoTargets(content: CityContent, cityHint: string): PhotoPlan 
     (i): i is ItemRow => (i.kind === 'stop' || i.kind === 'option') && !!i.place_name && i.lat != null && i.lng != null
       // "Ryanair FR3628", "Ferry to Cacilhas": a journey gets bolded like a venue in the
       // itinerary and geocodes to the terminal. Same test as the bookings below.
-      && inferKind({ title: i.place_name, fields: {} }) !== 'transport',
+      && inferKind({ title: i.place_name, fields: {} }) !== 'transport'
+      && !(!i.address && looksGeneric(i.place_name)),
   )
   for (const item of places) {
     targets.push({
@@ -83,6 +95,7 @@ export function photoTargets(content: CityContent, cityHint: string): PhotoPlan 
     const stop = stopForBooking(places, b)
     if (stop) { shared.push({ booking: b, stopId: stop.id }); continue }
     const name = bookingName(b)
+    if (!b.address && looksGeneric(name)) continue   // "Belém guided tour", "Sintra day tour departs"
     if (!b.address && !(inferKind(b) === 'event' && name.split(/\s+/).length >= 2)) continue
     targets.push({
       id: b.id,

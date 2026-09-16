@@ -231,3 +231,20 @@ describe('supabasePhotoStore', () => {
     warn.mockRestore()
   })
 })
+
+describe('looksGeneric', () => {
+  test('multi-word phrases with no inner capital or digit are descriptions, not venues', () => {
+    for (const n of ['At the meeting point', 'decision needed', 'Alfama wander', 'Sintra day tour departs', 'Triana ceramic streets', 'Belém guided tour']) expect(looksGeneric(n)).toBe(true)
+  })
+  test('single words, inner capitals and digits are kept', () => {
+    for (const n of ['Prado', 'Miolo', 'Time Out Market', 'Mesa de Frades', 'MAAT', 'Cathedral + Giralda', 'Setas de Sevilla', 'LX Factory', 'Cerámica 1920']) expect(looksGeneric(n)).toBe(false)
+  })
+  test('a generic-looking stop without an address is not a target; with an address it is', () => {
+    const c = structuredClone(content)
+    const stop = c.items.find(i => i.kind === 'stop' && i.place_name === 'Piazza Grande')!
+    stop.place_name = 'At the meeting point'; stop.address = null; stop.lat = 45; stop.lng = 7
+    expect(photoTargets(c, 'Valle').targets.some(t => t.query.startsWith('At the meeting point'))).toBe(false)
+    stop.address = 'Via Roma 1'
+    expect(photoTargets(c, 'Valle').targets.some(t => t.query.startsWith('At the meeting point'))).toBe(true)
+  })
+})
