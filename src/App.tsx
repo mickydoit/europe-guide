@@ -3,6 +3,7 @@ import { Routes, Route, Outlet } from 'react-router-dom'
 import { AuthProvider, RequireAuth } from './lib/auth'
 import { TripProvider } from './lib/trip'
 import { TabBar } from './components/TabBar'
+import { ScrollReset } from './components/ScrollReset'
 import { SignIn } from './screens/SignIn'
 import { ResetPassword } from './screens/ResetPassword'
 import { More } from './screens/More'
@@ -11,7 +12,7 @@ import { Day } from './screens/Day'
 import { Bookings } from './screens/Bookings'
 import { Routes as RoutesScreen } from './screens/Routes'
 const MapScreen = lazy(() => import('./screens/Map'))
-function Shell() { return <><Outlet /><TabBar /></> }
+function Shell() { return <><ScrollReset /><Outlet /><TabBar /></> }
 export default function App() {
   return (
     <AuthProvider>
