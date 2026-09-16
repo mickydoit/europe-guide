@@ -302,7 +302,8 @@ button.status-pill::before { content: ''; position: absolute; inset: -12px -6px;
 .ticket-card__value { font-weight: 700; font-size: 20px; }
 .ticket-card__sub { font-weight: 300; font-size: 14px; letter-spacing: .75px; opacity: .9; overflow-wrap: anywhere; }
 .ticket-card__status { position: absolute; left: 20px; bottom: 16px; }
-.ticket-card__art { flex-shrink: 0; width: 72px; height: 72px; display: flex; align-items: center; justify-content: center; }
+.ticket-card__art { flex-shrink: 0; width: 72px; height: 72px; display: flex; align-items: center; justify-content: center; align-self: flex-end; }
+.ticket-card--photo .ticket-card__link { align-items: flex-end; }
 .ticket-card__icon { opacity: .5; }
 .ticket-card__photo { width: 72px; height: 72px; border-radius: 16px; object-fit: cover; }
 
@@ -399,8 +400,8 @@ button.status-pill::before { content: ''; position: absolute; inset: -12px -6px;
 .place-detail__hero--photo { background: var(--surface); }
 .place-detail__photo { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
 .place-detail__hero--photo::after { content: ''; position: absolute; inset: 0; background: linear-gradient(to top, rgba(7,6,6,.85) 0%, rgba(7,6,6,.25) 55%, rgba(7,6,6,0) 100%); }
-.place-detail__hero--photo .place-detail__title { position: relative; z-index: 1; color: #fff; text-shadow: 0 1px 2px rgba(0,0,0,.4); }
-.place-detail__credit { position: absolute; top: 12px; right: 14px; z-index: 1; font-size: 11px; font-weight: 600; color: rgba(255,255,255,.8); background: rgba(7,6,6,.35); padding: 3px 8px; border-radius: var(--radius-pill); }
+.place-detail__hero--photo .place-detail__title { position: relative; z-index: 1; color: #fff; text-shadow: 0 1px 2px rgba(0,0,0,.4); padding-right: 40%; }
+.place-detail__credit { position: absolute; top: auto; bottom: 14px; right: 14px; z-index: 1; font-size: 11px; font-weight: 600; color: rgba(255,255,255,.8); background: rgba(7,6,6,.35); padding: 3px 8px; border-radius: var(--radius-pill); }
 .place-detail__glyph { position: absolute; right: 20px; top: 20px; opacity: .35; }
 .place-detail__title { margin: 0; font-family: var(--font-ticket); font-weight: 700; font-size: 28px; line-height: 1.1; text-transform: uppercase; letter-spacing: .02em; overflow-wrap: anywhere; }
 .place-detail__facts { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; font-size: 14px; font-weight: 700; color: var(--text-soft); }

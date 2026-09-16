@@ -52,7 +52,7 @@ test('a stop with no photo_path shows the glyph and no image', () => {
   mount(content, stop.id)
   const hero = document.querySelector('.place-detail__hero') as HTMLElement
   expect(hero.querySelector('.place-detail__glyph')).not.toBeNull()
-  expect(within(hero).queryByRole('img')).toBeNull()
+  expect(hero.querySelector('img')).toBeNull()
 })
 
 test('shows a "Walk there" link to Google Maps for a stop with an address', () => {

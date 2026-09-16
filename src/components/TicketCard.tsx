@@ -22,7 +22,7 @@ export function TicketCard({ booking, kind, status, tone, to, onCycleStatus, pho
   const lines = ticketLines(booking, kind)
   const path = photoSrc ?? booking.photo_path
   return (
-    <article className={`ticket-card ticket-card--${t}`}>
+    <article className={`ticket-card ticket-card--${t}${path ? ' ticket-card--photo' : ''}`}>
       <Link to={to} className="ticket-card__link">
         <span className="ticket-card__body">
           <span className="ticket-card__title">{booking.title}</span>
