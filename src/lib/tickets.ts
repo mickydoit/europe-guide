@@ -136,6 +136,22 @@ export function bookingForStop(bookings: BookingRow[], item: ItemRow): BookingRo
   return matches.find(b => b.date === item.date) ?? matches[0]
 }
 
+/**
+ * `bookingForStop` reversed: the itinerary stop (or option) a booking names, or null.
+ * Same normalised substring rule, same "prefer the one on the booking's own date" tie-break —
+ * the import uses it to give a booking the photo its stop already has instead of searching twice.
+ */
+export function stopForBooking(items: ItemRow[], b: BookingRow): ItemRow | null {
+  const t = norm(b.title.split(/ — | - /)[0])
+  if (t.length < 4) return null
+  const matches = items.filter(item => {
+    const names = [item.place_name, item.plan].filter((x): x is string => !!x).map(norm).filter(n => n.length >= 4)
+    return names.some(n => n.includes(t) || t.includes(n))
+  })
+  if (!matches.length) return null
+  return matches.find(i => i.date === b.date) ?? matches[0]
+}
+
 export function stopsForCards(content: CityContent, date: string): ItemRow[] {
   return content.items
     .filter(i => i.kind === 'stop' && i.date === date && i.place_name && (i.time || i.time_text))

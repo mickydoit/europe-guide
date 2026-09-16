@@ -657,12 +657,24 @@ Mock `../../src/lib/photos` in each test file: `vi.mock('../../src/lib/photos', 
 
 **Precondition:** the owner has added Places API (New) to `europe-guide-server`. Verify before importing:
 ```bash
-KEY=$(grep '^GOOGLE_SERVER_KEY=' .env | cut -d= -f2- | tr -d '\r"'"'"' ')
-curl -s -o /dev/null -w '%{http_code}\n' -X POST -H "Content-Type: application/json" -H "X-Goog-Api-Key: $KEY" -H "X-Goog-FieldMask: places.id" -d '{"textQuery":"Real Alcázar de Sevilla","maxResultCount":1}' https://places.googleapis.com/v1/places:searchText
+./tools/probe-places.sh
 ```
-Expected `200`. A `403` means the key is not yet enabled — stop and report NEEDS_CONTEXT.
+It sends exactly what `scripts/import/photos.ts` sends — the same field mask
+(`places.id,places.photos.name,places.photos.authorAttributions.displayName`) and `pageSize: 1` —
+and requires a 200 **whose body contains `photos`**: a 200 without them means the mask is not
+served for this key, which the import would turn into ~80 "no place found" warnings. It reads
+`GOOGLE_SERVER_KEY` from `.env` without printing it and exits non-zero on failure. Equivalent
+by hand:
+```bash
+KEY=$(grep '^GOOGLE_SERVER_KEY=' .env | cut -d= -f2- | tr -d '\r"'"'"' ')
+curl -s -X POST -H "Content-Type: application/json" -H "X-Goog-Api-Key: $KEY" \
+  -H "X-Goog-FieldMask: places.id,places.photos.name,places.photos.authorAttributions.displayName" \
+  -d '{"textQuery":"Real Alcázar de Sevilla","pageSize":1}' \
+  https://places.googleapis.com/v1/places:searchText | grep -q '"photos"' && echo OK
+```
+A `403` means the key is not yet enabled — stop and report NEEDS_CONTEXT.
 
-- [ ] **Step 1:** `npm run import -- lisbon --skip-maps` then `npm run import -- seville --skip-maps`. Expected report lines: `photos N` with N ≈ 90 (Lisbon) / 60 (Seville) and a short warnings list (a handful of "no place found" is normal for generic names).
+- [ ] **Step 1:** `npm run import -- lisbon --skip-maps` then `npm run import -- seville --skip-maps`. Expected report lines: `photos N` with **N = 49 (Lisbon: 45 searched targets + 4 bookings sharing a stop's photo) and N = 46 (Seville: 37 + 9)** — measured with `describeTargets` against the real content and the geocoded points already in the DB. Run `npm run import -- <city> --dry-run --skip-maps` first and read the printed query list: a wrong query becomes a wrong photo and is then cached. Two Lisbon queries are known to be weak (`At the meeting point`, `decision needed`) — they are itinerary parse artifacts that happen to geocode; expect a wrong or missing photo there and simply leave those two rows without one. A short warnings list ("no place found") is normal.
 - [ ] **Step 2:** Verify a few rows: `node .cache/check-b04.mjs`-style query showing `photo_path` and `photo_credit` set on B04 and on the Piazza-like stops; `supabase storage ls` is not available — instead list via the client: count objects under `photos/lisbon` and `photos/seville`.
 - [ ] **Step 3:** Build, `vite preview`, run `tools/probe-screens.mjs` for seville 2026-10-05 and lisbon 2026-10-01 into `docs/superpowers/plans/2026-09-16-plan-5-shots/` (overwrite), plus the ticket for B04 (`lisbon-ticket-flight.png`). Read `place.png`, `home.png`, `tickets.png`: heroes and cards must show photographs with the credit pill; note any card whose photo looks wrong (a photo of the wrong venue is possible for generic names).
 - [ ] **Step 4:** Append a "Plan 6" section to `docs/superpowers/plans/2026-09-16-plan-5-notes.md` (counts, warnings, cost estimate from the Google console if visible), commit, push. Do not merge.

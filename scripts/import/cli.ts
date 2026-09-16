@@ -8,7 +8,7 @@ import { assembleCity, rewriteCity } from './write'
 import { makeGoogleGeocoder, makeCachedGeocoder, supabaseCache, geocodeContent } from './geocode'
 import { fetchPolyline } from './legs'
 import { buildOfflineAreas, supabaseUploader } from './offline'
-import { photoTargets, attachPhotos, supabasePhotoStore } from './photos'
+import { photoTargets, describeTargets, attachPhotos, supabasePhotoStore } from './photos'
 import { printReport } from './report'
 import { ImportError } from './md'
 
@@ -63,11 +63,12 @@ async function main() {
     try { const p = await fetchPolyline(env.googleServerKey, leg, mode); if (p) Object.assign(leg, p); else warnings.push(`no polyline for ${leg.route_id}#${leg.seq} (${leg.from_name} → ${leg.to_name})`) }
     catch (e) { warnings.push(`polyline ${leg.route_id}#${leg.seq}: ${(e as Error).message}`) }
   }
-  let photoCounts = { attached: 0, skipped: 0 }
+  let photoCounts = { attached: 0, skipped: 0, shared: 0 }
   if (!skipPhotos && !dryRun) {
     const store = supabasePhotoStore(client, env.ownerId)
-    const r = await attachPhotos(photoTargets(content, cityHint), store, env.googleServerKey)
-    photoCounts = { attached: r.attached, skipped: r.skipped }
+    const plan = photoTargets(content, cityHint)
+    const r = await attachPhotos(plan.targets, store, env.googleServerKey, fetch, plan.shared)
+    photoCounts = { attached: r.attached, skipped: r.skipped, shared: r.shared }
     warnings.push(...r.warnings)
   } else if (skipPhotos && !dryRun) {
     // Keep what the last import attached: the rows are rewritten wholesale below.
@@ -91,10 +92,12 @@ async function main() {
   } else if (skipMaps) {
     warnings.push('offline maps skipped (--skip-maps)')
   }
+  // A dry run is the only chance to read the queries before they are spent and cached.
+  const queries = dryRun && !skipPhotos ? describeTargets(content, cityHint) : []
   const counts = dryRun
-    ? { ...Object.fromEntries(Object.entries(content).filter(([k]) => k !== 'trip').map(([k, v]) => [k, (v as unknown[]).length])), photos: photoTargets(content, cityHint).length }
-    : { ...(await rewriteCity(client, env.ownerId, content)), photos: photoCounts.attached + photoCounts.skipped }
-  printReport({ slug, counts, misses, warnings, dryRun, url: `https://mickydoit.github.io/europe-guide/?trip=${slug}` })
+    ? { ...Object.fromEntries(Object.entries(content).filter(([k]) => k !== 'trip').map(([k, v]) => [k, (v as unknown[]).length])), photos: queries.length }
+    : { ...(await rewriteCity(client, env.ownerId, content)), photos: photoCounts.attached + photoCounts.skipped + photoCounts.shared }
+  printReport({ slug, counts, misses, warnings, dryRun, queries, url: `https://mickydoit.github.io/europe-guide/?trip=${slug}` })
 }
 const isDirectRun = !!process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)
 if (isDirectRun) {
