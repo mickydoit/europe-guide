@@ -5,13 +5,14 @@ import { TripContext, TripProvider } from '../../src/lib/trip'
 import { loadValle } from '../helpers/content'
 import type { CityContent } from '../../src/lib/types'
 
-const { useBookingStateMock, saveMock, warmMock } = vi.hoisted(() => ({
+const { useBookingStateMock, useChecksMock, saveMock, warmMock } = vi.hoisted(() => ({
   useBookingStateMock: vi.fn(),
+  useChecksMock: vi.fn(() => ({ done: new Set<string>(), loading: false, toggle: vi.fn() })),
   saveMock: vi.fn(async () => ({ queued: false })),
   warmMock: vi.fn(async () => ({ cached: 0, total: 0 })),
 }))
 vi.mock('../../src/lib/attachmentsWarm', () => ({ warmTripAttachments: warmMock }))
-vi.mock('../../src/lib/state', () => ({ useBookingState: useBookingStateMock, QUEUED_COPY: 'Saved on this phone — will sync when online' }))
+vi.mock('../../src/lib/state', () => ({ useBookingState: useBookingStateMock, useChecks: useChecksMock, QUEUED_COPY: 'Saved on this phone — will sync when online' }))
 vi.mock('../../src/lib/sync', () => ({ useSync: () => ({ pending: 0, failed: 0, syncing: false, lastError: undefined, retryFailed: vi.fn() }) }))
 // Weather is exercised in WeatherStrip.test.tsx; here it must simply not fetch.
 vi.mock('../../src/lib/weather', async importOriginal => {
@@ -173,4 +174,31 @@ test('Home leaves the trip alone when today is inside the loaded one', () => {
     </MemoryRouter>,
   )
   expect(setSlug).not.toHaveBeenCalled()
+})
+
+test('Start the day opens walking directions along the first route leg, with destination and minutes', () => {
+  vi.setSystemTime(new Date('2026-11-02T07:00:00Z'))   // Mon 2 Nov 08:00 Rome — the day with walking route V1
+  useChecksMock.mockReturnValue({ done: new Set<string>(), loading: false, toggle: vi.fn() })
+  renderHome(content)
+  const leg = content.legs.filter(l => l.route_id === 'V1').sort((a, b) => a.seq - b.seq)[0]
+  const link = screen.getByRole('link', { name: /Start the day/ })
+  expect(link).toHaveAttribute('href', leg.google_url)
+  expect(link).toHaveAttribute('target', '_blank')
+  expect(link).toHaveTextContent(new RegExp(`Start the day · ${leg.to_name}`))
+  if (leg.duration_s != null) expect(link).toHaveTextContent(new RegExp(`· ${Math.round(leg.duration_s / 60)} min`))
+})
+
+test('Start the day disappears once the first stop of the day is ticked', () => {
+  vi.setSystemTime(new Date('2026-11-02T07:00:00Z'))
+  const firstStop = content.items.filter(i => i.kind === 'stop' && i.date === '2026-11-02').sort((a, b) => a.sort - b.sort)[0]
+  useChecksMock.mockReturnValue({ done: new Set([firstStop.id]), loading: false, toggle: vi.fn() })
+  renderHome(content)
+  expect(screen.queryByRole('link', { name: /Start the day/ })).toBeNull()
+})
+
+test('Start the day is not offered before the trip', () => {
+  vi.setSystemTime(PRE_TRIP)
+  useChecksMock.mockReturnValue({ done: new Set<string>(), loading: false, toggle: vi.fn() })
+  renderHome(content)
+  expect(screen.queryByRole('link', { name: /Start the day/ })).toBeNull()
 })

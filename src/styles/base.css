@@ -325,6 +325,12 @@ button.status-pill::before { content: ''; position: absolute; inset: -12px -6px;
 .place-card__meta { font-size: 12px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; margin-top: auto; }
 
 /* Next-up card — Figma 1:129 */
+/* Start the day — one tap into the morning's first walk */
+.start-day { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 4px; min-height: 56px; margin: 0 0 20px; padding: 14px 20px;
+  border-radius: var(--radius-panel); background: var(--highlight); color: var(--text-on-light); text-decoration: none; font-weight: 800; font-size: 17px; }
+.start-day:active { filter: brightness(.94); }
+.start-day__to { font-weight: 600; opacity: .8; overflow-wrap: anywhere; }
+
 .nextup { position: relative; background: var(--surface); border-radius: var(--radius-card); padding: 20px; margin: 0 0 20px; color: var(--text); }
 .nextup__link { display: flex; flex-direction: column; gap: 6px; text-decoration: none; color: inherit; }
 .nextup__kind { font-size: 15px; font-weight: 600; color: var(--text-soft); }

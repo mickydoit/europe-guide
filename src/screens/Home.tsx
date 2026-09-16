@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
 import { useTrip } from '../lib/trip'
-import { useBookingState } from '../lib/state'
+import { useBookingState, useChecks } from '../lib/state'
 import { fmtDay, nowInTz, todayInTrip } from '../lib/time'
 import { openReminders } from '../lib/home'
 import { cycleStatus, effectiveStatus, inferKind, nextTicket, stopsForCards, ticketsForDay } from '../lib/tickets'
 import { OWNER_NAME } from '../lib/config'
+import { startOfDay } from '../lib/startDay'
 import { SyncBadge } from '../components/SyncBadge'
 import { WorldHero } from '../components/WorldHero'
 import { WeatherStrip } from '../components/WeatherStrip'
@@ -19,6 +20,7 @@ const NOW_TICK_MS = 30_000
 export function Home() {
   const { trips, content, loading, error, refresh, setSlug } = useTrip()
   const { state, save } = useBookingState(content?.trip.slug ?? '')
+  const { done } = useChecks(content?.trip.slug ?? '')
   const [now, setNow] = useState(() => new Date())
   const warmSlug = content?.trip.slug ?? null
 
@@ -67,6 +69,10 @@ export function Home() {
   const next = nextTicket(content, date, today ? minutes : 0)
   const restToday = ticketsForDay(content.bookings, date).filter(b => b.id !== next?.booking.id)
   const stops = stopsForCards(content, date)
+  // Only on the day itself: before the trip there is nowhere to walk from, and once the first
+  // stop is ticked the owner is already out of the door.
+  const start = today ? startOfDay(content, date) : null
+  const showStart = !!start && !(start.firstStopId && done.has(start.firstStopId))
   const reminders = openReminders(content.bookings, state, todayISO).map(r => ({ id: r.booking.id, label: r.label, overdue: r.overdue }))
 
   const cycle = (id: string) => {
@@ -91,6 +97,13 @@ export function Home() {
 
       {next && (
         <NextUpCard booking={next.booking} kind={inferKind(next.booking)} date={next.date} to={`/ticket/${trip.slug}/${next.booking.id}?trip=${trip.slug}`} />
+      )}
+
+      {showStart && start && (
+        <a className="start-day" href={start.href} target="_blank" rel="noopener noreferrer">
+          <span className="start-day__label">Start the day</span>
+          <span className="start-day__to"> · {start.to}{start.minutes != null ? ` · ${start.minutes} min` : ''}</span>
+        </a>
       )}
 
       <section className="home-row">
