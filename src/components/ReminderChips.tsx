@@ -14,7 +14,7 @@ export function ReminderChips({ reminders }: { reminders: Reminder[] }) {
           {reminders.map(r => (
             <li key={r.id} className="reminder-chips__item">
               <Link
-                to="/bookings"
+                to="/tickets"
                 className={`reminder-chip${r.overdue ? ' reminder-chip--overdue' : ''}`}
               >
                 {r.label}

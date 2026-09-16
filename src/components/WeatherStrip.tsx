@@ -37,7 +37,7 @@ function WeatherIcon({ iconUri, condition, failed, onFail }: {
   )
 }
 
-export function WeatherStrip({ trip, content, date }: { trip: TripRow; content: CityContent; date: string }) {
+export function WeatherStrip({ trip, content, date, variant = 'strip' }: { trip: TripRow; content: CityContent; date: string; variant?: 'strip' | 'hero' }) {
   const key = import.meta.env.VITE_GOOGLE_BROWSER_KEY as string | undefined
   const centre = key ? cityCentre(content, date) : null
   const isToday = date === todayInTrip(trip)
@@ -91,12 +91,12 @@ export function WeatherStrip({ trip, content, date }: { trip: TripRow; content: 
   const hours = isToday && hourly ? hourly.hours.slice(0, 8) : []
 
   return (
-    <div className="weather">
+    <div className={`weather weather--${variant}`}>
       <div className="weather__summary">
         <WeatherIcon iconUri={day.iconUri} condition={day.condition} failed={failedIcons} onFail={markIconFailed} />
-        <span className="weather__text">
-          {day.condition} · {Math.round(day.hi)}° / {Math.round(day.lo)}° · ☂ {day.precipPct}%
-        </span>
+        {variant === 'hero'
+          ? <span className="weather__text"><span className="weather__temp">{Math.round(day.hi)}°</span> {day.condition} · low {Math.round(day.lo)}° · ☂ {day.precipPct}%</span>
+          : <span className="weather__text">{day.condition} · {Math.round(day.hi)}° / {Math.round(day.lo)}° · ☂ {day.precipPct}%</span>}
       </div>
       {daily.stale && (
         <p className="weather__caption caption">as of {nowInTz(trip.timezone, new Date(daily.fetchedAt)).hhmm}</p>

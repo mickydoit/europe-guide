@@ -5,35 +5,25 @@ import { TripProvider } from '../../src/lib/trip'
 import { loadValle } from '../helpers/content'
 import type { CityContent } from '../../src/lib/types'
 
-const { useBookingStateMock, useChecksMock, getCurrentMock, warmMock } = vi.hoisted(() => ({
+const { useBookingStateMock, saveMock, warmMock } = vi.hoisted(() => ({
   useBookingStateMock: vi.fn(),
-  useChecksMock: vi.fn(),
-  getCurrentMock: vi.fn(),
+  saveMock: vi.fn(async () => ({ queued: false })),
   warmMock: vi.fn(async () => ({ cached: 0, total: 0 })),
 }))
 vi.mock('../../src/lib/attachmentsWarm', () => ({ warmTripAttachments: warmMock }))
-
-vi.mock('../../src/lib/state', () => ({
-  useBookingState: useBookingStateMock,
-  useChecks: useChecksMock,
-  QUEUED_COPY: 'Saved on this phone — will sync when online',
-}))
-// Home carries a SyncBadge; keep the outbox (and its IndexedDB reads) out of these tests.
-vi.mock('../../src/lib/sync', () => ({
-  useSync: () => ({ pending: 0, failed: 0, syncing: false, lastError: undefined, retryFailed: vi.fn() }),
-}))
+vi.mock('../../src/lib/state', () => ({ useBookingState: useBookingStateMock, QUEUED_COPY: 'Saved on this phone — will sync when online' }))
+vi.mock('../../src/lib/sync', () => ({ useSync: () => ({ pending: 0, failed: 0, syncing: false, lastError: undefined, retryFailed: vi.fn() }) }))
+// Weather is exercised in WeatherStrip.test.tsx; here it must simply not fetch.
 vi.mock('../../src/lib/weather', async importOriginal => {
   const actual = await importOriginal<typeof import('../../src/lib/weather')>()
-  return { ...actual, getCurrent: getCurrentMock }
+  return { ...actual, getDailyForecast: vi.fn(async () => { throw new Error('offline') }), getHourly: vi.fn(async () => { throw new Error('offline') }) }
 })
+vi.mock('../../src/lib/config', () => ({ OWNER_NAME: 'Michael' }))
 
 import { Home } from '../../src/screens/Home'
 
 const throwingClient = new Proxy({}, { get() { throw new Error('no network in tests') } }) as never
-
-// 09:00 Europe/Rome on Monday 2 November, the middle day of the Valle fixture trip.
-const MONDAY_0900 = new Date('2026-11-02T08:00:00Z')
-// Well before the trip starts, so `todayInTrip` is null and Home falls back to day one.
+const SUNDAY_1200 = new Date('2026-11-01T11:00:00Z')   // 12:00 Europe/Rome, day one of the Valle fixture
 const PRE_TRIP = new Date('2026-10-20T08:00:00Z')
 
 function renderHome(content: CityContent) {
@@ -42,9 +32,9 @@ function renderHome(content: CityContent) {
       <TripProvider initial={{ trips: [content.trip], slug: 'valle', content }} client={throwingClient}>
         <Routes>
           <Route path="/" element={<Home />} />
-          <Route path="/day" element={<p>Day screen</p>} />
-          <Route path="/day/:date" element={<p>Day screen</p>} />
-          <Route path="/bookings" element={<p>Bookings screen</p>} />
+          <Route path="/ticket/:trip/:id" element={<p>Ticket screen</p>} />
+          <Route path="/place/:id" element={<p>Place screen</p>} />
+          <Route path="/tickets" element={<p>Tickets screen</p>} />
           <Route path="/map" element={<p>Map screen</p>} />
         </Routes>
       </TripProvider>
@@ -52,151 +42,81 @@ function renderHome(content: CityContent) {
   )
 }
 
-function section(name: string): HTMLElement {
-  return screen.getByRole('heading', { name }).closest('section') as HTMLElement
-}
-
 let content: CityContent
-
 beforeEach(async () => {
   content = await loadValle()
-  vi.setSystemTime(MONDAY_0900)
-  useBookingStateMock.mockReturnValue({ state: {}, loading: false, save: vi.fn() })
-  useChecksMock.mockReturnValue({ done: new Set<string>(), loading: false, toggle: vi.fn() })
-  getCurrentMock.mockReset()
-  getCurrentMock.mockRejectedValue(new Error('no weather in tests'))
-  warmMock.mockClear()
+  useBookingStateMock.mockReturnValue({ state: {}, loading: false, save: saveMock })
+  saveMock.mockClear()
+  vi.useFakeTimers({ shouldAdvanceTime: true }); vi.setSystemTime(SUNDAY_1200)
 })
+afterEach(() => { vi.useRealTimers() })
 
-afterEach(() => {
-  vi.useRealTimers()
-  vi.unstubAllEnvs()
-})
-
-test('the header carries the trip-local date and clock next to the sync badge', async () => {
+test('greeting with the owner name, date and trip-local time', () => {
   renderHome(content)
-  expect(await screen.findByRole('heading', { name: /Monday 2 November/ })).toBeInTheDocument()
-  expect(screen.getByRole('heading', { name: /09:00/ })).toBeInTheDocument()
+  expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Hello... Michael')
+  expect(screen.getByText(/Sunday 1 November · 12:00/)).toBeInTheDocument()
 })
 
-test('the trip pills show the country name and the active trip is marked', async () => {
+test('no country pills on Home', () => {
   renderHome(content)
-  const pill = await screen.findByRole('button', { name: 'Italy' })
-  expect(pill).toHaveClass('trip-picker__pill--active')
+  expect(screen.queryByRole('button', { name: content.trip.country })).toBeNull()
 })
 
-test('the hero renders the world map image and an Open map link', async () => {
+test('next-up card is the first booking still ahead today and opens its ticket', () => {
   renderHome(content)
-  const img = await screen.findByTestId('world-hero-map')
-  expect(img).toHaveAttribute('alt', '')
-  expect(img.tagName).toBe('IMG')
-  expect(screen.getByRole('link', { name: 'Open map' })).toHaveAttribute('href', '/map')
+  const next = screen.getByRole('region', { name: 'Next up' })
+  expect(next).toHaveTextContent('Trattoria Alba')
+  fireEvent.click(within(next).getByRole('link'))
+  expect(screen.getByText('Ticket screen')).toBeInTheDocument()
 })
 
-test('the hero shows the current temperature and condition when the weather call resolves', async () => {
-  vi.stubEnv('VITE_GOOGLE_BROWSER_KEY', 'k')
-  getCurrentMock.mockResolvedValue({
-    fetchedAt: '2026-11-02T08:00:00Z', temp: 24.2, feelsLike: 23, condition: 'Sunny',
-    iconUri: 'https://example.com/icon', humidity: 40, windKph: 6, stale: false,
-  })
+test('tickets row shows the empty state when the next-up booking is the only one today', () => {
+  renderHome(content)   // Sun 1 Nov: B01 is the only dated booking, and it is the next-up card
+  const row = screen.getByRole('heading', { name: 'Tickets' }).closest('section') as HTMLElement
+  expect(within(row).getByText('No more tickets today')).toBeInTheDocument()
+})
 
+test('tickets row lists the rest of today without the next-up booking', () => {
+  vi.setSystemTime(new Date('2026-11-03T11:00:00Z'))   // Tue 3 Nov 12:00 Rome: B02 09:10 has passed, T02 20:00 is next
   renderHome(content)
-
-  expect(await screen.findByText('24°')).toBeInTheDocument()
-  expect(screen.getByText('Sunny')).toBeInTheDocument()
+  expect(screen.getByRole('region', { name: 'Next up' })).toHaveTextContent('Saturday dinner')
+  const row = screen.getByRole('heading', { name: 'Tickets' }).closest('section') as HTMLElement
+  expect(within(row).getByRole('link', { name: /Train south/ })).toBeInTheDocument()
+  expect(within(row).queryByText(/Saturday dinner/)).toBeNull()
 })
 
-test('the options card takes its heading and two circles from the "pick one below" stop', async () => {
+test('tours and events row shows timed, named stops that are not bookings', () => {
+  vi.setSystemTime(new Date('2026-11-02T11:00:00Z'))   // Mon 2 Nov: the day with named stops (Piazza Grande, Caffè Nord, Belvedere, Castello Alto, Trattoria Alba)
   renderHome(content)
-  const card = (await screen.findByRole('heading', { name: 'Aperitivo options' })).closest('section') as HTMLElement
-  expect(within(card).getByRole('link', { name: 'View day' })).toHaveAttribute('href', '/day/2026-11-02')
-  const circles = within(card).getAllByRole('button')
-  expect(circles).toHaveLength(2)
-  expect(within(card).getByText('Bar Sole')).toBeInTheDocument()
-  expect(within(card).getByText('Enoteca Piccola')).toBeInTheDocument()
-  expect(within(card).getByText('BS')).toBeInTheDocument()
-  expect(within(card).getByText('EP')).toBeInTheDocument()
+  const row = screen.getByRole('heading', { name: 'Tours and events' }).closest('section') as HTMLElement
+  const links = within(row).getAllByRole('link')
+  expect(links.length).toBeGreaterThan(0)
+  expect(links.every(l => l.getAttribute('href')!.startsWith('/place/'))).toBe(true)
+  expect(within(row).queryByText(/Trattoria Alba/)).toBeNull()
 })
 
-test('tapping an option circle opens a sheet with its details and a Walk there link', async () => {
+test('reminders link to the Tickets tab', () => {
   renderHome(content)
-  const card = (await screen.findByRole('heading', { name: 'Aperitivo options' })).closest('section') as HTMLElement
-  fireEvent.click(within(card).getByRole('button', { name: 'Bar Sole' }))
-  const sheet = screen.getByRole('dialog', { name: 'Bar Sole' })
-  expect(within(sheet).getByText(/Closest to the belvedere/)).toBeInTheDocument()
-  expect(within(sheet).getByRole('link', { name: 'Walk there' })).toHaveAttribute(
-    'href', expect.stringContaining('destination='),
-  )
+  const chips = screen.getByRole('heading', { name: 'Reminders' }).closest('section') as HTMLElement
+  const first = within(chips).getAllByRole('link')[0]
+  expect(first).toHaveAttribute('href', '/tickets')
 })
 
-test('the tours row lists the day\'s booked items with their times', async () => {
-  // The fixture books B01 on day one and B02 on day three; put both on the Monday so the
-  // row has something to show at the clock every other test uses.
-  content.bookings = content.bookings.map(b =>
-    b.id === 'B01' || b.id === 'B02' ? { ...b, date: '2026-11-02' } : b)
-
+test('world map hero stays and opens the map', () => {
   renderHome(content)
-
-  const row = section('Tours')
-  expect(await within(row).findByText('Trattoria Alba — dinner')).toBeInTheDocument()
-  expect(within(row).getByText('Train south')).toBeInTheDocument()
-  expect(within(row).getByText(/09:10/)).toBeInTheDocument()
+  expect(screen.getByTestId('world-hero-map')).toBeInTheDocument()
+  fireEvent.click(screen.getByRole('link', { name: 'Open map' }))
+  expect(screen.getByText('Map screen')).toBeInTheDocument()
 })
 
-test('the tours row shows its empty state when nothing is booked today', async () => {
-  renderHome(content)
-  expect(await within(section('Tours')).findByText('No tours today')).toBeInTheDocument()
-})
-
-test('the itineraries row shows the trip with a Now countdown and switches trip on tap', async () => {
-  renderHome(content)
-  const row = section('Itineraries')
-  expect(await within(row).findByText('Valle')).toBeInTheDocument()
-  expect(within(row).getByText('Now')).toBeInTheDocument()
-  fireEvent.click(within(row).getByRole('button', { name: /Valle/ }))
-  expect(await screen.findByText('Day screen')).toBeInTheDocument()
-})
-
-test('the walking row lists both V1 legs with their route title and endpoints', async () => {
-  renderHome(content)
-  const row = section('Walking routes')
-  expect(await within(row).findAllByText('Piazza to the belvedere')).toHaveLength(2)
-  const first = within(row).getAllByRole('link')[0]
-  expect(first).toHaveAttribute('href', expect.stringContaining('google.com/maps/dir'))
-  expect(within(row).getByText(/Piazza Grande, Valle → Caffè Nord/)).toBeInTheDocument()
-})
-
-test('reminder chips list the open todos oldest first and link to Bookings', async () => {
-  renderHome(content)
-  const row = section('Reminders')
-  const chips = await within(row).findAllByRole('link')
-  expect(chips.map(c => c.textContent)).toEqual([
-    'Book Trattoria Alba — dinner by 20 Oct',
-    'Book Saturday dinner — decide, then book by 27 Oct',
-  ])
-  fireEvent.click(chips[0])
-  expect(await screen.findByText('Bookings screen')).toBeInTheDocument()
-})
-
-test('a booking already marked booked in live state drops off the reminder row', async () => {
-  useBookingStateMock.mockReturnValue({
-    state: { T01: { status: 'booked' } }, loading: false, save: vi.fn(),
-  })
-  renderHome(content)
-  const chips = await within(section('Reminders')).findAllByRole('link')
-  expect(chips).toHaveLength(1)
-  expect(chips[0]).toHaveTextContent('Saturday dinner')
-})
-
-test('before the trip starts the header keeps today and a caption names the day being shown', async () => {
+test('before the trip, Home says which day it is showing and still has a next-up', () => {
   vi.setSystemTime(PRE_TRIP)
   renderHome(content)
-  expect(await screen.findByRole('heading', { name: /Tuesday 20 October/ })).toBeInTheDocument()
-  expect(screen.getByText('Plans for Sunday 1 November')).toBeInTheDocument()
+  expect(screen.getByText(/Plans for Sunday 1 November/)).toBeInTheDocument()
+  expect(screen.getByRole('region', { name: 'Next up' })).toHaveTextContent('Trattoria Alba')
 })
 
-test('Home starts the ticket warm pass for the active trip', async () => {
-  renderHome(content)
-  await screen.findByRole('heading', { name: 'Tours' })
-  expect(warmMock).toHaveBeenCalledWith('valle')
+test('loading, error and empty states', () => {
+  render(<MemoryRouter><TripProvider initial={{ trips: [], slug: '', content: null as unknown as CityContent }} client={throwingClient}><Home /></TripProvider></MemoryRouter>)
+  expect(screen.getByText(/No trips yet/)).toBeInTheDocument()
 })

@@ -1,9 +1,6 @@
-import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { cityDot } from '../lib/home'
-import { cityCentre, getCurrent } from '../lib/weather'
-import type { Current } from '../lib/weather'
-import { conditionEmoji } from './WeatherStrip'
+import { cityCentre } from '../lib/weather'
 import type { CityContent, TripRow } from '../lib/types'
 
 /**
@@ -29,26 +26,7 @@ export function WorldHero({ trips, trip, content, date }: {
   content: CityContent
   date: string
 }) {
-  const key = import.meta.env.VITE_GOOGLE_BROWSER_KEY as string | undefined
   const centre = cityCentre(content, date) ?? centreFor(trip)
-
-  const [current, setCurrent] = useState<Current | null>(null)
-  const [iconFailed, setIconFailed] = useState(false)
-
-  useEffect(() => {
-    if (!key || !centre) return
-    let cancelled = false
-    void (async () => {
-      try {
-        const c = await getCurrent(trip, centre.lat, centre.lng, key)
-        if (!cancelled) setCurrent(c)
-      } catch {
-        // No network and nothing cached: the overlay simply stays quiet.
-      }
-    })()
-    return () => { cancelled = true }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [trip.slug, centre?.lat, centre?.lng, key])
 
   const dots = trips
     .map(t => {
@@ -73,26 +51,6 @@ export function WorldHero({ trips, trip, content, date }: {
         />
       ))}
       <div className="world-hero__overlay">
-        {current && (
-          <div className="world-hero__weather">
-            {current.iconUri && !iconFailed ? (
-              <img
-                className="world-hero__weather-icon"
-                src={`${current.iconUri}.svg`}
-                alt=""
-                width={24}
-                height={24}
-                onError={() => setIconFailed(true)}
-              />
-            ) : (
-              <span className="world-hero__weather-icon" aria-hidden="true">
-                {conditionEmoji(current.condition)}
-              </span>
-            )}
-            <span className="world-hero__temp">{Math.round(current.temp)}°</span>
-            <span className="world-hero__condition">{current.condition}</span>
-          </div>
-        )}
         <Link to="/map" className="world-hero__open">Open map</Link>
       </div>
     </div>

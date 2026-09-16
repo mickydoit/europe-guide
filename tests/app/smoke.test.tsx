@@ -30,7 +30,7 @@ import App from '../../src/App'
 
 test('/ renders the Home screen and shows five tabs', async () => {
   render(<MemoryRouter><App /></MemoryRouter>)
-  expect(await screen.findByRole('heading', { name: 'Itineraries' })).toBeInTheDocument()
+  expect(await screen.findByRole('heading', { name: 'Tickets' })).toBeInTheDocument()
   expect(screen.getByRole('heading', { name: 'Reminders' })).toBeInTheDocument()
   expect(within(screen.getByRole('navigation')).getAllByRole('link')).toHaveLength(5)
 })
