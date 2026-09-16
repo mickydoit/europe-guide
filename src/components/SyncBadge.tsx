@@ -10,6 +10,6 @@ export function SyncBadge() {
   if (pending + failed === 0 && !syncing) return null
   if (syncing) return <Pill tone="muted">Syncing…</Pill>
   // A parked op is the one worth shouting about, so it wins over the plain pending count.
-  if (failed > 0) return <Pill tone="salmon">{failed} failed</Pill>
-  return <Pill tone="columbia">{pending} to sync</Pill>
+  if (failed > 0) return <Pill tone="lavender">{failed} failed</Pill>
+  return <Pill tone="highlight">{pending} to sync</Pill>
 }

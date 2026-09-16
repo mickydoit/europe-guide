@@ -37,7 +37,7 @@ function WeatherIcon({ iconUri, condition, failed, onFail }: {
   )
 }
 
-export function WeatherStrip({ trip, content, date }: { trip: TripRow; content: CityContent; date: string }) {
+export function WeatherStrip({ trip, content, date, variant = 'strip' }: { trip: TripRow; content: CityContent; date: string; variant?: 'strip' | 'hero' | 'line' }) {
   const key = import.meta.env.VITE_GOOGLE_BROWSER_KEY as string | undefined
   const centre = key ? cityCentre(content, date) : null
   const isToday = date === todayInTrip(trip)
@@ -78,25 +78,27 @@ export function WeatherStrip({ trip, content, date }: { trip: TripRow; content: 
   }, [trip.slug, centre?.lat, centre?.lng, date, isToday, key])
 
   if (!key || !centre) return null
-  if (loading) return <div className="weather"><p className="weather__loading caption">Weather…</p></div>
+  if (loading) return <div className={`weather weather--${variant}`}><p className="weather__loading caption">Weather…</p></div>
   if (!daily) return null
 
   const day = pickDay(daily, date)
   if (!day) {
     const opensOn = forecastOpensOn(trip, date)
     if (!opensOn) return null
-    return <div className="weather"><p className="weather__opens caption">Forecast opens on {fmtDay(date)}</p></div>
+    return <div className={`weather weather--${variant}`}><p className="weather__opens caption">Forecast opens on {fmtDay(date)}</p></div>
   }
 
-  const hours = isToday && hourly ? hourly.hours.slice(0, 8) : []
+  const hours = isToday && hourly && variant !== 'line' ? hourly.hours.slice(0, 8) : []
 
   return (
-    <div className="weather">
+    <div className={`weather weather--${variant}`}>
       <div className="weather__summary">
         <WeatherIcon iconUri={day.iconUri} condition={day.condition} failed={failedIcons} onFail={markIconFailed} />
-        <span className="weather__text">
-          {day.condition} · {Math.round(day.hi)}° / {Math.round(day.lo)}° · ☂ {day.precipPct}%
-        </span>
+        {variant === 'hero'
+          ? <span className="weather__text"><span className="weather__temp">{Math.round(day.hi)}°</span> {day.condition} · low {Math.round(day.lo)}° · ☂ {day.precipPct}%</span>
+          : variant === 'line'
+            ? <span className="weather__text">{Math.round(day.hi)}° {day.condition}</span>
+            : <span className="weather__text">{day.condition} · {Math.round(day.hi)}° / {Math.round(day.lo)}° · ☂ {day.precipPct}%</span>}
       </div>
       {daily.stale && (
         <p className="weather__caption caption">as of {nowInTz(trip.timezone, new Date(daily.fetchedAt)).hhmm}</p>

@@ -26,20 +26,8 @@ export interface HourlyHour {
 
 export interface Hourly { fetchedAt: string; hours: HourlyHour[]; stale: boolean }
 
-export interface Current {
-  fetchedAt: string
-  temp: number
-  feelsLike: number
-  condition: string
-  iconUri: string | null
-  humidity: number
-  windKph: number
-  stale: boolean
-}
-
 const DAILY_URL = 'https://weather.googleapis.com/v1/forecast/days:lookup'
 const HOURLY_URL = 'https://weather.googleapis.com/v1/forecast/hours:lookup'
-const CURRENT_URL = 'https://weather.googleapis.com/v1/currentConditions:lookup'
 const DEFAULT_TTL_MS = 60 * 60 * 1000
 
 interface RawWeatherCondition { description?: { text?: string }; iconBaseUri?: string }
@@ -59,14 +47,6 @@ interface RawForecastHour {
   weatherCondition?: RawWeatherCondition
   precipitation?: { probability?: { percent?: number } }
 }
-interface RawCurrentConditions {
-  temperature?: RawTemperature
-  feelsLikeTemperature?: RawTemperature
-  weatherCondition?: RawWeatherCondition
-  relativeHumidity?: number
-  wind?: { speed?: { value?: number } }
-}
-
 function pad2(n: number): string { return String(n).padStart(2, '0') }
 function ymd(year: number, month: number, day: number): string { return `${year}-${pad2(month)}-${pad2(day)}` }
 
@@ -100,17 +80,6 @@ export function mapHourly(json: { forecastHours?: RawForecastHour[] }, _tz: stri
       iconUri: h.weatherCondition?.iconBaseUri ?? null,
     }
   })
-}
-
-export function mapCurrent(json: RawCurrentConditions): Omit<Current, 'fetchedAt' | 'stale'> {
-  return {
-    temp: json.temperature?.degrees ?? 0,
-    feelsLike: json.feelsLikeTemperature?.degrees ?? 0,
-    condition: json.weatherCondition?.description?.text ?? '',
-    iconUri: json.weatherCondition?.iconBaseUri ?? null,
-    humidity: json.relativeHumidity ?? 0,
-    windKph: json.wind?.speed?.value ?? 0,
-  }
 }
 
 interface FetchOpts { fetchImpl?: typeof fetch; now?: Date; ttlMs?: number }
@@ -165,18 +134,6 @@ export async function getHourly(
   const result = await cachedFetch<{ hours: HourlyHour[] }>(cacheKey, opts, async fetchImpl => {
     const json = await fetchJson(fetchImpl, url, 'hourly') as { forecastHours?: RawForecastHour[] }
     return { hours: mapHourly(json, trip.timezone) }
-  })
-  return result
-}
-
-export async function getCurrent(
-  trip: TripRow, lat: number, lng: number, key: string, opts: FetchOpts = {},
-): Promise<Current> {
-  const cacheKey = `${trip.slug}:current`
-  const url = `${CURRENT_URL}?key=${key}&location.latitude=${lat}&location.longitude=${lng}&unitsSystem=METRIC`
-  const result = await cachedFetch<Omit<Current, 'fetchedAt' | 'stale'>>(cacheKey, opts, async fetchImpl => {
-    const json = await fetchJson(fetchImpl, url, 'current') as RawCurrentConditions
-    return mapCurrent(json)
   })
   return result
 }

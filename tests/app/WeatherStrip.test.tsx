@@ -24,7 +24,7 @@ function item(overrides: Partial<ItemRow> = {}): ItemRow {
     id: 'valle/2026-11-02/0830/x', trip: 'valle', date: '2026-11-02', block: 'morning',
     time: '08:30', time_text: null, approx: false, kind: 'stop', parent_item: null,
     plan: 'X', details: null, sort: 0, place_name: null, address: null,
-    lat: 41.9, lng: 12.5, url: null, route_id: null,
+    lat: 41.9, lng: 12.5, url: null, route_id: null, photo_path: null, photo_credit: null,
     ...overrides,
   }
 }
@@ -74,6 +74,24 @@ describe('WeatherStrip', () => {
     const { container } = render(<WeatherStrip trip={trip} content={content()} date="2026-11-02" />)
     expect(container).toBeEmptyDOMElement()
     expect(getDailyForecastMock).not.toHaveBeenCalled()
+  })
+
+  test('hero variant shows a weather--hero panel with the hi temperature first', async () => {
+    vi.stubEnv('VITE_GOOGLE_BROWSER_KEY', 'k')
+    getDailyForecastMock.mockResolvedValue({
+      fetchedAt: '2026-11-01T08:00:00Z', stale: false,
+      days: [{
+        date: '2026-11-02', hi: 24, lo: 15, precipPct: 10, condition: 'Sunny',
+        iconUri: 'https://example.com/icon', sunrise: null, sunset: null,
+      }],
+    })
+
+    const { container } = render(<WeatherStrip trip={trip} content={content()} date="2026-11-02" variant="hero" />)
+
+    const temp = await screen.findByText('24°')
+    expect(temp).toHaveClass('weather__temp')
+    expect(container.firstElementChild).toHaveClass('weather--hero')
+    expect(container.querySelector('.weather__summary')!.innerHTML).toMatch(/weather__temp">24°<\/span>\s*Sunny/)
   })
 
   test('an icon that fails to load falls back to the condition emoji', async () => {

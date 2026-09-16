@@ -16,14 +16,15 @@ import { boundsFor, legsGeoJSON, parkedGeoJSON, placesGeoJSON, stopsGeoJSON } fr
 import { cachedMapStatus, defaultSigner, downloadCityMaps, getCachedMap, getMapsGeneration, MemorySource } from '../lib/offlineMaps'
 import { fmtTime, todayInTrip } from '../lib/time'
 import { walkLink } from '../lib/links'
+import { bookingForStop } from '../lib/tickets'
 import { MapSheet, type MapFeatureKind } from '../components/MapSheet'
 import { nearbyPlaces, nearestN, photoUrl, placePhoto, shouldRefetch, type Place } from '../lib/places'
 import type { OfflineAreaRow } from '../lib/types'
 
-const ACCENT = '#11da8f'
+const ACCENT = '#22DD85'
 const MUTED = '#5a5b5d'
 const COAL = '#202123'
-const COLUMBIA = '#9ee1fe'
+const LAVENDER = '#BCA5ED'
 // Taps land on the invisible wide-radius hit layers, not the small painted circles:
 // a 9 px marker is well under the 44 px touch target a thumb actually aims at.
 const TAP_LAYERS = ['stops-hit', 'parked-hit', 'places-hit']
@@ -114,7 +115,7 @@ function addLayers(map: maplibregl.Map) {
   // line-dasharray per-feature within one layer, so the mode split needs two layers).
   // Untyped to the style spec (like `isDone` below): a nested array literal here infers
   // as a plain array, not the tuple `match` expects.
-  const legColor: unknown = ['match', ['get', 'mode'], 'driving', '#fbdd40', 'transit', '#9ee1fe', ACCENT]
+  const legColor: unknown = ['match', ['get', 'mode'], 'driving', '#F7FF88', 'transit', LAVENDER, ACCENT]
   map.addLayer({
     id: 'legs-line', type: 'line', source: 'legs',
     filter: ['==', ['get', 'mode'], 'walking'],
@@ -174,11 +175,11 @@ function addLayers(map: maplibregl.Map) {
   })
   map.addLayer({
     id: 'user-accuracy', type: 'circle', source: 'user',
-    paint: { 'circle-radius': 24, 'circle-color': COLUMBIA, 'circle-opacity': 0.15 },
+    paint: { 'circle-radius': 24, 'circle-color': LAVENDER, 'circle-opacity': 0.15 },
   })
   map.addLayer({
     id: 'user-dot', type: 'circle', source: 'user',
-    paint: { 'circle-radius': 7, 'circle-color': COLUMBIA, 'circle-stroke-color': '#ffffff', 'circle-stroke-width': 2 },
+    paint: { 'circle-radius': 7, 'circle-color': LAVENDER, 'circle-stroke-color': '#ffffff', 'circle-stroke-width': 2 },
   })
 
   // Hit targets last, so they sit above every painted layer and always win the tap.
@@ -606,6 +607,11 @@ export default function Map() {
 
   const alreadySaved = !!sheet?.place && notes.savedPlaces.some(p => p.id === sheet.place!.id)
 
+  // The sheet object doesn't carry the underlying item, so look it up again here (cheap:
+  // it's the same find the sheet memo just did) to compute the ticket link once.
+  const sheetItem = selected?.kind === 'stop' && content ? content.items.find(i => i.id === selected.id) ?? null : null
+  const sheetBooking = sheetItem ? bookingForStop(content?.bookings ?? [], sheetItem) : null
+
   // ---- lazy place photo -----------------------------------------------------
   // Cost trim: the nearby search field mask no longer requests photos, so a place's
   // photo is fetched from Place Details only when its sheet actually opens, once per
@@ -743,6 +749,7 @@ export default function Map() {
           details={sheet.details}
           photoSrc={sheet.kind === 'place' ? placePhotoSrc : sheet.photoSrc}
           walkHref={sheet.walkHref}
+          ticketHref={sheetBooking && trip ? `/ticket/${trip.slug}/${sheetBooking.id}?trip=${trip.slug}` : null}
           onClose={() => { setSelected(null); setSaveError(null); setSaveQueued(null) }}
           onSave={sheet.place ? () => { void handleSave() } : undefined}
           saved={alreadySaved}

@@ -60,7 +60,7 @@ export function parseItinerary(file: string, src: string, ctx: { trip: string; y
         for (const r of n.rows) {
           const t = (() => { try { return parseTime(r[0]) } catch (e) { return fail(n, (e as Error).message) } })()
           const { place_name, address } = extractPlace(r[1])
-          lastStop = push({ kind: 'stop', time: t.time, time_text: t.text, approx: t.approx, parent_item: null, plan: r[1], details: r[2] ?? null, place_name, address, lat: null, lng: null, url: null, route_id: null })
+          lastStop = push({ kind: 'stop', time: t.time, time_text: t.text, approx: t.approx, parent_item: null, plan: r[1], details: r[2] ?? null, place_name, address, lat: null, lng: null, url: null, route_id: null, photo_path: null, photo_credit: null })
           if (/pick one|options? below|choose one/i.test(`${r[1]} ${r[2] ?? ''}`)) lastPick = lastStop
         }
       } else if (h[0] === 'place' && h[1] === 'address') {
@@ -68,18 +68,18 @@ export function parseItinerary(file: string, src: string, ctx: { trip: string; y
         if (!parent) fail(n, 'options table with no preceding stop')
         for (const r of n.rows) {
           const { place_name } = extractPlace(r[0]); const name = place_name ?? r[0].replace(/\*\*/g, '')
-          push({ kind: 'option', time: null, time_text: null, approx: false, parent_item: parent!.id, plan: name, details: n.header.slice(1).map((k, i) => `**${k}:** ${r[i + 1] ?? ''}`).join(' · '), place_name: name, address: r[1] || null, lat: null, lng: null, url: null, route_id: null })
+          push({ kind: 'option', time: null, time_text: null, approx: false, parent_item: parent!.id, plan: name, details: n.header.slice(1).map((k, i) => `**${k}:** ${r[i + 1] ?? ''}`).join(' · '), place_name: name, address: r[1] || null, lat: null, lng: null, url: null, route_id: null, photo_path: null, photo_credit: null })
         }
       } else fail(n, `unknown table shape [${n.header.join(' | ')}]`)
       continue
     }
     if (n.kind === 'para') {
       const rl = n.text.match(/^\*\*\[[^\]]*\]\((https:\/\/www\.google\.com\/maps\/dir[^)]+)\)\*\*(.*)$/)
-      if (rl) push({ kind: 'route_link', time: null, time_text: null, approx: false, parent_item: null, plan: 'Walking route for this block', details: rl[2].replace(/^\s*—\s*/, '').trim() || null, place_name: null, address: null, lat: null, lng: null, url: rl[1], route_id: null })
-      else push({ kind: 'note', time: null, time_text: null, approx: false, parent_item: null, plan: n.text, details: null, place_name: null, address: null, lat: null, lng: null, url: null, route_id: null })
+      if (rl) push({ kind: 'route_link', time: null, time_text: null, approx: false, parent_item: null, plan: 'Walking route for this block', details: rl[2].replace(/^\s*—\s*/, '').trim() || null, place_name: null, address: null, lat: null, lng: null, url: rl[1], route_id: null, photo_path: null, photo_credit: null })
+      else push({ kind: 'note', time: null, time_text: null, approx: false, parent_item: null, plan: n.text, details: null, place_name: null, address: null, lat: null, lng: null, url: null, route_id: null, photo_path: null, photo_credit: null })
       continue
     }
-    if (n.kind === 'bullets') { for (const b of n.items) push({ kind: 'note', time: null, time_text: null, approx: false, parent_item: null, plan: b, details: null, place_name: null, address: null, lat: null, lng: null, url: null, route_id: null }); continue }
+    if (n.kind === 'bullets') { for (const b of n.items) push({ kind: 'note', time: null, time_text: null, approx: false, parent_item: null, plan: b, details: null, place_name: null, address: null, lat: null, lng: null, url: null, route_id: null, photo_path: null, photo_credit: null }); continue }
   }
   if (days.length === 0) throw new ImportError(file, 1, 'no day headings found')
   return { intro: intro.length ? intro.join('\n\n') : null, days, items }

@@ -6,7 +6,6 @@ import { useAuth } from '../lib/auth'
 import { fmtDay } from '../lib/time'
 import { walkLink } from '../lib/links'
 import { Md } from '../components/Md'
-import { TripPicker } from '../components/TripPicker'
 import { OfflineMapCard } from '../components/OfflineMapCard'
 import { SyncBadge } from '../components/SyncBadge'
 import { useSync, useOutboxOps, flushOutbox } from '../lib/sync'
@@ -37,7 +36,7 @@ function summarise(ops: Array<{ kind: string }>): string {
 }
 
 export function More() {
-  const { trips, slug, content, loading, offline, error, setSlug, refresh } = useTrip()
+  const { trips, content, loading, offline, error, refresh } = useTrip()
   const [updateMsg, setUpdateMsg] = useState<string | null>(null)
   const { session, signOut } = useAuth()
   const { pending, failed, lastError, retryFailed } = useSync()
@@ -131,7 +130,6 @@ export function More() {
         <p className="caption">{fmtDay(trip.start_date)} → {fmtDay(trip.end_date)}</p>
         {trip.base && <p className="caption">{trip.base}</p>}
         {trip.intro && <p className="more-trip__intro"><Md text={trip.intro} /></p>}
-        {trips.length > 1 && <TripPicker trips={trips} active={slug} onSelect={setSlug} />}
       </section>
 
       {content.parked.length > 0 && (

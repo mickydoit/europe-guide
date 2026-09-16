@@ -31,6 +31,7 @@ jobs:
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
           VITE_GOOGLE_BROWSER_KEY: ${{ secrets.VITE_GOOGLE_BROWSER_KEY }}
+          VITE_OWNER_NAME: ${{ secrets.VITE_OWNER_NAME }}
       - uses: actions/configure-pages@v4
       - uses: actions/upload-pages-artifact@v3
         with:

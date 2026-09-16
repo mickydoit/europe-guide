@@ -66,20 +66,11 @@ test('renders three block headings for the main Valle day', async () => {
   expect(screen.getByRole('heading', { name: 'Evening' })).toBeInTheDocument()
 })
 
-test('renders the Caffè Nord card with a Walk there link containing destination=', async () => {
-  renderDay('2026-11-02', content)
-  const card = (await screen.findByText('Caffè Nord', { exact: false })).closest('.stop-card')
-  expect(card).not.toBeNull()
-  const link = card!.querySelector('a') as HTMLAnchorElement
-  expect(link.textContent).toBe('Walk there')
-  expect(link.href).toContain('destination=')
-})
-
 test('clicking the tick calls toggle with the item id', async () => {
   renderDay('2026-11-02', content)
   const heading = await screen.findByText('Piazza Grande', { exact: false })
-  const card = heading.closest('.stop-card') as HTMLElement
-  fireEvent.click(within(card).getByRole('button', { name: 'Mark done' }))
+  const row = heading.closest('.stop-row') as HTMLElement
+  fireEvent.click(within(row).getByRole('button', { name: 'Mark done' }))
   expect(toggle).toHaveBeenCalledWith('valle/2026-11-02/0830/piazza-grande')
 })
 
@@ -87,8 +78,8 @@ test('a failed toggle surfaces an inline "could not save" message that clears it
   toggle.mockRejectedValueOnce(new Error('offline'))
   renderDay('2026-11-02', content)
   const heading = await screen.findByText('Piazza Grande', { exact: false })
-  const card = heading.closest('.stop-card') as HTMLElement
-  fireEvent.click(within(card).getByRole('button', { name: 'Mark done' }))
+  const row = heading.closest('.stop-row') as HTMLElement
+  fireEvent.click(within(row).getByRole('button', { name: 'Mark done' }))
   expect(await screen.findByText("Couldn't save — you may be offline")).toBeInTheDocument()
 })
 
@@ -96,8 +87,8 @@ test('a queued toggle surfaces the accent "saved on this phone" message, not the
   toggle.mockResolvedValueOnce({ queued: true })
   renderDay('2026-11-02', content)
   const heading = await screen.findByText('Piazza Grande', { exact: false })
-  const card = heading.closest('.stop-card') as HTMLElement
-  fireEvent.click(within(card).getByRole('button', { name: 'Mark done' }))
+  const row = heading.closest('.stop-row') as HTMLElement
+  fireEvent.click(within(row).getByRole('button', { name: 'Mark done' }))
   const msg = await screen.findByText('Saved on this phone — will sync when online')
   expect(msg).toHaveClass('form__msg--queued')
   expect(screen.queryByText("Couldn't save — you may be offline")).toBeNull()
@@ -109,6 +100,7 @@ test('a null-block note with a lower sort renders before the Morning heading', a
     id: 'valle/2026-11-02/note', trip: 'valle', date, block: null, time: null, time_text: null,
     approx: false, kind: 'note', parent_item: null, plan: 'A note before Morning', details: null,
     sort: 0, place_name: null, address: null, lat: null, lng: null, url: null, route_id: null,
+    photo_path: null, photo_credit: null,
   }
   content.items = [
     note,
@@ -120,15 +112,6 @@ test('a null-block note with a lower sort renders before the Morning heading', a
   const note_el = await screen.findByText('A note before Morning')
   // eslint-disable-next-line no-bitwise
   expect(note_el.compareDocumentPosition(heading) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
-})
-
-test("the options table's two options appear under their parent", async () => {
-  renderDay('2026-11-02', content)
-  const heading = await screen.findByText('pick one below', { exact: false })
-  const card = heading.closest('.stop-card') as HTMLElement
-  fireEvent.click(within(card).getByRole('button', { name: 'Details' }))
-  expect(within(card).getByText('Bar Sole', { exact: false })).toBeInTheDocument()
-  expect(within(card).getByText('Enoteca Piccola', { exact: false })).toBeInTheDocument()
 })
 
 test('the /day/<last date> route renders the block-less day', async () => {
@@ -194,4 +177,63 @@ test('the saved-places row stays hidden while the notes are still loading', asyn
   await screen.findByRole('link', { name: 'Map' })
   expect(screen.queryByRole('heading', { name: 'Saved nearby' })).toBeNull()
   expect(screen.queryByText('Bar Sole')).toBeNull()
+})
+
+test('stops render as rows; a booked stop shows a ticket glyph linking to its ticket; others open the place', () => {
+  renderDay('2026-11-02', content)   // Monday carries the named stops; the Trattoria stop resolves to T01 (same date) not B01
+  const rows = document.querySelectorAll('.stop-row')
+  expect(rows.length).toBeGreaterThan(0)
+  const ticketLink = screen.getByRole('link', { name: /Open ticket/ })
+  expect(ticketLink).toHaveAttribute('href', '/ticket/valle/T01?trip=valle')
+  const placeLinks = screen.getAllByRole('link').filter(l => l.getAttribute('href')?.startsWith('/place/'))
+  expect(placeLinks.length).toBeGreaterThan(0)
+})
+
+test('a stop whose details begin with a markdown link renders no nested <a> inside the place link', () => {
+  const date = '2026-11-02'
+  content.items = content.items.map(i =>
+    i.id === 'valle/2026-11-02/0830/piazza-grande'
+      ? { ...i, details: '**[Route](https://www.google.com/maps/dir/a/b)** — 3 min' }
+      : i,
+  )
+  renderDay(date, content)
+  const heading = screen.getByText('Piazza Grande', { exact: false })
+  const main = heading.closest('.stop-row__main') as HTMLElement
+  expect(within(main).queryByRole('link')).toBeNull()
+  // ...and the label survives as text, without the raw markdown or the URL leaking through.
+  expect(main.textContent).toContain('Route')
+  expect(main.textContent).not.toContain('https://')
+  expect(main.textContent).not.toContain('[Route]')
+})
+
+test('no weather strip and no trip picker on Day', () => {
+  renderDay('2026-11-02', content)
+  expect(document.querySelector('.weather')).toBeNull()
+  expect(document.querySelector('.trip-picker')).toBeNull()
+})
+
+test('a row with a booking shows the kind and status badges', () => {
+  renderDay('2026-11-02', content)
+  const row = screen.getByRole('link', { name: /Open ticket/ }).closest('.stop-row') as HTMLElement
+  expect(row.querySelector('.badge--kind')).not.toBeNull()
+  expect(row.querySelector('.badge--status')).not.toBeNull()
+})
+
+test('a chip per day replaces the arrows; the shown day is marked and tapping another navigates', () => {
+  renderDay('2026-11-02', content)
+  const strip = screen.getByRole('list', { name: 'Days' })
+  const chips = within(strip).getAllByRole('link')
+  expect(chips).toHaveLength(content.days.length)
+  expect(chips.map(c => c.textContent)).toEqual(['Sun1', 'Mon2', 'Tue3'])
+  expect(chips[1]).toHaveAttribute('aria-current', 'date')
+  expect(screen.queryByRole('button', { name: 'Previous day' })).toBeNull()
+  fireEvent.click(chips[2])
+  expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(/Tuesday 3 November/)
+})
+
+test('the routes panel and per-block route links are gone from Day', () => {
+  renderDay('2026-11-02', content)
+  expect(document.querySelector('.route-strip')).toBeNull()
+  expect(document.querySelector('.route-link')).toBeNull()
+  expect(screen.queryByRole('link', { name: /Open route/ })).toBeNull()
 })

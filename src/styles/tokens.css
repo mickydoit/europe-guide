@@ -1,10 +1,13 @@
 :root {
-  --bg: #202123; --bg-nav: #131313; --card: #252525; --card-alt: #2a2c2f;
-  --border: #434445; --muted: #5a5b5d; --pill: #3a3b3d; --bg-2: #303133;
-  --accent: #11da8f; --salmon: #ff7262; --banana: #fbdd40;
-  --granny: #bde9c9; --golden: #f8e08e; --columbia: #9ee1fe; --coral: #f8c1b8;
-  --text: #ffffff; --text-dim: rgba(255,255,255,.4); --text-soft: rgba(255,255,255,.8);
-  --radius-card: 8px; --radius-panel: 17px; --radius-pill: 9999px;
-  --font: -apple-system, "SF Pro Display", "SF Pro Text", Inter, system-ui, sans-serif;
+  /* Figma KMHaWP7ikFa3IimN3cx520 — sampled from card fills, not the style-guide labels */
+  --bg: #070606; --surface: #08353D; --surface-deep: #083740; --surface-dim: #131313;
+  --bg-nav: rgba(7, 6, 6, .45);
+  --accent: #22DD85; --highlight: #F7FF88; --lavender: #BCA5ED;
+  --text: #ffffff; --text-soft: rgba(255,255,255,.7); --text-dim: rgba(255,255,255,.45);
+  --text-on-light: #083740; --text-on-lavender: #070606;
+  --border: rgba(255,255,255,.12); --muted: rgba(255,255,255,.18); --pill: rgba(255,255,255,.1);
+  --radius-card: 24px; --radius-panel: 20px; --radius-pill: 9999px;
+  --font: 'Overpass', -apple-system, "SF Pro Text", system-ui, sans-serif;
+  --font-ticket: 'Poppins', 'Overpass', -apple-system, system-ui, sans-serif;
   --safe-top: env(safe-area-inset-top); --safe-bottom: env(safe-area-inset-bottom);
 }

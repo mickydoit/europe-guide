@@ -61,3 +61,22 @@ test('walk-ins are numbered globally across paragraphs with no repeats', () => {
   expect(ids).toEqual(['WK01', 'WK02', 'WK03', 'WK04'])
   expect(new Set(ids).size).toBe(ids.length)
 })
+test('detail bullets under a "### B01 · title" heading in section 1 merge onto the booked row', () => {
+  const withDetails = src.replace('## 2. To book', `### B01 · Trattoria Alba — dinner
+- **ref:** ABC123
+- **seats:** window table
+- **note:** Ask for the terrace
+
+## 2. To book`)
+  const r = parseBookings('b.md', withDetails, ctx)
+  const b1 = r.bookings.find(b => b.id === 'B01')!
+  expect(b1.kind).toBe('booked')
+  expect(b1.fields.ref).toBe('ABC123')
+  expect(b1.fields.seats).toBe('window table')
+  expect(b1.notes).toMatch(/Ask for the terrace$/)
+  expect(r.bookings.filter(b => b.id === 'B01')).toHaveLength(1)
+})
+test('a detail heading for an id missing from the booked table fails', () => {
+  const bad = src.replace('## 2. To book', '### B09 · Ghost\n- **ref:** X\n\n## 2. To book')
+  expect(() => parseBookings('b.md', bad, ctx)).toThrow(ImportError)
+})

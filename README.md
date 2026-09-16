@@ -15,6 +15,10 @@ npm run build    # tsc --noEmit && vite build
 
 Copy `.env.example` to `.env` and fill in the `VITE_*` values for local development.
 
+## Visual check
+
+Two small headless-Chromium tools let you screenshot the built app for a look-over without a phone: `tools/probe-session.mjs` signs in as the owner (`node tools/probe-session.mjs /tmp/frag.txt`, needs `SUPABASE_SERVICE_KEY` in `.env`) and writes the session fragment to a file outside the repo; `tools/probe-screens.mjs` then loads it and screenshots Home, Day, Tickets, More, Map, plus the first ticket and place (`node tools/probe-screens.mjs /tmp/frag.txt /tmp/shots [baseUrl] [tripSlug] [date]`, default `http://localhost:5173/europe-guide seville 2026-10-05` — run `npm run build && npx vite preview --port 5173` first).
+
 ## Importing a city
 
 **Prerequisites:** the [`pmtiles`](https://github.com/protomaps/go-pmtiles) CLI on `PATH`
