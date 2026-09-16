@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom'
 import { StatusPill } from './StatusPill'
 import { Badges } from './Badges'
+import { PhotoImg } from './PhotoImg'
 import { ticketLines } from '../lib/tickets'
 import type { Status, TicketKind } from '../lib/tickets'
 import type { BookingRow } from '../lib/types'
@@ -19,6 +20,7 @@ export function TicketCard({ booking, kind, status, tone, to, onCycleStatus, pho
 }) {
   const t = tone ?? kind
   const lines = ticketLines(booking, kind)
+  const path = photoSrc ?? booking.photo_path
   return (
     <article className={`ticket-card ticket-card--${t}`}>
       <Link to={to} className="ticket-card__link">
@@ -27,7 +29,7 @@ export function TicketCard({ booking, kind, status, tone, to, onCycleStatus, pho
           <span className="ticket-card__line"><span className="ticket-card__label">{lines.label}</span> <span className="ticket-card__value">{lines.value}</span></span>
           {lines.sub && <span className="ticket-card__sub">{lines.sub}</span>}
         </span>
-        {photoSrc && <span className="ticket-card__art"><img className="ticket-card__photo" src={photoSrc} alt="" /></span>}
+        {path && <span className="ticket-card__art"><PhotoImg path={path} className="ticket-card__photo" /></span>}
       </Link>
       <span className="ticket-card__badges"><Badges kind={kind} title={booking.title} status={status} /></span>
       <span className="ticket-card__status"><StatusPill status={status} onClick={onCycleStatus} /></span>

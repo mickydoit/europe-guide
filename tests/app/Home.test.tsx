@@ -5,13 +5,15 @@ import { TripContext, TripProvider } from '../../src/lib/trip'
 import { loadValle } from '../helpers/content'
 import type { CityContent } from '../../src/lib/types'
 
-const { useBookingStateMock, useChecksMock, saveMock, warmMock } = vi.hoisted(() => ({
+const { useBookingStateMock, useChecksMock, saveMock, warmMock, warmPhotosMock } = vi.hoisted(() => ({
   useBookingStateMock: vi.fn(),
   useChecksMock: vi.fn(() => ({ done: new Set<string>(), loading: false, toggle: vi.fn() })),
   saveMock: vi.fn(async () => ({ queued: false })),
   warmMock: vi.fn(async () => ({ cached: 0, total: 0 })),
+  warmPhotosMock: vi.fn(async () => ({ cached: 0, total: 0 })),
 }))
 vi.mock('../../src/lib/attachmentsWarm', () => ({ warmTripAttachments: warmMock }))
+vi.mock('../../src/lib/photos', () => ({ usePhoto: (p: string | null) => (p ? `blob:${p}` : null), warmTripPhotos: warmPhotosMock }))
 vi.mock('../../src/lib/state', () => ({ useBookingState: useBookingStateMock, useChecks: useChecksMock, QUEUED_COPY: 'Saved on this phone — will sync when online' }))
 vi.mock('../../src/lib/sync', () => ({ useSync: () => ({ pending: 0, failed: 0, syncing: false, lastError: undefined, retryFailed: vi.fn() }) }))
 // Weather is exercised in WeatherStrip.test.tsx; here it must simply not fetch.
@@ -48,6 +50,7 @@ beforeEach(async () => {
   content = await loadValle()
   useBookingStateMock.mockReturnValue({ state: {}, loading: false, save: saveMock })
   saveMock.mockClear()
+  warmPhotosMock.mockClear()
   vi.useFakeTimers({ shouldAdvanceTime: true }); vi.setSystemTime(SUNDAY_1200)
 })
 afterEach(() => { vi.useRealTimers() })
@@ -124,6 +127,15 @@ test('a booking already marked booked in live state drops off the reminder row',
 test('Home starts the ticket warm pass for the active trip', () => {
   renderHome(content)
   expect(warmMock).toHaveBeenCalledWith('valle')
+})
+
+test('Home warms every non-null photo path across items and bookings', () => {
+  const modified = structuredClone(content)
+  const expected: string[] = []
+  modified.items.forEach((i, idx) => { if (idx % 2 === 0) { i.photo_path = `item-${idx}.jpg`; expected.push(i.photo_path) } })
+  modified.bookings.forEach((b, idx) => { if (idx % 2 === 0) { b.photo_path = `booking-${idx}.jpg`; expected.push(b.photo_path) } })
+  renderHome(modified)
+  expect(warmPhotosMock).toHaveBeenCalledWith('valle', expected)
 })
 
 test('world map hero stays and opens the map', () => {

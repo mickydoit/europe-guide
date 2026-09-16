@@ -1,4 +1,4 @@
-import { render, screen, fireEvent } from '@testing-library/react'
+import { render, screen, fireEvent, within } from '@testing-library/react'
 import { MemoryRouter, Routes, Route } from 'react-router-dom'
 import { vi, beforeEach, test, expect } from 'vitest'
 import { TripProvider } from '../../src/lib/trip'
@@ -7,6 +7,7 @@ import type { CityContent } from '../../src/lib/types'
 
 const { toggle } = vi.hoisted(() => ({ toggle: vi.fn(async () => ({ queued: false })) }))
 vi.mock('../../src/lib/state', () => ({ useChecks: () => ({ done: new Set<string>(), loading: false, toggle }), QUEUED_COPY: 'q' }))
+vi.mock('../../src/lib/photos', () => ({ usePhoto: (p: string | null) => (p ? `blob:${p}` : null), warmTripPhotos: vi.fn() }))
 
 import { PlaceDetail } from '../../src/screens/PlaceDetail'
 
@@ -32,6 +33,26 @@ test('shows the stop, its details, walk link and options; tick calls toggle', ()
   for (const o of options) expect(screen.getByText(new RegExp((o.place_name ?? o.plan).replace(/[.*+?^${}()|[\]\\]/g, '\\$&').slice(0, 12)))).toBeInTheDocument()
   fireEvent.click(screen.getByRole('button', { name: /Mark done/ }))
   expect(toggle).toHaveBeenCalledWith(stop.id)
+})
+
+test('a stop with a photo_path shows the hero photo and credit, not the glyph', () => {
+  const modified = structuredClone(content)
+  const stop = modified.items.find(i => i.kind === 'stop')!
+  stop.photo_path = 'valle/x.jpg'
+  stop.photo_credit = 'Ana P.'
+  mount(modified, stop.id)
+  const hero = document.querySelector('.place-detail__hero') as HTMLElement
+  expect(hero.querySelector('img')).toHaveAttribute('src', 'blob:valle/x.jpg')
+  expect(within(hero).getByText('Photo: Ana P.')).toBeInTheDocument()
+  expect(hero.querySelector('.place-detail__glyph')).toBeNull()
+})
+
+test('a stop with no photo_path shows the glyph and no image', () => {
+  const stop = content.items.find(i => i.kind === 'stop' && !i.photo_path)!
+  mount(content, stop.id)
+  const hero = document.querySelector('.place-detail__hero') as HTMLElement
+  expect(hero.querySelector('.place-detail__glyph')).not.toBeNull()
+  expect(within(hero).queryByRole('img')).toBeNull()
 })
 
 test('shows a "Walk there" link to Google Maps for a stop with an address', () => {

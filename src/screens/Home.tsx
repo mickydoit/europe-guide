@@ -15,6 +15,7 @@ import { PlaceCard } from '../components/PlaceCard'
 import { ReminderChips } from '../components/ReminderChips'
 import { SectionHeading } from '../components/SectionHeading'
 import { warmTripAttachments } from '../lib/attachmentsWarm'
+import { warmTripPhotos } from '../lib/photos'
 
 const NOW_TICK_MS = 30_000
 
@@ -36,6 +37,12 @@ export function Home() {
     if (!warmSlug) return
     void warmTripAttachments(warmSlug).catch(() => {})
   }, [warmSlug])
+
+  useEffect(() => {
+    if (!content) return
+    const paths = [...content.items, ...content.bookings].map(r => r.photo_path).filter((p): p is string => !!p)
+    void warmTripPhotos(content.trip.slug, paths).catch(() => {})
+  }, [content])
 
   // The owner wakes up in the next city: the ambient trip is still whichever one they last
   // looked at (localStorage), and nothing else on Home would move them across. Once per mount.

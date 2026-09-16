@@ -19,6 +19,7 @@ const { useBookingStateMock, useAttachmentsMock } = vi.hoisted(() => ({
 }))
 vi.mock('../../src/lib/state', () => ({ useBookingState: useBookingStateMock, useAttachments: useAttachmentsMock, useChecks: () => ({ done: new Set(), loading: false, toggle: vi.fn() }), QUEUED_COPY: 'q' }))
 vi.mock('../../src/lib/auth', () => ({ useAuth: () => ({ session: { user: { id: 'owner-1' } } }) }))
+vi.mock('../../src/lib/photos', () => ({ usePhoto: (p: string | null) => (p ? `blob:${p}` : null), warmTripPhotos: vi.fn() }))
 
 import { TicketDetail, routeEnds } from '../../src/screens/TicketDetail'
 
@@ -52,6 +53,18 @@ test('event booking renders the place layout instead', () => {
   mount(content, '/ticket/valle/B01')
   expect(screen.getByRole('article', { name: /Trattoria Alba/ }).className).toContain('place-detail')
   expect(screen.getByLabelText('Status')).toBeInTheDocument()
+})
+
+test('an event booking with a photo_path shows the hero photo and credit, not the glyph', () => {
+  const modified = structuredClone(content)
+  const b01 = modified.bookings.find(b => b.id === 'B01')!
+  b01.photo_path = 'valle/x.jpg'
+  b01.photo_credit = 'Ana P.'
+  mount(modified, '/ticket/valle/B01')
+  const hero = document.querySelector('.place-detail__hero--event') as HTMLElement
+  expect(hero.querySelector('img')).toHaveAttribute('src', 'blob:valle/x.jpg')
+  expect(within(hero).getByText('Photo: Ana P.')).toBeInTheDocument()
+  expect(hero.querySelector('.place-detail__glyph')).toBeNull()
 })
 
 test('unknown id shows a not-found line', () => {

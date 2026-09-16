@@ -5,6 +5,8 @@ import { TicketCard } from '../../src/components/TicketCard'
 import { StatusPill } from '../../src/components/StatusPill'
 import type { BookingRow } from '../../src/lib/types'
 
+vi.mock('../../src/lib/photos', () => ({ usePhoto: (p: string | null) => (p ? `blob:${p}` : null), warmTripPhotos: vi.fn() }))
+
 const booking: BookingRow = {
   id: 'T04', trip: 'seville', kind: 'todo', title: 'AVE Seville → Barcelona', date: '2026-10-07', time: '08:45', priority: 'critical',
   book_by: '2026-09-17', decide_by: null, contact: null, address: null, notes: null, fallback: null, relates_to: null, options: null,
@@ -50,6 +52,15 @@ test('status tap does not navigate; link click does', () => {
 
   fireEvent.click(screen.getByRole('link'))
   expect(screen.getByText('Navigated')).toBeInTheDocument()
+})
+
+test('a booking with a photo_path renders the card photo; without, no art at all', () => {
+  const withPhoto: BookingRow = { ...booking, photo_path: 'valle/x.jpg', photo_credit: 'Ana P.' }
+  const { rerender } = render(<MemoryRouter><TicketCard booking={withPhoto} kind="transport" status="not_booked" to="/ticket/seville/T04" /></MemoryRouter>)
+  expect(screen.getByRole('link').querySelector('.ticket-card__photo')).toHaveAttribute('src', 'blob:valle/x.jpg')
+
+  rerender(<MemoryRouter><TicketCard booking={booking} kind="transport" status="not_booked" to="/ticket/seville/T04" /></MemoryRouter>)
+  expect(screen.getByRole('link').querySelector('.ticket-card__art')).toBeNull()
 })
 
 test('StatusPill labels', () => {
