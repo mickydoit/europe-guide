@@ -364,3 +364,60 @@ button { font: inherit; }
 .tabbar__tab--active { color: var(--highlight); }
 .tabbar__tab--active::after { content: ''; position: absolute; bottom: -1px; width: 20px; height: 3px; border-radius: 2px; background: var(--highlight); }
 .tabbar__label { line-height: 1; }
+
+/* Status pill */
+.status-pill { display: inline-block; padding: 4px 10px; border-radius: var(--radius-pill); font-size: 11px; font-weight: 700; letter-spacing: .03em; white-space: nowrap; border: 0; font: inherit; font-size: 11px; cursor: default; }
+button.status-pill { cursor: pointer; }
+.status-pill--booked, .status-pill--confirmed { background: var(--accent); color: var(--text-on-lavender); }
+.status-pill--not_booked { background: rgba(0,0,0,.35); color: #fff; }
+.status-pill--undecided { background: var(--highlight); color: var(--text-on-light); }
+.status-pill--cancelled, .status-pill--none { background: rgba(0,0,0,.25); color: rgba(255,255,255,.7); }
+.ticket-card--accommodation .status-pill--not_booked, .ticket-card--event .status-pill--not_booked, .ticket-card--highlight .status-pill--not_booked { background: rgba(0,0,0,.12); color: inherit; }
+
+/* Ticket card — Figma 1:208 */
+.ticket-card { position: relative; display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  border-radius: var(--radius-card); padding: 20px; min-height: 140px; text-decoration: none; color: var(--text); overflow: hidden; }
+.ticket-card--transport { background: var(--surface); }
+.ticket-card--accommodation, .ticket-card--highlight { background: var(--highlight); color: var(--text-on-light); }
+.ticket-card--event { background: var(--lavender); color: var(--text-on-lavender); box-shadow: 0 10px 20px rgba(188,165,237,.16); }
+.ticket-card--past { background: var(--card-dark); color: var(--text-dim); }
+.ticket-card__body { display: flex; flex-direction: column; gap: 6px; min-width: 0; flex: 1; }
+.ticket-card__title { font-family: var(--font-ticket); font-weight: 700; font-size: 22px; line-height: 1.2; overflow-wrap: anywhere;
+  display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.ticket-card__line { letter-spacing: .75px; line-height: 1.25; }
+.ticket-card__label { font-weight: 300; font-size: 14px; }
+.ticket-card__value { font-weight: 700; font-size: 20px; }
+.ticket-card__sub { font-weight: 300; font-size: 14px; letter-spacing: .75px; opacity: .9; overflow-wrap: anywhere; }
+.ticket-card__status { margin-top: 4px; }
+.ticket-card__art { flex-shrink: 0; width: 72px; height: 72px; display: flex; align-items: center; justify-content: center; }
+.ticket-card__icon { opacity: .5; }
+.ticket-card__photo { width: 72px; height: 72px; border-radius: 16px; object-fit: cover; }
+
+/* Place card — Figma 1103:161 */
+.place-card { display: flex; gap: 14px; border-radius: var(--radius-card); background: var(--lavender); color: var(--text-on-lavender);
+  text-decoration: none; overflow: hidden; min-height: 120px; }
+.place-card__media { width: 40%; min-width: 110px; background: rgba(0,0,0,.08); display: flex; align-items: center; justify-content: center; }
+.place-card__photo { width: 100%; height: 100%; object-fit: cover; display: block; }
+.place-card__icon { opacity: .5; }
+.place-card__body { display: flex; flex-direction: column; gap: 6px; padding: 14px 14px 14px 0; min-width: 0; flex: 1; }
+.place-card__title { font-family: var(--font-ticket); font-weight: 700; font-size: 20px; line-height: 1.15; text-transform: uppercase; letter-spacing: .02em;
+  display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.place-card__text { font-size: 13px; line-height: 1.3; opacity: .85; display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.place-card__meta { font-size: 12px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; margin-top: auto; }
+
+/* Next-up card — Figma 1:129 */
+.nextup { position: relative; background: var(--surface); border-radius: var(--radius-card); padding: 20px; margin: 0 0 20px; color: var(--text); }
+.nextup__link { display: flex; flex-direction: column; gap: 6px; text-decoration: none; color: inherit; }
+.nextup__kind { font-size: 15px; font-weight: 600; color: var(--text-soft); }
+.nextup__ref { font-family: var(--font-ticket); font-weight: 700; font-size: 30px; line-height: 1.1; color: var(--accent); overflow-wrap: anywhere; }
+.nextup__title { font-size: 15px; color: var(--text-soft); }
+.nextup__address { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--text-soft); }
+.nextup__foot { display: flex; align-items: center; margin-top: 10px; }
+.nextup__icon { color: var(--accent); opacity: .9; }
+.nextup__call { position: absolute; right: 20px; bottom: 20px; min-width: 44px; min-height: 44px; display: flex; align-items: center; justify-content: center;
+  border-radius: var(--radius-pill); background: rgba(34,221,133,.15); color: var(--accent); font-weight: 700; font-size: 13px; text-decoration: none; padding: 0 14px; }
+
+/* Horizontal card rows on Home */
+.card-row { display: flex; gap: 12px; list-style: none; margin: 0 -16px; padding: 0 16px 4px; overflow-x: auto; -webkit-overflow-scrolling: touch; scroll-snap-type: x mandatory; }
+.card-row > li { flex: 0 0 82%; max-width: 340px; scroll-snap-align: start; }
+.card-row--tickets > li { flex: 0 0 88%; }
