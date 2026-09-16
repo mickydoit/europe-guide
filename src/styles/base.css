@@ -268,11 +268,7 @@ button { font: inherit; }
 }
 @media (prefers-reduced-motion: reduce) { .world-hero__dot--active { animation: none; } }
 .world-hero__overlay { position: absolute; left: 16px; right: 16px; bottom: 8px;
-  display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.world-hero__weather { display: flex; align-items: center; gap: 6px; min-width: 0; }
-.world-hero__weather-icon { display: block; flex-shrink: 0; font-size: 18px; line-height: 1; }
-.world-hero__temp { font-size: 20px; font-weight: 700; }
-.world-hero__condition { font-size: 13px; color: var(--text-soft); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  display: flex; align-items: center; justify-content: flex-end; gap: 12px; }
 .world-hero__open { flex-shrink: 0; padding: 7px 14px; border-radius: var(--radius-pill);
   background: var(--accent); color: var(--bg); font-size: 13px; font-weight: 700; text-decoration: none; }
 

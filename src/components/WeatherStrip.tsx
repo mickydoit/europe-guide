@@ -78,14 +78,14 @@ export function WeatherStrip({ trip, content, date, variant = 'strip' }: { trip:
   }, [trip.slug, centre?.lat, centre?.lng, date, isToday, key])
 
   if (!key || !centre) return null
-  if (loading) return <div className="weather"><p className="weather__loading caption">Weather…</p></div>
+  if (loading) return <div className={`weather weather--${variant}`}><p className="weather__loading caption">Weather…</p></div>
   if (!daily) return null
 
   const day = pickDay(daily, date)
   if (!day) {
     const opensOn = forecastOpensOn(trip, date)
     if (!opensOn) return null
-    return <div className="weather"><p className="weather__opens caption">Forecast opens on {fmtDay(date)}</p></div>
+    return <div className={`weather weather--${variant}`}><p className="weather__opens caption">Forecast opens on {fmtDay(date)}</p></div>
   }
 
   const hours = isToday && hourly ? hourly.hours.slice(0, 8) : []

@@ -76,6 +76,24 @@ describe('WeatherStrip', () => {
     expect(getDailyForecastMock).not.toHaveBeenCalled()
   })
 
+  test('hero variant shows a weather--hero panel with the hi temperature first', async () => {
+    vi.stubEnv('VITE_GOOGLE_BROWSER_KEY', 'k')
+    getDailyForecastMock.mockResolvedValue({
+      fetchedAt: '2026-11-01T08:00:00Z', stale: false,
+      days: [{
+        date: '2026-11-02', hi: 24, lo: 15, precipPct: 10, condition: 'Sunny',
+        iconUri: 'https://example.com/icon', sunrise: null, sunset: null,
+      }],
+    })
+
+    const { container } = render(<WeatherStrip trip={trip} content={content()} date="2026-11-02" variant="hero" />)
+
+    const temp = await screen.findByText('24°')
+    expect(temp).toHaveClass('weather__temp')
+    expect(container.firstElementChild).toHaveClass('weather--hero')
+    expect(container.querySelector('.weather__summary')!.innerHTML).toMatch(/weather__temp">24°<\/span>\s*Sunny/)
+  })
+
   test('an icon that fails to load falls back to the condition emoji', async () => {
     vi.stubEnv('VITE_GOOGLE_BROWSER_KEY', 'k')
     getDailyForecastMock.mockResolvedValue({

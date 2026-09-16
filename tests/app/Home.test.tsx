@@ -85,6 +85,15 @@ test('tickets row lists the rest of today without the next-up booking', () => {
   expect(within(row).queryByText(/Saturday dinner/)).toBeNull()
 })
 
+test('cycling a ticket status calls save with the next status', () => {
+  vi.setSystemTime(new Date('2026-11-03T11:00:00Z'))   // Tue 3 Nov 12:00 Rome: B02 "Train south" sits in the Tickets row
+  renderHome(content)
+  const link = screen.getByRole('link', { name: /Train south/ })
+  const card = link.closest('.ticket-card') as HTMLElement
+  fireEvent.click(within(card).getByRole('button', { name: /Status/ }))
+  expect(saveMock).toHaveBeenCalledWith('B02', { status: 'confirmed' })
+})
+
 test('tours and events row shows timed, named stops that are not bookings', () => {
   vi.setSystemTime(new Date('2026-11-02T11:00:00Z'))   // Mon 2 Nov: the day with named stops (Piazza Grande, Caffè Nord, Belvedere, Castello Alto, Trattoria Alba)
   renderHome(content)
@@ -100,6 +109,20 @@ test('reminders link to the Tickets tab', () => {
   const chips = screen.getByRole('heading', { name: 'Reminders' }).closest('section') as HTMLElement
   const first = within(chips).getAllByRole('link')[0]
   expect(first).toHaveAttribute('href', '/tickets')
+})
+
+test('a booking already marked booked in live state drops off the reminder row', () => {
+  useBookingStateMock.mockReturnValue({ state: { T01: { status: 'booked' } }, loading: false, save: saveMock })
+  renderHome(content)
+  const chips = screen.getByRole('heading', { name: 'Reminders' }).closest('section') as HTMLElement
+  const links = within(chips).getAllByRole('link')
+  expect(links).toHaveLength(1)
+  expect(links[0]).toHaveTextContent('Saturday dinner')
+})
+
+test('Home starts the ticket warm pass for the active trip', () => {
+  renderHome(content)
+  expect(warmMock).toHaveBeenCalledWith('valle')
 })
 
 test('world map hero stays and opens the map', () => {
