@@ -20,16 +20,18 @@ export function TicketCard({ booking, kind, status, tone, to, onCycleStatus, pho
   const t = tone ?? kind
   const lines = ticketLines(booking, kind)
   return (
-    <Link to={to} className={`ticket-card ticket-card--${t}`} aria-label={booking.title}>
-      <span className="ticket-card__body">
-        <span className="ticket-card__title">{booking.title}</span>
-        <span className="ticket-card__line"><span className="ticket-card__label">{lines.label}</span> <span className="ticket-card__value">{lines.value}</span></span>
-        {lines.sub && <span className="ticket-card__sub">{lines.sub}</span>}
-        <span className="ticket-card__status"><StatusPill status={status} onClick={onCycleStatus} /></span>
-      </span>
-      <span className="ticket-card__art">
-        {photoSrc ? <img className="ticket-card__photo" src={photoSrc} alt="" /> : <Icon set="kind" name={kindIcon(kind, booking.title)} size={72} className="ticket-card__icon" />}
-      </span>
-    </Link>
+    <article className={`ticket-card ticket-card--${t}`}>
+      <Link to={to} className="ticket-card__link">
+        <span className="ticket-card__body">
+          <span className="ticket-card__title">{booking.title}</span>
+          <span className="ticket-card__line"><span className="ticket-card__label">{lines.label}</span> <span className="ticket-card__value">{lines.value}</span></span>
+          {lines.sub && <span className="ticket-card__sub">{lines.sub}</span>}
+        </span>
+        <span className="ticket-card__art">
+          {photoSrc ? <img className="ticket-card__photo" src={photoSrc} alt="" /> : <Icon set="kind" name={kindIcon(kind, booking.title)} size={72} className="ticket-card__icon" />}
+        </span>
+      </Link>
+      <span className="ticket-card__status"><StatusPill status={status} onClick={onCycleStatus} /></span>
+    </article>
   )
 }

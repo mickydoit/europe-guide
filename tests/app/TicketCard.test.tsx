@@ -1,5 +1,5 @@
 import { render, screen, fireEvent } from '@testing-library/react'
-import { MemoryRouter } from 'react-router-dom'
+import { MemoryRouter, Routes, Route } from 'react-router-dom'
 import { test, expect, vi } from 'vitest'
 import { TicketCard } from '../../src/components/TicketCard'
 import { StatusPill } from '../../src/components/StatusPill'
@@ -15,7 +15,7 @@ test('transport card: teal tone, Poppins title, lines, icon, link', () => {
   render(<MemoryRouter><TicketCard booking={booking} kind="transport" status="not_booked" to="/ticket/seville/T04" /></MemoryRouter>)
   const link = screen.getByRole('link', { name: /AVE Seville/ })
   expect(link).toHaveAttribute('href', '/ticket/seville/T04')
-  expect(link.className).toContain('ticket-card--transport')
+  expect(link.closest('.ticket-card')!.className).toContain('ticket-card--transport')
   expect(screen.getByText('Departs')).toBeInTheDocument()
   expect(screen.getByText('08:45')).toBeInTheDocument()
   expect(screen.getByText('€120 for two')).toBeInTheDocument()
@@ -26,9 +26,27 @@ test('transport card: teal tone, Poppins title, lines, icon, link', () => {
 test('tone override and status tap', () => {
   const cycle = vi.fn()
   render(<MemoryRouter><TicketCard booking={booking} kind="event" status="booked" tone="highlight" to="/x" onCycleStatus={cycle} /></MemoryRouter>)
-  expect(screen.getByRole('link').className).toContain('ticket-card--highlight')
+  expect(screen.getByRole('link').closest('.ticket-card')!.className).toContain('ticket-card--highlight')
   fireEvent.click(screen.getByRole('button', { name: /Booked/ }))
   expect(cycle).toHaveBeenCalledTimes(1)
+})
+
+test('status tap does not navigate; link click does', () => {
+  const cycle = vi.fn()
+  render(
+    <MemoryRouter initialEntries={['/']}>
+      <Routes>
+        <Route path="/" element={<TicketCard booking={booking} kind="event" status="booked" to="/x" onCycleStatus={cycle} />} />
+        <Route path="/x" element={<p>Navigated</p>} />
+      </Routes>
+    </MemoryRouter>,
+  )
+  fireEvent.click(screen.getByRole('button', { name: /Booked/ }))
+  expect(cycle).toHaveBeenCalledTimes(1)
+  expect(screen.queryByText('Navigated')).toBeNull()
+
+  fireEvent.click(screen.getByRole('link'))
+  expect(screen.getByText('Navigated')).toBeInTheDocument()
 })
 
 test('StatusPill labels', () => {
