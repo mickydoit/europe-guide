@@ -14,18 +14,29 @@ const throwingClient = new Proxy({}, { get() { throw new Error('no network in te
 let content: CityContent
 beforeEach(async () => { content = await loadValle(); toggle.mockClear() })
 
-test('shows the stop, its details, walk link and options; tick calls toggle', () => {
-  const stop = content.items.find(i => i.kind === 'stop' && content.items.some(o => o.kind === 'option' && o.parent_item === i.id))!
-  render(
-    <MemoryRouter initialEntries={[`/place/${encodeURIComponent(stop.id)}`]}>
-      <TripProvider initial={{ trips: [content.trip], slug: 'valle', content }} client={throwingClient}>
+function mount(c: CityContent, id: string) {
+  return render(
+    <MemoryRouter initialEntries={[`/place/${encodeURIComponent(id)}`]}>
+      <TripProvider initial={{ trips: [c.trip], slug: 'valle', content: c }} client={throwingClient}>
         <Routes><Route path="/place/:id" element={<PlaceDetail />} /></Routes>
       </TripProvider>
     </MemoryRouter>,
   )
+}
+
+test('shows the stop, its details, walk link and options; tick calls toggle', () => {
+  const stop = content.items.find(i => i.kind === 'stop' && content.items.some(o => o.kind === 'option' && o.parent_item === i.id))!
+  mount(content, stop.id)
   expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(stop.place_name ?? stop.plan.replace(/\*\*/g, ''))
   const options = content.items.filter(o => o.kind === 'option' && o.parent_item === stop.id)
   for (const o of options) expect(screen.getByText(new RegExp((o.place_name ?? o.plan).replace(/[.*+?^${}()|[\]\\]/g, '\\$&').slice(0, 12)))).toBeInTheDocument()
   fireEvent.click(screen.getByRole('button', { name: /Mark done/ }))
   expect(toggle).toHaveBeenCalledWith(stop.id)
+})
+
+test('shows a "Walk there" link to Google Maps for a stop with an address', () => {
+  const stop = content.items.find(i => i.kind === 'stop' && !!i.address)!
+  mount(content, stop.id)
+  const link = screen.getByRole('link', { name: 'Walk there' }) as HTMLAnchorElement
+  expect(link.href).toMatch(/^https:\/\/www\.google\.com\/maps/)
 })

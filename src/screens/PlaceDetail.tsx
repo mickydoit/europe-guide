@@ -1,4 +1,4 @@
-import { Link, useNavigate, useParams } from 'react-router-dom'
+import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { useTrip } from '../lib/trip'
 import { useChecks } from '../lib/state'
 import { fmtDay, fmtTime } from '../lib/time'
@@ -12,6 +12,7 @@ const DURATION_RE = /(\d+(?:[.,]\d+)?)\s*(?:h(?:ours?|rs?)?|min(?:utes?|s)?)\b/i
 export function PlaceDetail() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
+  const location = useLocation()
   const { content, loading } = useTrip()
   const { done, toggle } = useChecks(content?.trip.slug ?? '')
 
@@ -29,7 +30,7 @@ export function PlaceDetail() {
 
   return (
     <main className="screen">
-      <button type="button" className="back" onClick={() => (history.length > 1 ? navigate(-1) : navigate(`/day/${item.date}`))}>‹ Back</button>
+      <button type="button" className="back" onClick={() => (location.key !== 'default' ? navigate(-1) : navigate(`/day/${item.date}`, { replace: true }))}>‹ Back</button>
       <article className="place-detail" aria-label={name}>
         <div className="place-detail__hero">
           <Icon set="kind" name="event" size={64} className="place-detail__glyph" />

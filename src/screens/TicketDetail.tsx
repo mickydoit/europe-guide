@@ -1,8 +1,8 @@
 import { Fragment } from 'react'
-import { Link, useNavigate, useParams } from 'react-router-dom'
+import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { useTrip } from '../lib/trip'
 import { useBookingState } from '../lib/state'
-import { fmtDay } from '../lib/time'
+import { fmtDay, fmtTime } from '../lib/time'
 import { effectiveStatus, fourCells, inferKind, kindIcon } from '../lib/tickets'
 import { walkLink } from '../lib/links'
 import { Icon } from '../components/Icon'
@@ -14,7 +14,7 @@ import type { BookingRow } from '../lib/types'
 
 /** "Lisbon → Seville" / "LIS - SVQ" / "Airport to Benfica" → two labels; otherwise the title and the address. */
 export function routeEnds(b: BookingRow): { from: string; to: string } {
-  const m = b.title.match(/^(.*?)\s*(?:→|->|—>|\bto\b)\s*(.+)$/i)
+  const m = b.title.match(/^(.*?)\s*(?:→|->|—>|\bto\b| - | – )\s*(.+)$/i)
   if (m && m[1].trim() && m[2].trim()) return { from: m[1].trim().replace(/^(AVE|Flight|Train|Taxi|Bolt)\s+/i, ''), to: m[2].trim() }
   return { from: b.title, to: b.address ?? '' }
 }
@@ -22,6 +22,7 @@ export function routeEnds(b: BookingRow): { from: string; to: string } {
 export function TicketDetail() {
   const { trip: tripParam, id } = useParams<{ trip: string; id: string }>()
   const navigate = useNavigate()
+  const location = useLocation()
   const { content, loading } = useTrip()
   const { state, save } = useBookingState(content?.trip.slug ?? '')
 
@@ -32,7 +33,9 @@ export function TicketDetail() {
 
   const kind = inferKind(booking)
   const status = effectiveStatus(booking, state[booking.id])
-  const back = () => (history.length > 1 ? navigate(-1) : navigate('/tickets'))
+  // react-router stamps the first entry of a history stack with key 'default'; anything
+  // else means there is a real previous screen to go back to (same pattern as Map.tsx).
+  const back = () => (location.key !== 'default' ? navigate(-1) : navigate('/tickets', { replace: true }))
 
   if (kind === 'event') {
     const walk = walkLink({ lat: null, lng: null, name: booking.title, address: booking.address }, content.trip.name)
@@ -46,7 +49,7 @@ export function TicketDetail() {
           </div>
           <div className="place-detail__facts">
             {booking.date && <span>{fmtDay(booking.date)}</span>}
-            {booking.time && <span>{booking.time}</span>}
+            {booking.time && <span>{fmtTime(booking.time, null)}</span>}
             {booking.fields.cost && <span>{booking.fields.cost}</span>}
             <StatusPill status={status} />
           </div>
@@ -70,13 +73,13 @@ export function TicketDetail() {
       <button type="button" className="back" onClick={back}>‹ Back</button>
       <article className={`pass pass--${kind}`} aria-label={booking.title}>
         <section className="pass__route">
-          <div className="pass__end"><span className="pass__date">{booking.date ? fmtDay(booking.date) : '—'}</span><span className="pass__time">{booking.time ?? '—'}</span><span className="pass__place">{ends.from}</span></div>
+          <div className="pass__end"><span className="pass__date">{booking.date ? fmtDay(booking.date) : '—'}</span><span className="pass__time">{fmtTime(booking.time, null)}</span><span className="pass__place">{ends.from}</span></div>
           <div className="pass__mid"><Icon set="kind" name={kindIcon(kind, booking.title)} size={26} className="pass__glyph" /><span className="pass__dots" /></div>
           <div className="pass__end pass__end--to"><span className="pass__date">{kind === 'accommodation' ? 'Check-out' : ''}</span><span className="pass__time">{kind === 'accommodation' && booking.fields.nights ? `${booking.fields.nights} nights` : ''}</span><span className="pass__place">{ends.to}</span></div>
         </section>
         <section className="pass__body">
           <div className="pass__head">
-            <div><span className="pass__label">Booking</span><span className="pass__name">{booking.title}</span></div>
+            <div><span className="pass__label">Booking</span><h1 className="pass__name">{booking.title}</h1></div>
             <div className="pass__right"><span className="pass__label">Ref</span><span className="pass__ref">{state[booking.id]?.confirmation_ref ?? booking.fields.ref ?? booking.id}</span></div>
           </div>
           {cells.length > 0 && (

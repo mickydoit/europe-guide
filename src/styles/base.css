@@ -397,7 +397,7 @@ button.status-pill { border: 0; font: inherit; font-size: 11px; font-weight: 700
 .pass__stub::before { content: ''; position: absolute; left: 24px; right: 24px; top: -11px; border-top: 2px dashed rgba(255,255,255,.35); }
 .pass__stub::after, .pass__body::after { content: ''; position: absolute; width: 22px; height: 22px; border-radius: 50%; background: var(--bg); }
 .pass__body { position: relative; }
-.pass__body::after { left: -11px; bottom: -22px; box-shadow: calc(100% + 0px) 0 0 0 transparent; }
+.pass__body::after { left: -11px; bottom: -22px; }
 .pass__stub::after { right: -11px; top: -22px; }
 .pass__status { display: flex; flex-direction: column; gap: 10px; margin-bottom: 16px; }
 .pass__notes { margin: 0; font-size: 14px; color: var(--text-soft); }
