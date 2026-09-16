@@ -19,10 +19,11 @@ for (const [name, path] of shots) {
 }
 // First ticket and first place from the Tickets and Day screens
 await page.goto(`${base}/tickets?trip=${trip}`, { waitUntil: 'networkidle' }); await page.waitForTimeout(2000)
-// Deep links to /ticket/:trip/:id and /place/:id don't carry ?trip= themselves, and a fresh
-// full-page load re-resolves the trip from the query string (falling back to the chronologically
-// first trip otherwise) — so append it here or a cold nav to these routes can 404 into the wrong city.
-const ticket = await page.locator('a.ticket-card__link').first().getAttribute('href'); if (ticket) { await page.goto(base + ticket.replace('/europe-guide', '') + `?trip=${trip}`, { waitUntil: 'networkidle' }); await page.waitForTimeout(2000); await page.screenshot({ path: `${outDir}/ticket.png`, fullPage: true }) }
+// The app now writes ?trip= into its own /ticket and /place links (a cold full-page load
+// re-resolves the trip from the query string), so use the href as-is and only append when
+// an older build's link arrives without it.
+const withTrip = h => (h.includes('trip=') ? h : `${h}?trip=${trip}`)
+const ticket = await page.locator('a.ticket-card__link').first().getAttribute('href'); if (ticket) { await page.goto(base + withTrip(ticket.replace('/europe-guide', '')), { waitUntil: 'networkidle' }); await page.waitForTimeout(2000); await page.screenshot({ path: `${outDir}/ticket.png`, fullPage: true }) }
 await page.goto(`${base}/day/${date}?trip=${trip}`, { waitUntil: 'networkidle' }); await page.waitForTimeout(2000)
-const place = await page.locator('a.stop-row__main').first().getAttribute('href'); if (place) { await page.goto(base + place.replace('/europe-guide', '') + `?trip=${trip}`, { waitUntil: 'networkidle' }); await page.waitForTimeout(2000); await page.screenshot({ path: `${outDir}/place.png`, fullPage: true }) }
+const place = await page.locator('a.stop-row__main').first().getAttribute('href'); if (place) { await page.goto(base + withTrip(place.replace('/europe-guide', '')), { waitUntil: 'networkidle' }); await page.waitForTimeout(2000); await page.screenshot({ path: `${outDir}/place.png`, fullPage: true }) }
 console.log(log.join('\n')); await browser.close()
