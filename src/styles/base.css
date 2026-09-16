@@ -239,11 +239,12 @@ button { font: inherit; }
 .weather--hero .weather__temp { font-size: 28px; font-weight: 800; margin-right: 6px; }
 
 /* The hero bleeds a little past the screen padding, the way the Figma frame does. */
-.world-hero { position: relative; margin: 0 -16px 20px; }
-.world-hero__map { display: block; width: 100%; height: auto;
-  filter: invert(17%) drop-shadow(0 6px 28px rgba(34, 221, 133, .22)); }
-.world-hero__dot { position: absolute; width: 8px; height: 8px; margin: -4px 0 0 -4px; border-radius: 50%;
-  background: var(--accent); box-shadow: 0 0 12px var(--accent); pointer-events: none; }
+.world-hero { position: relative; margin: 0 -16px 20px; isolation: isolate; }
+/* A faint teal wash behind the continents — the brand surface colour, no green glow. */
+.world-hero::before { content: ''; position: absolute; inset: 8% 6%; border-radius: 50%; background: radial-gradient(closest-side, rgba(8,53,61,.85), rgba(8,53,61,0)); z-index: -1; }
+.world-hero__map { display: block; width: 100%; height: auto; filter: invert(19%); opacity: .95; }
+.world-hero__dot { position: absolute; width: 9px; height: 9px; margin: -4.5px 0 0 -4.5px; border-radius: 50%;
+  background: var(--highlight); box-shadow: 0 0 0 3px rgba(247,255,136,.18), 0 0 14px rgba(247,255,136,.6); pointer-events: none; }
 .world-hero__dot--active { animation: world-hero-pulse 2.4s ease-in-out infinite; }
 @keyframes world-hero-pulse {
   0%, 100% { transform: scale(1); opacity: 1; }
@@ -252,8 +253,8 @@ button { font: inherit; }
 @media (prefers-reduced-motion: reduce) { .world-hero__dot--active { animation: none; } }
 .world-hero__overlay { position: absolute; left: 16px; right: 16px; bottom: 8px;
   display: flex; align-items: center; justify-content: flex-end; gap: 12px; }
-.world-hero__open { flex-shrink: 0; padding: 7px 14px; border-radius: var(--radius-pill);
-  background: var(--accent); color: var(--bg); font-size: 13px; font-weight: 700; text-decoration: none; }
+.world-hero__open { flex-shrink: 0; padding: 8px 16px; border-radius: var(--radius-pill);
+  background: var(--highlight); color: var(--text-on-light); font-size: 13px; font-weight: 700; text-decoration: none; }
 
 .home-row { padding: 20px 0; border-top: 1px solid var(--border); }
 .home-row__heading { margin: 0 0 12px; }
