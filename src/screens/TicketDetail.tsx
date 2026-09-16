@@ -53,7 +53,7 @@ export function TicketDetail() {
   // leaves them blank and Save then writes nulls over the stored ref/cost/notes — so wait for
   // the read, and remount (via the key) if a newer row lands later.
   const bookingForm = stateLoading ? null : (
-    <BookingForm key={`${booking.id}:${state[booking.id]?.updated_at ?? 'new'}`} booking={booking} row={state[booking.id]} save={save} />
+    <BookingForm key={booking.id} booking={booking} row={state[booking.id]} save={save} />
   )
 
   if (kind === 'event') {

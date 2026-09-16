@@ -1,15 +1,20 @@
-import { render, screen, within } from '@testing-library/react'
+import { render, screen, within, fireEvent, waitFor } from '@testing-library/react'
 import { MemoryRouter, Routes, Route } from 'react-router-dom'
 import { vi, beforeEach, test, expect } from 'vitest'
 import { TripContext, TripProvider } from '../../src/lib/trip'
 import { loadValle } from '../helpers/content'
 import type { CityContent } from '../../src/lib/types'
-import type { AttachmentRow } from '../../src/lib/state'
+import { QUEUED_COPY } from '../../src/lib/state'
+import type { AttachmentRow, BookingStateRow } from '../../src/lib/state'
 import { fourCells } from '../../src/lib/tickets'
 import type { BookingRow } from '../../src/lib/types'
 
 const { useBookingStateMock, useAttachmentsMock } = vi.hoisted(() => ({
-  useBookingStateMock: vi.fn(() => ({ state: {}, loading: false, save: vi.fn(async () => ({ queued: false })) })),
+  useBookingStateMock: vi.fn(() => ({
+    state: {} as Record<string, BookingStateRow>,
+    loading: false,
+    save: vi.fn(async (_bookingId: string, _patch: Partial<Omit<BookingStateRow, 'trip' | 'booking_id' | 'updated_at'>>) => ({ queued: false })),
+  })),
   useAttachmentsMock: vi.fn(() => ({ list: [] as AttachmentRow[], loading: false, upload: vi.fn(), url: vi.fn(), remove: vi.fn(), error: null as string | null, cached: new Set<string>() })),
 }))
 vi.mock('../../src/lib/state', () => ({ useBookingState: useBookingStateMock, useAttachments: useAttachmentsMock, useChecks: () => ({ done: new Set(), loading: false, toggle: vi.fn() }), QUEUED_COPY: 'q' }))
@@ -173,4 +178,39 @@ test('a cold deep link into another trip switches the trip context to the one in
   // ...and until that trip's content arrives it says Loading, not "No ticket".
   expect(screen.getByText(/Loading/)).toBeInTheDocument()
   expect(screen.queryByText(/No ticket/)).toBeNull()
+})
+
+test('a save does not remount BookingForm and lose its queued message or the typed edit', async () => {
+  // useBookingState().save commits an optimistic row with a fresh updated_at synchronously,
+  // before the write resolves. If BookingForm is keyed on that timestamp, the owner's own
+  // save remounts it mid-handleSave and the "Saved"/queued message lands on a dead instance.
+  let currentState: Record<string, BookingStateRow> = {
+    B02: {
+      trip: 'valle', booking_id: 'B02', status: 'booked', confirmation_ref: null,
+      cost: null, currency: null, notes: null, updated_at: '2026-09-01T00:00:00Z',
+    },
+  }
+  const saveMock = vi.fn(async (bookingId: string, patch: Partial<Omit<BookingStateRow, 'trip' | 'booking_id' | 'updated_at'>>) => {
+    currentState = { ...currentState, [bookingId]: { ...currentState[bookingId], ...patch, updated_at: '2026-09-01T00:00:01Z' } }
+    return { queued: true }
+  })
+  useBookingStateMock.mockImplementation(() => ({ state: currentState, loading: false, save: saveMock }))
+
+  const { rerender } = mount(content, '/ticket/valle/B02')
+  fireEvent.change(screen.getByLabelText('Confirmation ref'), { target: { value: 'ZZ9' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+  await waitFor(() => expect(screen.getByText(QUEUED_COPY)).toBeInTheDocument())
+
+  // The optimistic commit already landed (currentState carries the new updated_at); rerender
+  // to pick it up, the way the real hook's own setState would trigger a re-render.
+  rerender(
+    <MemoryRouter initialEntries={['/ticket/valle/B02']}>
+      <TripProvider initial={{ trips: [content.trip], slug: 'valle', content }} client={throwingClient}>
+        <Routes><Route path="/ticket/:trip/:id" element={<TicketDetail />} /></Routes>
+      </TripProvider>
+    </MemoryRouter>,
+  )
+
+  expect(screen.getByLabelText('Confirmation ref')).toHaveValue('ZZ9')
+  expect(screen.getByText(QUEUED_COPY)).toHaveClass('form__msg--queued')
 })
