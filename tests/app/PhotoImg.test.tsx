@@ -16,6 +16,14 @@ test('renders nothing for a null path', () => {
   const { container } = render(<PhotoImg path={null} className="x" />)
   expect(container.querySelector('img')).toBeNull()
 })
+test('renders the caller\'s fallback whenever there is nothing to show', () => {
+  // Not just a null path: a path whose bytes are not on the phone resolves to null too.
+  const { container, rerender } = render(<PhotoImg path={null} fallback={<span className="glyph" />} />)
+  expect(container.querySelector('.glyph')).not.toBeNull()
+  rerender(<PhotoImg path="valle/missing.jpg" fallback={<span className="glyph" />} />)
+  expect(container.querySelector('.glyph')).not.toBeNull()
+  expect(container.querySelector('img')).toBeNull()
+})
 test('renders the cached blob as an object URL', async () => {
   const cs = new FakeCacheStorage()
   vi.stubGlobal('caches', cs)

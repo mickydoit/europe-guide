@@ -32,8 +32,23 @@ export function usePhoto(path: string | null | undefined, client: SupabaseClient
         }
         if (typeof navigator !== 'undefined' && navigator.onLine === false) return
         const url = await signedPhotoUrl(path, client)
+        // Cache first, then show the cached bytes: pointing the <img> at the signed URL and
+        // caching in parallel downloads the same photo twice, on the phone data this whole
+        // feature exists to spend once. The signed URL is only the fallback for a phone with
+        // no Cache Storage, or a put that failed.
+        if (store) {
+          try {
+            await cachePhoto(path, url, fetch, store)
+            const cached = await getCachedPhotoBlob(path, store)
+            if (cached) {
+              if (!alive) return
+              objectUrl = URL.createObjectURL(cached)
+              setSrc(objectUrl)
+              return
+            }
+          } catch { /* fall through to the signed URL */ }
+        }
         if (alive) setSrc(url)
-        if (store) void cachePhoto(path, url, fetch, store).catch(() => {})
       } catch { /* fallback stays */ }
     })()
     return () => { alive = false; if (objectUrl) URL.revokeObjectURL(objectUrl) }

@@ -303,7 +303,6 @@ button.status-pill::before { content: ''; position: absolute; inset: -12px -6px;
 .ticket-card__sub { font-weight: 300; font-size: 14px; letter-spacing: .75px; opacity: .9; overflow-wrap: anywhere; }
 .ticket-card__status { position: absolute; left: 20px; bottom: 16px; }
 .ticket-card__art { flex-shrink: 0; width: 72px; height: 72px; display: flex; align-items: center; justify-content: center; align-self: flex-end; }
-.ticket-card--photo .ticket-card__link { align-items: flex-end; }
 .ticket-card__icon { opacity: .5; }
 .ticket-card__photo { width: 72px; height: 72px; border-radius: 16px; object-fit: cover; }
 

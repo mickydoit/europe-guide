@@ -8,7 +8,7 @@ import { routeLink, walkLink } from '../lib/links'
 import { nextWalk, routeFor, walkMetric } from '../lib/walks'
 import { Icon } from '../components/Icon'
 import { Md } from '../components/Md'
-import { PhotoImg } from '../components/PhotoImg'
+import { PlaceHero } from '../components/PlaceHero'
 
 const DURATION_RE = /(\d+(?:[.,]\d+)?)\s*(?:h(?:ours?|rs?)?|min(?:utes?|s)?)\b/i
 const TICK_MSG_MS = 4000
@@ -59,11 +59,7 @@ export function PlaceDetail() {
     <main className="screen">
       <button type="button" className="back" onClick={() => (location.key !== 'default' ? navigate(-1) : navigate(`/day/${item.date}`, { replace: true }))}>‹ Back</button>
       <article className="place-detail" aria-label={name}>
-        <div className={`place-detail__hero${item.photo_path ? ' place-detail__hero--photo' : ''}`}>
-          {item.photo_path ? <PhotoImg path={item.photo_path} className="place-detail__photo" /> : <Icon set="kind" name="event" size={64} className="place-detail__glyph" />}
-          <h1 className="place-detail__title">{name}</h1>
-          {item.photo_path && item.photo_credit && <span className="place-detail__credit">Photo: {item.photo_credit}</span>}
-        </div>
+        <PlaceHero photoPath={item.photo_path} credit={item.photo_credit} title={name} />
         <div className="place-detail__facts">
           <span>{fmtDay(item.date)}</span>
           <span>{fmtTime(item.time, item.time_text)}</span>

@@ -8,13 +8,13 @@ import type { ItemRow } from '../lib/types'
 function firstLine(s: string | null): string | null { if (!s) return null; const i = s.indexOf('\n'); return i === -1 ? s : s.slice(0, i) }
 
 /** The Figma 1103:161 wide card: image or glyph left, name in Poppins, first details line, time. */
-export function PlaceCard({ item, to, photoSrc }: { item: ItemRow; to: string; photoSrc?: string | null }) {
+export function PlaceCard({ item, to, photoPath }: { item: ItemRow; to: string; photoPath?: string | null }) {
   const name = item.place_name ?? item.plan.replace(/\*\*/g, '')
-  const path = photoSrc ?? item.photo_path
+  const path = photoPath ?? item.photo_path
   return (
     <Link to={to} className="place-card">
       <span className="place-card__media">
-        {path ? <PhotoImg path={path} className="place-card__photo" /> : <Icon set="kind" name="event" size={56} className="place-card__icon" />}
+        <PhotoImg path={path} className="place-card__photo" fallback={<Icon set="kind" name="event" size={56} className="place-card__icon" />} />
       </span>
       <span className="place-card__body">
         <span className="place-card__title">{name}</span>

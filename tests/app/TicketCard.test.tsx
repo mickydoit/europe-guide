@@ -1,11 +1,15 @@
 import { render, screen, fireEvent } from '@testing-library/react'
 import { MemoryRouter, Routes, Route } from 'react-router-dom'
-import { test, expect, vi } from 'vitest'
+import { test, expect, vi, beforeEach } from 'vitest'
 import { TicketCard } from '../../src/components/TicketCard'
 import { StatusPill } from '../../src/components/StatusPill'
 import type { BookingRow } from '../../src/lib/types'
 
-vi.mock('../../src/lib/photos', () => ({ usePhoto: (p: string | null) => (p ? `blob:${p}` : null), warmTripPhotos: vi.fn() }))
+const { usePhotoMock } = vi.hoisted(() => ({ usePhotoMock: vi.fn((p: string | null) => (p ? `blob:${p}` : null)) }))
+vi.mock('../../src/lib/photos', () => ({ usePhoto: usePhotoMock, warmTripPhotos: vi.fn() }))
+
+const showsPhoto = (p: string | null) => (p ? `blob:${p}` : null)
+beforeEach(() => { usePhotoMock.mockImplementation(showsPhoto) })
 
 const booking: BookingRow = {
   id: 'T04', trip: 'seville', kind: 'todo', title: 'AVE Seville → Barcelona', date: '2026-10-07', time: '08:45', priority: 'critical',
@@ -61,6 +65,17 @@ test('a booking with a photo_path renders the card photo; without, no art at all
 
   rerender(<MemoryRouter><TicketCard booking={booking} kind="transport" status="not_booked" to="/ticket/seville/T04" /></MemoryRouter>)
   expect(screen.getByRole('link').querySelector('.ticket-card__art')).toBeNull()
+})
+
+test('a photo_path whose bytes are not available leaves the card art out entirely', () => {
+  // Offline, not warmed yet, object gone: the path is set but usePhoto has nothing to show.
+  usePhotoMock.mockReturnValue(null)
+  const withPhoto: BookingRow = { ...booking, photo_path: 'valle/x.jpg', photo_credit: 'Ana P.' }
+  render(<MemoryRouter><TicketCard booking={withPhoto} kind="transport" status="not_booked" to="/x" /></MemoryRouter>)
+  const card = screen.getByRole('link').closest('.ticket-card')!
+  expect(card.querySelector('.ticket-card__art')).toBeNull()
+  expect(card.querySelector('img')).toBeNull()
+  expect(card.className).not.toContain('ticket-card--photo')
 })
 
 test('StatusPill labels', () => {

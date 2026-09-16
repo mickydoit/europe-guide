@@ -7,7 +7,7 @@ import { effectiveStatus, fourCells, inferKind, kindIcon } from '../lib/tickets'
 import { walkLink } from '../lib/links'
 import { Icon } from '../components/Icon'
 import { Md } from '../components/Md'
-import { PhotoImg } from '../components/PhotoImg'
+import { PlaceHero } from '../components/PlaceHero'
 import { StatusPill } from '../components/StatusPill'
 import { BookingForm } from '../components/BookingForm'
 import { AttachmentsPanel } from '../components/AttachmentsPanel'
@@ -64,11 +64,7 @@ export function TicketDetail() {
       <main className="screen">
         <button type="button" className="back" onClick={back}>‹ Back</button>
         <article className="place-detail" aria-label={booking.title}>
-          <div className={`place-detail__hero place-detail__hero--event${booking.photo_path ? ' place-detail__hero--photo' : ''}`}>
-            {booking.photo_path ? <PhotoImg path={booking.photo_path} className="place-detail__photo" /> : <Icon set="kind" name="event" size={64} className="place-detail__glyph" />}
-            <h1 className="place-detail__title">{booking.title}</h1>
-            {booking.photo_path && booking.photo_credit && <span className="place-detail__credit">Photo: {booking.photo_credit}</span>}
-          </div>
+          <PlaceHero photoPath={booking.photo_path} credit={booking.photo_credit} title={booking.title} modifier="place-detail__hero--event" />
           <div className="place-detail__facts">
             {booking.date && <span>{fmtDay(booking.date)}</span>}
             {booking.time && <span>{fmtTime(booking.time, null)}</span>}

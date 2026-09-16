@@ -7,13 +7,14 @@ import type { CityContent } from '../../src/lib/types'
 
 const { toggle } = vi.hoisted(() => ({ toggle: vi.fn(async () => ({ queued: false })) }))
 vi.mock('../../src/lib/state', () => ({ useChecks: () => ({ done: new Set<string>(), loading: false, toggle }), QUEUED_COPY: 'q' }))
-vi.mock('../../src/lib/photos', () => ({ usePhoto: (p: string | null) => (p ? `blob:${p}` : null), warmTripPhotos: vi.fn() }))
+const { usePhotoMock } = vi.hoisted(() => ({ usePhotoMock: vi.fn((p: string | null) => (p ? `blob:${p}` : null)) }))
+vi.mock('../../src/lib/photos', () => ({ usePhoto: usePhotoMock, warmTripPhotos: vi.fn() }))
 
 import { PlaceDetail } from '../../src/screens/PlaceDetail'
 
 const throwingClient = new Proxy({}, { get() { throw new Error('no network in tests') } }) as never
 let content: CityContent
-beforeEach(async () => { content = await loadValle(); toggle.mockClear() })
+beforeEach(async () => { content = await loadValle(); toggle.mockClear(); usePhotoMock.mockImplementation((p: string | null) => (p ? `blob:${p}` : null)) })
 
 function mount(c: CityContent, id: string) {
   return render(
@@ -53,6 +54,20 @@ test('a stop with no photo_path shows the glyph and no image', () => {
   const hero = document.querySelector('.place-detail__hero') as HTMLElement
   expect(hero.querySelector('.place-detail__glyph')).not.toBeNull()
   expect(hero.querySelector('img')).toBeNull()
+})
+
+test('a photo_path whose bytes are not available falls back to the glyph, with no scrim', () => {
+  usePhotoMock.mockReturnValue(null)
+  const modified = structuredClone(content)
+  const stop = modified.items.find(i => i.kind === 'stop')!
+  stop.photo_path = 'valle/x.jpg'
+  stop.photo_credit = 'Ana P.'
+  mount(modified, stop.id)
+  const hero = document.querySelector('.place-detail__hero') as HTMLElement
+  expect(hero.querySelector('.place-detail__glyph')).not.toBeNull()
+  expect(hero.querySelector('img')).toBeNull()
+  expect(hero.className).not.toContain('place-detail__hero--photo')
+  expect(screen.queryByText('Photo: Ana P.')).toBeNull()
 })
 
 test('shows a "Walk there" link to Google Maps for a stop with an address', () => {

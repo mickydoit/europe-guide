@@ -19,7 +19,8 @@ const { useBookingStateMock, useAttachmentsMock } = vi.hoisted(() => ({
 }))
 vi.mock('../../src/lib/state', () => ({ useBookingState: useBookingStateMock, useAttachments: useAttachmentsMock, useChecks: () => ({ done: new Set(), loading: false, toggle: vi.fn() }), QUEUED_COPY: 'q' }))
 vi.mock('../../src/lib/auth', () => ({ useAuth: () => ({ session: { user: { id: 'owner-1' } } }) }))
-vi.mock('../../src/lib/photos', () => ({ usePhoto: (p: string | null) => (p ? `blob:${p}` : null), warmTripPhotos: vi.fn() }))
+const { usePhotoMock } = vi.hoisted(() => ({ usePhotoMock: vi.fn((p: string | null) => (p ? `blob:${p}` : null)) }))
+vi.mock('../../src/lib/photos', () => ({ usePhoto: usePhotoMock, warmTripPhotos: vi.fn() }))
 
 import { TicketDetail, routeEnds } from '../../src/screens/TicketDetail'
 
@@ -37,6 +38,7 @@ let content: CityContent
 beforeEach(async () => {
   content = await loadValle()
   useBookingStateMock.mockReturnValue({ state: {}, loading: false, save: vi.fn(async () => ({ queued: false })) })
+  usePhotoMock.mockImplementation((p: string | null) => (p ? `blob:${p}` : null))
 })
 
 test('transport booking renders the boarding pass: route strip, title, cells, stub with form and attachments', () => {
@@ -65,6 +67,20 @@ test('an event booking with a photo_path shows the hero photo and credit, not th
   expect(hero.querySelector('img')).toHaveAttribute('src', 'blob:valle/x.jpg')
   expect(within(hero).getByText('Photo: Ana P.')).toBeInTheDocument()
   expect(hero.querySelector('.place-detail__glyph')).toBeNull()
+})
+
+test('an event hero with a photo_path but no bytes shows the glyph, not a scrim', () => {
+  usePhotoMock.mockReturnValue(null)
+  const modified = structuredClone(content)
+  const b01 = modified.bookings.find(b => b.id === 'B01')!
+  b01.photo_path = 'valle/x.jpg'
+  b01.photo_credit = 'Ana P.'
+  mount(modified, '/ticket/valle/B01')
+  const hero = document.querySelector('.place-detail__hero--event') as HTMLElement
+  expect(hero.querySelector('.place-detail__glyph')).not.toBeNull()
+  expect(hero.querySelector('img')).toBeNull()
+  expect(hero.className).not.toContain('place-detail__hero--photo')
+  expect(screen.queryByText('Photo: Ana P.')).toBeNull()
 })
 
 test('unknown id shows a not-found line', () => {
