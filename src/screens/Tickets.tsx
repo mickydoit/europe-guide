@@ -41,7 +41,7 @@ export function Tickets() {
 
   const renderGroup = (g: { date: string | null; bookings: typeof content.bookings }) => (
     <section key={g.date ?? 'undated'} className="tickets-day">
-      <h2 className="tickets-day__heading">{g.date ? fmtDay(g.date) : 'Undated'}</h2>
+      <h2 className="tickets-day__heading"><Icon set="nav" name="calendar" size={16} className="tickets-day__icon" /><span>{g.date ? fmtDay(g.date) : 'Undated'}</span></h2>
       <ul className="tickets-list">
         {g.bookings.map(b => {
           const past = !!g.date && g.date < today

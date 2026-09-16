@@ -414,3 +414,24 @@ button.status-pill::before { content: ''; position: absolute; inset: -12px -6px;
 .option-card__details { margin: 6px 0 8px; font-size: 14px; color: var(--text-soft); }
 .tick { width: 44px; height: 44px; border-radius: 50%; border: 1px solid var(--border); background: none; color: var(--text-dim); cursor: pointer; margin-left: auto; }
 .tick--done { color: var(--text-on-lavender); background: var(--accent); border-color: var(--accent); }
+
+/* Badges — kind + status at a glance (Figma tab glyphs; check/alert drawn to match) */
+.badges { display: inline-flex; gap: 6px; align-items: center; }
+.badge { display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; border-radius: 50%; }
+.badge--kind { background: rgba(0,0,0,.28); color: #fff; }
+.ticket-card--accommodation .badge--kind, .ticket-card--highlight .badge--kind, .ticket-card--event .badge--kind { background: rgba(7,6,6,.12); color: var(--text-on-lavender); }
+.badge--booked { background: var(--accent); color: var(--text-on-lavender); }
+.badge--todo { background: var(--highlight); color: var(--text-on-light); }
+.badge--muted { background: rgba(255,255,255,.18); color: rgba(255,255,255,.75); }
+.ticket-card--accommodation .badge--muted, .ticket-card--highlight .badge--muted, .ticket-card--event .badge--muted { background: rgba(7,6,6,.12); color: var(--text-on-lavender); }
+.ticket-card__badges { position: absolute; top: 16px; right: 16px; }
+.ticket-card__body { padding-right: 64px; }
+.stop-row__ticket { display: inline-flex; margin-top: 4px; }
+.stop-row .badge { width: 20px; height: 20px; }
+.stop-row .badge .icon { width: 11px !important; height: 11px !important; }
+
+/* Section headings with a glyph */
+.section-heading { display: flex; align-items: center; gap: 8px; }
+.section-heading__icon { color: var(--accent); }
+.tickets-day__heading { display: flex; align-items: center; gap: 8px; }
+.tickets-day__icon { color: var(--text-dim); }

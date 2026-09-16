@@ -3,7 +3,7 @@
  * per-colour file. `size` is the box in px; the SVG is contained and centred inside it.
  */
 export function Icon({ set, name, size = 24, className }: {
-  set: 'nav' | 'kind'
+  set: 'nav' | 'kind' | 'badge'
   name: string
   size?: number
   className?: string

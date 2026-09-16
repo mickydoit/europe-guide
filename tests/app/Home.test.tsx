@@ -202,3 +202,17 @@ test('Start the day is not offered before the trip', () => {
   renderHome(content)
   expect(screen.queryByRole('link', { name: /Start the day/ })).toBeNull()
 })
+
+test('section headings carry their Figma glyphs', () => {
+  renderHome(content)
+  const mask = (name: string) => ((screen.getByRole('heading', { name }).querySelector('.icon') as HTMLElement | null)?.style.maskImage ?? '')
+  expect(mask('Tickets')).toContain('/icons/nav/suitcase.svg')
+  expect(mask('Reminders')).toContain('/icons/badge/sparkle.svg')
+})
+
+test('the Tours and events heading carries the headphones glyph', () => {
+  vi.setSystemTime(new Date('2026-11-02T11:00:00Z'))
+  renderHome(content)
+  const h = screen.getByRole('heading', { name: 'Tours and events' })
+  expect((h.querySelector('.icon') as HTMLElement).style.maskImage).toContain('/icons/badge/headphones.svg')
+})

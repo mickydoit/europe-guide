@@ -19,7 +19,10 @@ test('transport card: teal tone, Poppins title, lines, icon, link', () => {
   expect(screen.getByText('Departs')).toBeInTheDocument()
   expect(screen.getByText('08:45')).toBeInTheDocument()
   expect(screen.getByText('€120 for two')).toBeInTheDocument()
-  expect(link.querySelector('.icon')).not.toBeNull()
+  expect(link.querySelector('.ticket-card__icon')).toBeNull()   // the faded 72px art is gone from cards
+  const badges = link.closest('.ticket-card')!.querySelector('.ticket-card__badges')!
+  expect(badges.querySelector('.badge--kind')).not.toBeNull()
+  expect(badges.querySelector('.badge--status')!.className).toContain('badge--todo')
   expect(screen.getByText('Not booked')).toBeInTheDocument()
 })
 

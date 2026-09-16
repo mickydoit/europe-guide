@@ -1,13 +1,13 @@
 import { Link } from 'react-router-dom'
-import { Icon } from './Icon'
 import { StatusPill } from './StatusPill'
-import { kindIcon, ticketLines } from '../lib/tickets'
+import { Badges } from './Badges'
+import { ticketLines } from '../lib/tickets'
 import type { Status, TicketKind } from '../lib/tickets'
 import type { BookingRow } from '../lib/types'
 
 export type CardTone = 'transport' | 'accommodation' | 'event' | 'highlight' | 'past'
 
-/** The Figma 1:208 card: Poppins title, one label+value line, one light sub line, faded kind icon right. */
+/** The Figma 1:208 card: Poppins title, one label+value line, one light sub line, kind + status badges top-right. */
 export function TicketCard({ booking, kind, status, tone, to, onCycleStatus, photoSrc }: {
   booking: BookingRow
   kind: TicketKind
@@ -27,10 +27,9 @@ export function TicketCard({ booking, kind, status, tone, to, onCycleStatus, pho
           <span className="ticket-card__line"><span className="ticket-card__label">{lines.label}</span> <span className="ticket-card__value">{lines.value}</span></span>
           {lines.sub && <span className="ticket-card__sub">{lines.sub}</span>}
         </span>
-        <span className="ticket-card__art">
-          {photoSrc ? <img className="ticket-card__photo" src={photoSrc} alt="" /> : <Icon set="kind" name={kindIcon(kind, booking.title)} size={72} className="ticket-card__icon" />}
-        </span>
+        {photoSrc && <span className="ticket-card__art"><img className="ticket-card__photo" src={photoSrc} alt="" /></span>}
       </Link>
+      <span className="ticket-card__badges"><Badges kind={kind} title={booking.title} status={status} /></span>
       <span className="ticket-card__status"><StatusPill status={status} onClick={onCycleStatus} /></span>
     </article>
   )

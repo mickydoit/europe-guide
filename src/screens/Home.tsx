@@ -13,6 +13,7 @@ import { NextUpCard } from '../components/NextUpCard'
 import { TicketCard } from '../components/TicketCard'
 import { PlaceCard } from '../components/PlaceCard'
 import { ReminderChips } from '../components/ReminderChips'
+import { SectionHeading } from '../components/SectionHeading'
 import { warmTripAttachments } from '../lib/attachmentsWarm'
 
 const NOW_TICK_MS = 30_000
@@ -107,7 +108,7 @@ export function Home() {
       )}
 
       <section className="home-row">
-        <h2 className="h5 home-row__heading">Tickets</h2>
+        <SectionHeading icon="suitcase" set="nav" className="home-row__heading">Tickets</SectionHeading>
         {restToday.length === 0 ? <p className="caption home-row__empty">No more tickets today</p> : (
           <ul className="card-row card-row--tickets">
             {restToday.map(b => (
@@ -121,7 +122,7 @@ export function Home() {
 
       {stops.length > 0 && (
         <section className="home-row">
-          <h2 className="h5 home-row__heading">Tours and events</h2>
+          <SectionHeading icon="headphones" className="home-row__heading">Tours and events</SectionHeading>
           <ul className="card-row">
             {stops.map(s => <li key={s.id}><PlaceCard item={s} to={`/place/${encodeURIComponent(s.id)}?trip=${trip.slug}`} /></li>)}
           </ul>

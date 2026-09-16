@@ -86,3 +86,9 @@ test('/bookings redirects to /tickets', () => {
   )
   expect(screen.getByText('Tickets screen')).toBeInTheDocument()
 })
+
+test('day headings carry the calendar glyph', () => {
+  mount(content)
+  const h = screen.getByRole('heading', { name: 'Sunday 1 November' })
+  expect((h.querySelector('.icon') as HTMLElement | null)?.style.maskImage ?? '').toContain('/icons/nav/calendar.svg')
+})
