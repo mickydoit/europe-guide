@@ -183,7 +183,7 @@ test('stops render as rows; a booked stop shows a ticket glyph linking to its ti
   const rows = document.querySelectorAll('.stop-row')
   expect(rows.length).toBeGreaterThan(0)
   const ticketLink = screen.getByRole('link', { name: /Open ticket/ })
-  expect(ticketLink).toHaveAttribute('href', '/ticket/valle/T01')
+  expect(ticketLink).toHaveAttribute('href', '/ticket/valle/T01?trip=valle')
   const placeLinks = screen.getAllByRole('link').filter(l => l.getAttribute('href')?.startsWith('/place/'))
   expect(placeLinks.length).toBeGreaterThan(0)
 })
@@ -199,6 +199,10 @@ test('a stop whose details begin with a markdown link renders no nested <a> insi
   const heading = screen.getByText('Piazza Grande', { exact: false })
   const main = heading.closest('.stop-row__main') as HTMLElement
   expect(within(main).queryByRole('link')).toBeNull()
+  // ...and the label survives as text, without the raw markdown or the URL leaking through.
+  expect(main.textContent).toContain('Route')
+  expect(main.textContent).not.toContain('https://')
+  expect(main.textContent).not.toContain('[Route]')
 })
 
 test('no weather strip and no trip picker on Day', () => {

@@ -25,7 +25,7 @@ button { font: inherit; }
 .field__input { width: 100%; min-height: 52px; padding: 0 16px; border-radius: 14px; border: 1px solid transparent;
   background: var(--surface); color: var(--text); font: inherit; font-size: 17px; -webkit-appearance: none; appearance: none; outline: none; }
 .field__input::placeholder { color: var(--text-dim); }
-.field__input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(17,218,143,.18); }
+.field__input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(34,221,133,.18); }
 .btn { min-height: 52px; padding: 0 20px; border-radius: 12px; border: 0; font-weight: 700; font-size: 16px; cursor: pointer; }
 .btn--primary { background: var(--highlight); color: var(--text-on-light); border-radius: 14px; width: 100%; margin-top: 6px; }
 .btn--primary:active { filter: brightness(.92); }
@@ -241,7 +241,7 @@ button { font: inherit; }
 /* The hero bleeds a little past the screen padding, the way the Figma frame does. */
 .world-hero { position: relative; margin: 0 -16px 20px; }
 .world-hero__map { display: block; width: 100%; height: auto;
-  filter: invert(17%) drop-shadow(0 6px 28px rgba(17, 218, 143, .22)); }
+  filter: invert(17%) drop-shadow(0 6px 28px rgba(34, 221, 133, .22)); }
 .world-hero__dot { position: absolute; width: 8px; height: 8px; margin: -4px 0 0 -4px; border-radius: 50%;
   background: var(--accent); box-shadow: 0 0 12px var(--accent); pointer-events: none; }
 .world-hero__dot--active { animation: world-hero-pulse 2.4s ease-in-out infinite; }
@@ -282,7 +282,9 @@ button { font: inherit; }
 .tabbar__label { line-height: 1; }
 
 /* Status pill */
-button.status-pill { border: 0; font: inherit; font-size: 11px; font-weight: 700; letter-spacing: .03em; padding: 3px 10px; border-radius: var(--radius-pill); cursor: pointer; }
+button.status-pill { position: relative; border: 0; font: inherit; font-size: 11px; font-weight: 700; letter-spacing: .03em; padding: 3px 10px; border-radius: var(--radius-pill); cursor: pointer; }
+/* The pill is ~20px tall by design; this invisible box gives the thumb a 44px target. */
+button.status-pill::before { content: ''; position: absolute; inset: -12px -6px; }
 .status-pill--booked, .status-pill--confirmed { background: var(--accent); color: var(--text-on-lavender); }
 .status-pill--not_booked { background: rgba(0,0,0,.35); color: #fff; }
 .status-pill--undecided { background: var(--highlight); color: var(--text-on-light); }
@@ -349,7 +351,7 @@ button.status-pill { border: 0; font: inherit; font-size: 11px; font-weight: 700
 .chips__chip { min-height: 32px; padding: 0 14px; border: 1px solid var(--border); border-radius: var(--radius-pill); background: none; color: var(--text-soft); font-weight: 600; font-size: 13px; cursor: pointer; }
 .chips__chip--active { background: var(--accent); border-color: var(--accent); color: var(--text-on-lavender); }
 .tickets-day { margin-bottom: 20px; }
-.tickets-day__heading { position: sticky; top: 0; z-index: 2; margin: 0 -16px 12px; padding: 10px 16px; background: var(--bg); font-size: 15px; font-weight: 800; letter-spacing: .02em; color: var(--text-soft); }
+.tickets-day__heading { position: sticky; top: var(--safe-top); z-index: 2; margin: 0 -16px 12px; padding: 10px 16px; background: var(--bg); font-size: 15px; font-weight: 800; letter-spacing: .02em; color: var(--text-soft); }
 .tickets-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 12px; }
 .tickets-earlier { width: 100%; min-height: 44px; margin-bottom: 16px; border: 1px dashed var(--border); border-radius: var(--radius-panel); background: none; color: var(--text-dim); font-weight: 600; cursor: pointer; }
 
@@ -384,6 +386,9 @@ button.status-pill { border: 0; font: inherit; font-size: 11px; font-weight: 700
 .pass__body::after { left: -11px; bottom: -22px; }
 .pass__stub::after { right: -11px; top: -22px; }
 .pass__status { display: flex; flex-direction: column; gap: 10px; margin-bottom: 16px; }
+.pass__status .status-pill { align-self: flex-start; }
+/* The stub sits on --surface, where a transparent field is invisible. */
+.pass__stub .field__input { background: rgba(255,255,255,.07); }
 .pass__notes { margin: 0; font-size: 14px; color: var(--text-soft); }
 
 /* Place detail — Figma 1103:161 as a screen */

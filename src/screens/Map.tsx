@@ -21,7 +21,7 @@ import { MapSheet, type MapFeatureKind } from '../components/MapSheet'
 import { nearbyPlaces, nearestN, photoUrl, placePhoto, shouldRefetch, type Place } from '../lib/places'
 import type { OfflineAreaRow } from '../lib/types'
 
-const ACCENT = '#11da8f'
+const ACCENT = '#22DD85'
 const MUTED = '#5a5b5d'
 const COAL = '#202123'
 const LAVENDER = '#BCA5ED'
@@ -749,7 +749,7 @@ export default function Map() {
           details={sheet.details}
           photoSrc={sheet.kind === 'place' ? placePhotoSrc : sheet.photoSrc}
           walkHref={sheet.walkHref}
-          ticketHref={sheetBooking && trip ? `/ticket/${trip.slug}/${sheetBooking.id}` : null}
+          ticketHref={sheetBooking && trip ? `/ticket/${trip.slug}/${sheetBooking.id}?trip=${trip.slug}` : null}
           onClose={() => { setSelected(null); setSaveError(null); setSaveQueued(null) }}
           onSave={sheet.place ? () => { void handleSave() } : undefined}
           saved={alreadySaved}

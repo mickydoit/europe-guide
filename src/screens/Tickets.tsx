@@ -48,7 +48,7 @@ export function Tickets() {
           return (
             <li key={b.id}>
               <TicketCard booking={b} kind={inferKind(b)} status={effectiveStatus(b, state[b.id])} tone={past ? 'past' : undefined}
-                to={`/ticket/${trip.slug}/${b.id}`} onCycleStatus={() => cycle(b.id)} />
+                to={`/ticket/${trip.slug}/${b.id}?trip=${trip.slug}`} onCycleStatus={() => cycle(b.id)} />
             </li>
           )
         })}

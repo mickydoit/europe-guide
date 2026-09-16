@@ -64,6 +64,22 @@ describe('Md', () => {
     expect(container.querySelector('strong')?.textContent).toBe('Route')
   })
 
+  test('a bold-wrapped link renders as a link inside the <strong>', () => {
+    const { container } = render(<Md text="**[Route](https://www.google.com/maps/dir/a/b)** — 3 min" />)
+    const a = container.querySelector('strong a') as HTMLAnchorElement
+    expect(a).not.toBeNull()
+    expect(a.getAttribute('href')).toBe('https://www.google.com/maps/dir/a/b')
+    expect(a.textContent).toBe('Route')
+    expect(container.textContent).toBe('Route — 3 min')
+  })
+
+  test('noLinks renders a bold-wrapped link as bold label text only', () => {
+    const { container } = render(<Md text="**[Route](https://www.google.com/maps/dir/a/b)** — 3 min" noLinks />)
+    expect(container.querySelector('a')).toBeNull()
+    expect(container.querySelector('strong')?.textContent).toBe('Route')
+    expect(container.textContent).toBe('Route — 3 min')
+  })
+
   test('renders a tel: link as an <a> with that href', () => {
     const { container } = render(<Md text="[call](tel:+351123)" />)
     const a = container.querySelector('a')

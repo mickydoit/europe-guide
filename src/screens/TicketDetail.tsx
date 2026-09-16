@@ -1,4 +1,4 @@
-import { Fragment } from 'react'
+import { Fragment, useEffect } from 'react'
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { useTrip } from '../lib/trip'
 import { useBookingState } from '../lib/state'
@@ -23,11 +23,23 @@ export function TicketDetail() {
   const { trip: tripParam, id } = useParams<{ trip: string; id: string }>()
   const navigate = useNavigate()
   const location = useLocation()
-  const { content, loading } = useTrip()
-  const { state, save } = useBookingState(content?.trip.slug ?? '')
+  const { trips, slug, content, loading, setSlug } = useTrip()
+  const { state, save, loading: stateLoading } = useBookingState(content?.trip.slug ?? '')
 
-  if (loading && !content) return <main className="screen"><p className="caption">Loading…</p></main>
+  // A cold load of /ticket/:trip/:id (a bookmark, a shared link, a hard refresh) resolves the
+  // ambient trip from ?trip=/localStorage/today, not from this route — so the path segment has
+  // to steer the context or the screen shows the wrong city's "No ticket".
+  const wrongTrip = !!tripParam && tripParam !== slug && trips.some(t => t.slug === tripParam)
+  useEffect(() => {
+    if (wrongTrip && tripParam) setSlug(tripParam)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wrongTrip, tripParam])
+
+  const loadingLine = <main className="screen"><p className="caption">Loading…</p></main>
+  if (loading && !content) return loadingLine
   if (!content) return null
+  // The switch above is in flight: the content still belongs to the previous trip.
+  if (tripParam && content.trip.slug !== tripParam && trips.some(t => t.slug === tripParam)) return loadingLine
   const booking = content.bookings.find(b => b.id === id && (!tripParam || b.trip === tripParam))
   if (!booking) return <main className="screen"><p className="caption">No ticket {id} in {content.trip.name}.</p><Link to="/tickets" className="btn--text">All tickets</Link></main>
 
@@ -36,6 +48,13 @@ export function TicketDetail() {
   // react-router stamps the first entry of a history stack with key 'default'; anything
   // else means there is a real previous screen to go back to (same pattern as Map.tsx).
   const back = () => (location.key !== 'default' ? navigate(-1) : navigate('/tickets', { replace: true }))
+
+  // BookingForm seeds its fields once, at mount. Mounting it before the saved row arrives
+  // leaves them blank and Save then writes nulls over the stored ref/cost/notes — so wait for
+  // the read, and remount (via the key) if a newer row lands later.
+  const bookingForm = stateLoading ? null : (
+    <BookingForm key={`${booking.id}:${state[booking.id]?.updated_at ?? 'new'}`} booking={booking} row={state[booking.id]} save={save} />
+  )
 
   if (kind === 'event') {
     const walk = walkLink({ lat: null, lng: null, name: booking.title, address: booking.address }, content.trip.name)
@@ -59,7 +78,7 @@ export function TicketDetail() {
             {walk && <a className="btn--text" href={walk} target="_blank" rel="noopener noreferrer">Walk there</a>}
             {booking.contact && /^[+\d]/.test(booking.contact) && <a className="btn--text" href={`tel:${booking.contact.replace(/(?!^\+)[^\d]/g, '')}`}>Call</a>}
           </div>
-          <BookingForm booking={booking} row={state[booking.id]} save={save} />
+          {bookingForm}
           <AttachmentsPanel tripSlug={content.trip.slug} bookingId={booking.id} />
         </article>
       </main>
@@ -91,7 +110,7 @@ export function TicketDetail() {
         </section>
         <section className="pass__stub">
           <div className="pass__status"><StatusPill status={status} />{booking.notes && <p className="pass__notes"><Md text={booking.notes} /></p>}{booking.fallback && <p className="pass__notes"><strong>Fallback:</strong> {booking.fallback}</p>}</div>
-          <BookingForm booking={booking} row={state[booking.id]} save={save} />
+          {bookingForm}
           <AttachmentsPanel tripSlug={content.trip.slug} bookingId={booking.id} />
         </section>
       </article>

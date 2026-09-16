@@ -8,19 +8,24 @@ const KINDS = new Set<string>(['transport', 'accommodation', 'event'])
 // Title only: notes mention taxis and hotels in passing ("10 min by taxi") and would misfire.
 const TRANSPORT_RE = /\b(flight|fly|plane|train|ave|rail|taxi|bolt|uber|cab|airport|transfer|ferry|bus|metro|tram|drive|car hire)\b/i
 const PLANE_RE = /\b(flight|fly|plane|airport)\b/i
+// Real imported flights are titled "Ryanair FR3628 LIS → SVQ": no keyword above matches.
+// The code is matched case-sensitively and must carry digits, so "Dinner at FR Bistro" is safe.
+const FLIGHT_CODE_RE = /\b[A-Z]{2}\s?\d{3,4}\b/
+const CARRIER_RE = /\b(ryanair|easyjet|vueling|iberia|tap|lufthansa|british airways|klm|air france|turkish)\b/i
+function isFlight(title: string): boolean { return FLIGHT_CODE_RE.test(title) || CARRIER_RE.test(title) }
 const STAY_RE = /\b(hotel|hostel|stay|flat|apartment|airbnb|check-?in|check-?out|nights?|riad|guesthouse)\b/i
 
 export function inferKind(b: Pick<BookingRow, 'title' | 'fields'>): TicketKind {
   const explicit = b.fields?.kind?.trim().toLowerCase()
   if (explicit && KINDS.has(explicit)) return explicit as TicketKind
-  if (TRANSPORT_RE.test(b.title)) return 'transport'
+  if (TRANSPORT_RE.test(b.title) || isFlight(b.title)) return 'transport'
   if (STAY_RE.test(b.title)) return 'accommodation'
   return 'event'
 }
 
 export function kindIcon(kind: TicketKind, title: string): 'plane' | 'car' | 'hotel' | 'event' {
   if (kind === 'accommodation') return 'hotel'
-  if (kind === 'transport') return PLANE_RE.test(title) ? 'plane' : 'car'
+  if (kind === 'transport') return PLANE_RE.test(title) || isFlight(title) ? 'plane' : 'car'
   return 'event'
 }
 
@@ -76,7 +81,7 @@ export function ticketLines(b: BookingRow, kind: TicketKind): { label: string; v
   const time = b.time ?? '—'
   if (kind === 'transport') return { label: 'Departs', value: time, sub: joinParts([b.fields.cost, b.contact]) }
   if (kind === 'accommodation') return { label: 'Check-in', value: b.date ? fmtDay(b.date) : '—', sub: joinParts([b.fields.ref, b.contact]) }
-  return { label: 'At', value: time, sub: joinParts([b.fields.cost ?? b.address]) }
+  return { label: 'At', value: time, sub: joinParts([b.fields.cost || b.address]) }
 }
 
 const HIDDEN_FIELDS = new Set(['for_note', 'book_by_note', 'decide_by_note', 'tier', 'kind', 'cost'])
@@ -90,7 +95,10 @@ export function fourCells(b: BookingRow): { key: string; value: string }[] {
   else if (b.decide_by) cells.push({ key: 'Decide by', value: shortDate(b.decide_by) })
   for (const [k, v] of Object.entries(b.fields)) {
     if (cells.length >= 4) break
-    if (HIDDEN_FIELDS.has(k) || !v) continue
+    // Some imported fields are a sentence ("why_urgent"); the four-cell strip is a
+    // label/value grid and long prose blows its layout out. Cost/Contact/Book by above
+    // are short by nature and stay unconditional.
+    if (HIDDEN_FIELDS.has(k) || !v || v.length > 40) continue
     cells.push({ key: humanize(k), value: v })
   }
   return cells.slice(0, 4)

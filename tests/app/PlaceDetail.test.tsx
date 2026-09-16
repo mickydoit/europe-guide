@@ -40,3 +40,21 @@ test('shows a "Walk there" link to Google Maps for a stop with an address', () =
   const link = screen.getByRole('link', { name: 'Walk there' }) as HTMLAnchorElement
   expect(link.href).toMatch(/^https:\/\/www\.google\.com\/maps/)
 })
+
+test('a failed tick says so instead of failing silently', async () => {
+  toggle.mockRejectedValueOnce(new Error('offline'))
+  const stop = content.items.find(i => i.kind === 'stop')!
+  mount(content, stop.id)
+  fireEvent.click(screen.getByRole('button', { name: /Mark done/ }))
+  const msg = await screen.findByText(/Couldn't save/)
+  expect(msg.className).toContain('form__msg--error')
+})
+
+test('a queued tick says it will sync later', async () => {
+  toggle.mockResolvedValueOnce({ queued: true })
+  const stop = content.items.find(i => i.kind === 'stop')!
+  mount(content, stop.id)
+  fireEvent.click(screen.getByRole('button', { name: /Mark done/ }))
+  const msg = await screen.findByText('q')
+  expect(msg.className).toContain('form__msg--queued')
+})

@@ -1,9 +1,13 @@
 // Creates a signed-in session for the owner and writes the URL fragment supabase-js accepts to argv[2].
-// Usage: node tools/probe-session.mjs /tmp/frag.txt   (needs SUPABASE_SERVICE_KEY in .env; never prints tokens)
+// Usage: PROBE_EMAIL=<owner email> node tools/probe-session.mjs /tmp/frag.txt [email]
+// (needs SUPABASE_SERVICE_KEY in .env; never prints tokens). The email is never committed:
+// this is a public repo, so it comes from PROBE_EMAIL or argv[3] and there is no default.
 import { createClient } from '@supabase/supabase-js'
 import { readFileSync, writeFileSync } from 'node:fs'
 const env = Object.fromEntries(readFileSync('.env', 'utf8').split('\n').filter(l => l.includes('=')).map(l => { const i = l.indexOf('='); return [l.slice(0, i).trim(), l.slice(i + 1).trim().replace(/^["']|["']$/g, '').replace(/\r/g, '')] }))
-const email = process.argv[3] ?? 'housestudio.sc@gmail.com'
+const email = process.env.PROBE_EMAIL ?? process.argv[3]
+if (!email) { console.error('Usage: PROBE_EMAIL=<owner email> node tools/probe-session.mjs <out-file> [email]'); process.exit(1) }
+if (!process.argv[2]) { console.error('Usage: PROBE_EMAIL=<owner email> node tools/probe-session.mjs <out-file> [email]'); process.exit(1) }
 const admin = createClient(env.VITE_SUPABASE_URL, env.SUPABASE_SERVICE_KEY, { auth: { persistSession: false } })
 const { data, error } = await admin.auth.admin.generateLink({ type: 'magiclink', email })
 if (error) { console.error('generateLink failed:', error.message); process.exit(1) }

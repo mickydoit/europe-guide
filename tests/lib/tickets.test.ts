@@ -30,6 +30,14 @@ describe('inferKind', () => {
   test('notes are not consulted', () => {
     expect(inferKind(b({ title: 'Dinner', notes: 'take a taxi' }))).toBe('event')
   })
+  test('a flight code or a carrier name makes it transport', () => {
+    expect(inferKind({ title: 'Ryanair FR3628 LIS → SVQ', fields: {} })).toBe('transport')
+    expect(inferKind({ title: 'TP1234 to Porto', fields: {} })).toBe('transport')
+    expect(inferKind({ title: 'Vueling to Barcelona', fields: {} })).toBe('transport')
+  })
+  test('two letters with no digits is not a flight code', () => {
+    expect(inferKind({ title: 'Dinner at FR Bistro', fields: {} })).toBe('event')
+  })
 })
 
 test('isTicket excludes walk-ins', () => {
@@ -91,6 +99,7 @@ describe('ticketLines', () => {
   })
   test('event: time, cost or address; no sub when nothing', () => {
     expect(ticketLines(b({ time: '20:00', address: 'Via Alba 3' }), 'event')).toEqual({ label: 'At', value: '20:00', sub: 'Via Alba 3' })
+    expect(ticketLines(b({ time: '20:00', address: 'Via Alba 3', fields: { cost: '' } }), 'event')).toEqual({ label: 'At', value: '20:00', sub: 'Via Alba 3' })
     expect(ticketLines(b({ time: null }), 'event')).toEqual({ label: 'At', value: '—', sub: null })
   })
 })
@@ -101,6 +110,20 @@ test('fourCells: cost, contact, book by, then other fields, max four, empties dr
     { key: 'Cost', value: '€32' }, { key: 'Contact', value: '+351 1' }, { key: 'Book by', value: '1 Oct' }, { key: 'Book at', value: 'their site' },
   ])
   expect(fourCells(b({}))).toEqual([])
+})
+
+test('fourCells skips generic field values longer than 40 characters', () => {
+  const long = 'Sells out weeks ahead in October and the queue on the day is brutal'
+  expect(long.length).toBeGreaterThan(40)
+  const cells = fourCells(b({ fields: { why_urgent: long, deck: 'Upper' } }))
+  expect(cells.map(c => c.key)).toEqual(['Deck'])
+})
+
+test('fourCells keeps Cost/Contact/Book by however long they are', () => {
+  const longCost = 'Roughly €180 each including the seat reservation and the bike supplement'
+  expect(longCost.length).toBeGreaterThan(40)
+  const cells = fourCells(b({ fields: { cost: longCost } }))
+  expect(cells).toEqual([{ key: 'Cost', value: longCost }])
 })
 
 test('effectiveStatus and cycleStatus', () => {
@@ -142,4 +165,5 @@ test('kindIcon', () => {
   expect(kindIcon('transport', 'AVE Seville → Barcelona')).toBe('car')   // trains and taxis share the car glyph until Plan 6 photos
   expect(kindIcon('accommodation', 'Hotel')).toBe('hotel')
   expect(kindIcon('event', 'Dinner')).toBe('event')
+  expect(kindIcon('transport', 'Ryanair FR3628 LIS → SVQ')).toBe('plane')
 })

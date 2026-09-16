@@ -21,7 +21,21 @@ export function Md({ text, className, noLinks }: { text: string | null | undefin
   text.split(TOKEN_RE).forEach((part, i) => {
     if (!part) return
     if (part.startsWith('**') && part.endsWith('**') && part.length > 4) {
-      nodes.push(<strong key={`b-${i}`}>{part.slice(2, -2)}</strong>)
+      const inner = part.slice(2, -2)
+      // Imported rows write route links as **[Route](https://…)**. The bold branch runs
+      // first, so without this the brackets and the raw URL printed as literal text.
+      const boldLink = LINK_RE.exec(inner)
+      if (boldLink && SAFE_PROTOCOL_RE.test(boldLink[2])) {
+        nodes.push(
+          <strong key={`b-${i}`}>
+            {noLinks ? boldLink[1] : (
+              <a href={boldLink[2]} target="_blank" rel="noopener noreferrer">{boldLink[1]}</a>
+            )}
+          </strong>,
+        )
+        return
+      }
+      nodes.push(<strong key={`b-${i}`}>{inner}</strong>)
       return
     }
     const link = LINK_RE.exec(part)

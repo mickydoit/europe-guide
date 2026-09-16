@@ -1,6 +1,7 @@
+import { useEffect, useRef, useState } from 'react'
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { useTrip } from '../lib/trip'
-import { useChecks } from '../lib/state'
+import { useChecks, QUEUED_COPY } from '../lib/state'
 import { fmtDay, fmtTime } from '../lib/time'
 import { bookingForStop } from '../lib/tickets'
 import { walkLink } from '../lib/links'
@@ -8,6 +9,7 @@ import { Icon } from '../components/Icon'
 import { Md } from '../components/Md'
 
 const DURATION_RE = /(\d+(?:[.,]\d+)?)\s*(?:h(?:ours?|rs?)?|min(?:utes?|s)?)\b/i
+const TICK_MSG_MS = 4000
 
 export function PlaceDetail() {
   const { id } = useParams<{ id: string }>()
@@ -15,6 +17,27 @@ export function PlaceDetail() {
   const location = useLocation()
   const { content, loading } = useTrip()
   const { done, toggle } = useChecks(content?.trip.slug ?? '')
+  const [msg, setMsg] = useState<{ text: string; tone: 'error' | 'queued' } | null>(null)
+  const msgTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  useEffect(() => () => { if (msgTimer.current) clearTimeout(msgTimer.current) }, [])
+
+  // Same contract as Day: a tick that could not be written must say so, and a queued one must
+  // say it is queued, rather than looking like a save that went through.
+  function flash(text: string, tone: 'error' | 'queued') {
+    setMsg({ text, tone })
+    if (msgTimer.current) clearTimeout(msgTimer.current)
+    msgTimer.current = setTimeout(() => setMsg(null), TICK_MSG_MS)
+  }
+
+  async function handleToggle(itemId: string) {
+    try {
+      const result = await toggle(itemId)
+      if (result?.queued) flash(QUEUED_COPY, 'queued')
+    } catch {
+      flash("Couldn't save — you may be offline", 'error')
+    }
+  }
 
   if (loading && !content) return <main className="screen"><p className="caption">Loading…</p></main>
   if (!content) return null
@@ -40,14 +63,15 @@ export function PlaceDetail() {
           <span>{fmtDay(item.date)}</span>
           <span>{fmtTime(item.time, item.time_text)}</span>
           {duration && <span>{duration}</span>}
-          <button type="button" className={`tick${isDone ? ' tick--done' : ''}`} aria-label={isDone ? 'Mark not done' : 'Mark done'} onClick={() => { void toggle(item.id).catch(() => {}) }}>✓</button>
+          <button type="button" className={`tick${isDone ? ' tick--done' : ''}`} aria-label={isDone ? 'Mark not done' : 'Mark done'} onClick={() => { void handleToggle(item.id) }}>✓</button>
         </div>
+        {msg && <p className={`form__msg form__msg--${msg.tone}`}>{msg.text}</p>}
         {item.plan && item.place_name && <p className="place-detail__plan"><Md text={item.plan} /></p>}
         {item.details && <p className="place-detail__text"><Md text={item.details} /></p>}
         {item.address && <p className="place-detail__address"><Icon set="nav" name="map" size={14} /> {item.address}</p>}
         <div className="place-detail__actions">
           {walk && <a className="btn--text" href={walk} target="_blank" rel="noopener noreferrer">Walk there</a>}
-          {booking && <Link className="btn--text" to={`/ticket/${content.trip.slug}/${booking.id}`}>Open ticket</Link>}
+          {booking && <Link className="btn--text" to={`/ticket/${content.trip.slug}/${booking.id}?trip=${content.trip.slug}`}>Open ticket</Link>}
         </div>
         {options.length > 0 && (
           <section className="place-detail__options">

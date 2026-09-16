@@ -1,7 +1,7 @@
 import { render, screen, within } from '@testing-library/react'
 import { MemoryRouter, Routes, Route } from 'react-router-dom'
 import { vi, beforeEach, test, expect } from 'vitest'
-import { TripProvider } from '../../src/lib/trip'
+import { TripContext, TripProvider } from '../../src/lib/trip'
 import { loadValle } from '../helpers/content'
 import type { CityContent } from '../../src/lib/types'
 import type { AttachmentRow } from '../../src/lib/state'
@@ -28,7 +28,10 @@ function mount(content: CityContent, path: string) {
   )
 }
 let content: CityContent
-beforeEach(async () => { content = await loadValle() })
+beforeEach(async () => {
+  content = await loadValle()
+  useBookingStateMock.mockReturnValue({ state: {}, loading: false, save: vi.fn(async () => ({ queued: false })) })
+})
 
 test('transport booking renders the boarding pass: route strip, title, cells, stub with form and attachments', () => {
   mount(content, '/ticket/valle/B02')
@@ -121,4 +124,53 @@ test('routeEnds splits a space-hyphen-space title like "LIS - SVQ"', () => {
 
 test('a title with no separator falls back to the title and the address', () => {
   expect(routeEnds({ ...baseBooking, title: 'Trattoria Alba', address: 'Via Alba 3' })).toEqual({ from: 'Trattoria Alba', to: 'Via Alba 3' })
+})
+
+test('the booking form waits for the saved state and picks it up when it lands', () => {
+  // The state read is a round trip; BookingForm seeds its fields once, at mount. Mounting it
+  // against an empty map used to leave the fields blank and let Save write nulls over the
+  // stored ref/cost/notes.
+  useBookingStateMock.mockReturnValue({ state: {}, loading: true, save: vi.fn(async () => ({ queued: false })) })
+  const { rerender } = mount(content, '/ticket/valle/B02')
+  expect(screen.queryByLabelText('Status')).toBeNull()
+
+  useBookingStateMock.mockReturnValue({
+    state: {
+      B02: {
+        trip: 'valle', booking_id: 'B02', status: 'confirmed', confirmation_ref: 'ABC123',
+        cost: 42, currency: 'EUR', notes: 'n', updated_at: '2026-09-16T00:00:00Z',
+      },
+    },
+    loading: false,
+    save: vi.fn(async () => ({ queued: false })),
+  })
+  rerender(
+    <MemoryRouter initialEntries={['/ticket/valle/B02']}>
+      <TripProvider initial={{ trips: [content.trip], slug: 'valle', content }} client={throwingClient}>
+        <Routes><Route path="/ticket/:trip/:id" element={<TicketDetail />} /></Routes>
+      </TripProvider>
+    </MemoryRouter>,
+  )
+  expect(screen.getByLabelText('Confirmation ref')).toHaveValue('ABC123')
+  expect(screen.getByLabelText('Status')).toHaveValue('confirmed')
+})
+
+test('a cold deep link into another trip switches the trip context to the one in the path', () => {
+  const other = { ...content.trip, slug: 'other', name: 'Other' }
+  const setSlug = vi.fn()
+  const value = {
+    trips: [content.trip, other], slug: 'valle', content, loading: false, offline: false,
+    error: null, setSlug, refresh: vi.fn(async () => {}),
+  }
+  render(
+    <MemoryRouter initialEntries={['/ticket/other/B02']}>
+      <TripContext.Provider value={value}>
+        <Routes><Route path="/ticket/:trip/:id" element={<TicketDetail />} /></Routes>
+      </TripContext.Provider>
+    </MemoryRouter>,
+  )
+  expect(setSlug).toHaveBeenCalledWith('other')
+  // ...and until that trip's content arrives it says Loading, not "No ticket".
+  expect(screen.getByText(/Loading/)).toBeInTheDocument()
+  expect(screen.queryByText(/No ticket/)).toBeNull()
 })

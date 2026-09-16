@@ -309,7 +309,7 @@ test('legs are split into a solid walking layer and a dashed driving/transit lay
   await waitFor(() => expect(maplibreState.instances.length).toBe(1))
   fire('load')
 
-  const legColor = ['match', ['get', 'mode'], 'driving', '#F7FF88', 'transit', '#BCA5ED', '#11da8f']
+  const legColor = ['match', ['get', 'mode'], 'driving', '#F7FF88', 'transit', '#BCA5ED', '#22DD85']
   const solid = maplibreState.layers.find(l => l.id === 'legs-line') as { id: string; filter?: unknown; paint?: Record<string, unknown> }
   const dashed = maplibreState.layers.find(l => l.id === 'legs-line-dashed') as { id: string; filter?: unknown; paint?: Record<string, unknown> }
 

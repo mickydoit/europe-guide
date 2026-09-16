@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useTrip } from '../lib/trip'
 import { useBookingState } from '../lib/state'
 import { fmtDay, nowInTz, todayInTrip } from '../lib/time'
@@ -17,7 +17,7 @@ import { warmTripAttachments } from '../lib/attachmentsWarm'
 const NOW_TICK_MS = 30_000
 
 export function Home() {
-  const { trips, content, loading, error, refresh } = useTrip()
+  const { trips, content, loading, error, refresh, setSlug } = useTrip()
   const { state, save } = useBookingState(content?.trip.slug ?? '')
   const [now, setNow] = useState(() => new Date())
   const warmSlug = content?.trip.slug ?? null
@@ -33,6 +33,19 @@ export function Home() {
     if (!warmSlug) return
     void warmTripAttachments(warmSlug).catch(() => {})
   }, [warmSlug])
+
+  // The owner wakes up in the next city: the ambient trip is still whichever one they last
+  // looked at (localStorage), and nothing else on Home would move them across. Once per mount.
+  const switchedTrip = useRef(false)
+  useEffect(() => {
+    if (switchedTrip.current || !content) return
+    if (todayInTrip(content.trip, now) !== null) return
+    const match = trips.find(t => t.slug !== content.trip.slug && todayInTrip(t, now) !== null)
+    if (!match) return
+    switchedTrip.current = true
+    setSlug(match.slug)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [content, trips, now])
 
   if (loading && !content) return <main className="screen"><p className="caption">Loading…</p></main>
   if (error && !content) {
@@ -77,7 +90,7 @@ export function Home() {
       <WorldHero trips={trips} trip={trip} content={content} date={date} />
 
       {next && (
-        <NextUpCard booking={next.booking} kind={inferKind(next.booking)} date={next.date} to={`/ticket/${trip.slug}/${next.booking.id}`} />
+        <NextUpCard booking={next.booking} kind={inferKind(next.booking)} date={next.date} to={`/ticket/${trip.slug}/${next.booking.id}?trip=${trip.slug}`} />
       )}
 
       <section className="home-row">
@@ -86,7 +99,7 @@ export function Home() {
           <ul className="card-row card-row--tickets">
             {restToday.map(b => (
               <li key={b.id}>
-                <TicketCard booking={b} kind={inferKind(b)} status={effectiveStatus(b, state[b.id])} to={`/ticket/${trip.slug}/${b.id}`} onCycleStatus={() => cycle(b.id)} />
+                <TicketCard booking={b} kind={inferKind(b)} status={effectiveStatus(b, state[b.id])} to={`/ticket/${trip.slug}/${b.id}?trip=${trip.slug}`} onCycleStatus={() => cycle(b.id)} />
               </li>
             ))}
           </ul>
@@ -97,7 +110,7 @@ export function Home() {
         <section className="home-row">
           <h2 className="h5 home-row__heading">Tours and events</h2>
           <ul className="card-row">
-            {stops.map(s => <li key={s.id}><PlaceCard item={s} to={`/place/${encodeURIComponent(s.id)}`} /></li>)}
+            {stops.map(s => <li key={s.id}><PlaceCard item={s} to={`/place/${encodeURIComponent(s.id)}?trip=${trip.slug}`} /></li>)}
           </ul>
         </section>
       )}

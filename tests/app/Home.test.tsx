@@ -1,7 +1,7 @@
 import { render, screen, fireEvent, within } from '@testing-library/react'
 import { MemoryRouter, Routes, Route } from 'react-router-dom'
 import { vi, beforeEach, afterEach, test, expect } from 'vitest'
-import { TripProvider } from '../../src/lib/trip'
+import { TripContext, TripProvider } from '../../src/lib/trip'
 import { loadValle } from '../helpers/content'
 import type { CityContent } from '../../src/lib/types'
 
@@ -142,4 +142,35 @@ test('before the trip, Home says which day it is showing and still has a next-up
 test('loading, error and empty states', () => {
   render(<MemoryRouter><TripProvider initial={{ trips: [], slug: '', content: null as unknown as CityContent }} client={throwingClient}><Home /></TripProvider></MemoryRouter>)
   expect(screen.getByText(/No trips yet/)).toBeInTheDocument()
+})
+
+test('when today falls inside another loaded trip, Home switches the trip context to it', () => {
+  // The owner lands on Home on the first morning in the next city: the ambient trip is still
+  // the last one they looked at, and nothing on the screen would ever move them across.
+  vi.setSystemTime(PRE_TRIP)                                    // 20 Oct 2026: outside the Valle fixture
+  const other = { ...content.trip, slug: 'other', name: 'Other', start_date: '2026-10-19', end_date: '2026-10-22' }
+  const setSlug = vi.fn()
+  render(
+    <MemoryRouter initialEntries={['/']}>
+      <TripContext.Provider value={{ trips: [content.trip, other], slug: 'valle', content, loading: false, offline: false, error: null, setSlug, refresh: vi.fn(async () => {}) }}>
+        <Routes><Route path="/" element={<Home />} /></Routes>
+      </TripContext.Provider>
+    </MemoryRouter>,
+  )
+  expect(setSlug).toHaveBeenCalledWith('other')
+  expect(setSlug).toHaveBeenCalledTimes(1)
+})
+
+test('Home leaves the trip alone when today is inside the loaded one', () => {
+  vi.setSystemTime(SUNDAY_1200)
+  const other = { ...content.trip, slug: 'other', name: 'Other', start_date: '2026-10-19', end_date: '2026-10-22' }
+  const setSlug = vi.fn()
+  render(
+    <MemoryRouter initialEntries={['/']}>
+      <TripContext.Provider value={{ trips: [content.trip, other], slug: 'valle', content, loading: false, offline: false, error: null, setSlug, refresh: vi.fn(async () => {}) }}>
+        <Routes><Route path="/" element={<Home />} /></Routes>
+      </TripContext.Provider>
+    </MemoryRouter>,
+  )
+  expect(setSlug).not.toHaveBeenCalled()
 })
