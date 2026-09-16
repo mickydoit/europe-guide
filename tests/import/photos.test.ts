@@ -2,7 +2,7 @@ import { describe, test, expect, beforeEach, vi } from 'vitest'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { loadValle } from '../helpers/content'
 import type { CityContent } from '../../src/lib/types'
-import { photoTargets, describeTargets, findPlacePhoto, downloadPhoto, attachPhotos, supabasePhotoStore } from '../../scripts/import/photos'
+import { photoTargets, describeTargets, findPlacePhoto, downloadPhoto, attachPhotos, supabasePhotoStore, looksGeneric } from '../../scripts/import/photos'
 import type { PhotoStore, PlacesPhoto } from '../../scripts/import/photos'
 
 let content: CityContent
