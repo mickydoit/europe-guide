@@ -1,6 +1,6 @@
 import { describe, test, expect, vi, beforeEach } from 'vitest'
 import {
-  mapDaily, mapHourly, mapCurrent,
+  mapDaily, mapHourly,
   getDailyForecast, getHourly,
   pickDay, cityCentre, forecastOpensOn,
 } from '../../src/lib/weather'
@@ -60,15 +60,6 @@ const hourlyFixture = {
   timeZone: { id: 'Europe/Rome' },
 }
 
-const currentFixture = {
-  weatherCondition: { description: { text: 'Sunny' }, iconBaseUri: 'https://example.com/weather/icon' },
-  temperature: { degrees: 20, unit: 'CELSIUS' },
-  feelsLikeTemperature: { degrees: 19, unit: 'CELSIUS' },
-  relativeHumidity: 55,
-  wind: { speed: { value: 12, unit: 'KILOMETERS_PER_HOUR' } },
-  currentTime: '2026-11-02T09:00:00Z',
-}
-
 beforeEach(async () => {
   await resetDbForTests()
   await new Promise<void>(resolve => {
@@ -97,15 +88,6 @@ describe('mapHourly', () => {
       time: '09:00', date: '2026-11-02', temp: 18, precipPct: 5, condition: 'Sunny',
       iconUri: 'https://example.com/weather/icon',
     }])
-  })
-})
-
-describe('mapCurrent', () => {
-  test('maps a currentConditions fixture', () => {
-    expect(mapCurrent(currentFixture)).toEqual({
-      temp: 20, feelsLike: 19, condition: 'Sunny', iconUri: 'https://example.com/weather/icon',
-      humidity: 55, windKph: 12,
-    })
   })
 })
 

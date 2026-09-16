@@ -1,6 +1,6 @@
 :root {
   /* Figma KMHaWP7ikFa3IimN3cx520 — sampled from card fills, not the style-guide labels */
-  --bg: #070606; --surface: #08353D; --surface-deep: #083740; --card-dark: #131313;
+  --bg: #070606; --surface: #08353D; --surface-deep: #083740; --surface-dim: #131313;
   --bg-nav: rgba(7, 6, 6, .9);
   --accent: #22DD85; --highlight: #F7FF88; --lavender: #BCA5ED;
   --text: #ffffff; --text-soft: rgba(255,255,255,.7); --text-dim: rgba(255,255,255,.45);
@@ -10,9 +10,4 @@
   --font: 'Overpass', -apple-system, "SF Pro Text", system-ui, sans-serif;
   --font-ticket: 'Poppins', 'Overpass', -apple-system, system-ui, sans-serif;
   --safe-top: env(safe-area-inset-top); --safe-bottom: env(safe-area-inset-bottom);
-
-  /* Legacy aliases — every remaining use is re-pointed and these lines deleted in Task 8. */
-  --card: var(--surface); --card-alt: #0a2b31; --bg-2: #0a2b31;
-  --salmon: var(--lavender); --banana: var(--highlight); --granny: var(--accent); --golden: var(--highlight);
-  --columbia: var(--lavender); --coral: var(--lavender);
 }

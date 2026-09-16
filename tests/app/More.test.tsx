@@ -53,6 +53,7 @@ test('no Pending changes section when the outbox is empty', async () => {
   renderMore(content)
   await screen.findByRole('heading', { name: 'More' })
   expect(screen.queryByRole('heading', { name: 'Pending changes' })).toBeNull()
+  expect(document.querySelector('.trip-picker')).toBeNull()
 })
 
 test('Pending changes lists the queued ops by kind with Sync now, and Retry failed once one has given up', async () => {

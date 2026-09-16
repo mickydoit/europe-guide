@@ -1,3 +1,4 @@
+import { Link } from 'react-router-dom'
 import { Sheet } from './Sheet'
 import { Md } from './Md'
 
@@ -18,12 +19,14 @@ export interface MapSheetProps {
   saved?: boolean
   saving?: boolean
   error?: string | null
-  /** Places only: the save went to the outbox, not the server. Accent tone, not salmon. */
+  /** Places only: the save went to the outbox, not the server. Accent tone, not an error tone. */
   queuedMsg?: string | null
+  /** Stops only: a matching booking's ticket, when one exists. */
+  ticketHref?: string | null
 }
 
 export function MapSheet({
-  open, kind, title, subtitle, details, walkHref, onClose, photoSrc, onSave, saved, saving, error, queuedMsg,
+  open, kind, title, subtitle, details, walkHref, onClose, photoSrc, onSave, saved, saving, error, queuedMsg, ticketHref,
 }: MapSheetProps) {
   return (
     <Sheet open={open} title={title} onClose={onClose}>
@@ -33,6 +36,7 @@ export function MapSheet({
       {walkHref && (
         <a className="btn--text" href={walkHref} target="_blank" rel="noopener noreferrer">Walk there</a>
       )}
+      {ticketHref && <Link className="btn--text" to={ticketHref}>Open ticket</Link>}
       {kind === 'place' && onSave && (
         <button
           type="button"

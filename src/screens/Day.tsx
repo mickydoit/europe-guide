@@ -3,15 +3,14 @@ import { useParams, useNavigate, Navigate, Link } from 'react-router-dom'
 import { useTrip } from '../lib/trip'
 import { useChecks, useDayNotes, QUEUED_COPY } from '../lib/state'
 import { currentAndNext, currentBlock, dayIndex, fmtDay, nowInTz, todayInTrip } from '../lib/time'
-import { TripPicker } from '../components/TripPicker'
 import { NowNext } from '../components/NowNext'
 import { RouteStrip } from '../components/RouteStrip'
-import { StopCard } from '../components/StopCard'
-import { WeatherStrip } from '../components/WeatherStrip'
+import { StopRow } from '../components/StopRow'
 import { Md } from '../components/Md'
 import { SyncBadge } from '../components/SyncBadge'
 import { walkLink } from '../lib/links'
-import type { Block, ItemRow } from '../lib/types'
+import { bookingForStop } from '../lib/tickets'
+import type { Block } from '../lib/types'
 
 const BLOCK_KEYS: Block[] = ['morning', 'midday', 'evening', null]
 const BLOCK_LABEL: Record<string, string> = { morning: 'Morning', midday: 'Midday', evening: 'Evening' }
@@ -21,7 +20,7 @@ const TICK_MSG_MS = 4_000
 export function Day() {
   const { date: dateParam } = useParams<{ date?: string }>()
   const navigate = useNavigate()
-  const { trips, slug, content, loading, error, setSlug, refresh } = useTrip()
+  const { trips, content, loading, error, refresh } = useTrip()
   const { done, toggle } = useChecks(content?.trip.slug ?? '')
   // Hooks run before this screen knows which day it is showing, so pass the raw param:
   // useDayNotes skips the query until both halves of the key are real.
@@ -101,14 +100,6 @@ export function Day() {
   const nextDay = idx >= 0 && idx < days.length - 1 ? days[idx + 1] : null
 
   const dayItems = content.items.filter(i => i.date === date)
-  const optionsByParent = new Map<string, ItemRow[]>()
-  for (const i of dayItems) {
-    if (i.kind === 'option' && i.parent_item) {
-      const arr = optionsByParent.get(i.parent_item) ?? []
-      arr.push(i)
-      optionsByParent.set(i.parent_item, arr)
-    }
-  }
   const mainItems = dayItems.filter(i => i.kind !== 'option').sort((a, b) => a.sort - b.sort)
   // Groups are ordered by the minimum `sort` of their items (not a fixed block order):
   // mainItems is already sort-ascending, so each group's first item is its minimum.
@@ -126,15 +117,8 @@ export function Day() {
     ? currentAndNext(content.alerts, date, nowMinutes)
     : { current: null, next: null, minutesToNext: null }
 
-  function goTrip(newSlug: string) {
-    setSlug(newSlug)
-    navigate('/day')
-  }
-
   return (
     <main className="screen day">
-      <TripPicker trips={trips} active={slug} onSelect={goTrip} />
-
       <div className="day-header">
         <button
           type="button"
@@ -172,8 +156,6 @@ export function Day() {
           </button>
         )}
       </div>
-
-      <WeatherStrip trip={trip} content={content} date={date} />
 
       {!notesLoading && savedPlaces.length > 0 && (
         <section className="saved-places" aria-label="Saved nearby">
@@ -214,14 +196,7 @@ export function Day() {
             {g.items.map(item => {
               if (item.kind === 'stop') {
                 return (
-                  <StopCard
-                    key={item.id}
-                    item={item}
-                    options={optionsByParent.get(item.id) ?? []}
-                    tripName={trip.name}
-                    done={done.has(item.id)}
-                    onToggle={() => { void handleToggle(item.id) }}
-                  />
+                  <StopRow key={item.id} item={item} tripSlug={trip.slug} booking={bookingForStop(content.bookings, item)} done={done.has(item.id)} onToggle={() => { void handleToggle(item.id) }} />
                 )
               }
               if (item.kind === 'note') {

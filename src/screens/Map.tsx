@@ -16,6 +16,7 @@ import { boundsFor, legsGeoJSON, parkedGeoJSON, placesGeoJSON, stopsGeoJSON } fr
 import { cachedMapStatus, defaultSigner, downloadCityMaps, getCachedMap, getMapsGeneration, MemorySource } from '../lib/offlineMaps'
 import { fmtTime, todayInTrip } from '../lib/time'
 import { walkLink } from '../lib/links'
+import { bookingForStop } from '../lib/tickets'
 import { MapSheet, type MapFeatureKind } from '../components/MapSheet'
 import { nearbyPlaces, nearestN, photoUrl, placePhoto, shouldRefetch, type Place } from '../lib/places'
 import type { OfflineAreaRow } from '../lib/types'
@@ -606,6 +607,11 @@ export default function Map() {
 
   const alreadySaved = !!sheet?.place && notes.savedPlaces.some(p => p.id === sheet.place!.id)
 
+  // The sheet object doesn't carry the underlying item, so look it up again here (cheap:
+  // it's the same find the sheet memo just did) to compute the ticket link once.
+  const sheetItem = selected?.kind === 'stop' && content ? content.items.find(i => i.id === selected.id) ?? null : null
+  const sheetBooking = sheetItem ? bookingForStop(content?.bookings ?? [], sheetItem) : null
+
   // ---- lazy place photo -----------------------------------------------------
   // Cost trim: the nearby search field mask no longer requests photos, so a place's
   // photo is fetched from Place Details only when its sheet actually opens, once per
@@ -743,6 +749,7 @@ export default function Map() {
           details={sheet.details}
           photoSrc={sheet.kind === 'place' ? placePhotoSrc : sheet.photoSrc}
           walkHref={sheet.walkHref}
+          ticketHref={sheetBooking && trip ? `/ticket/${trip.slug}/${sheetBooking.id}` : null}
           onClose={() => { setSelected(null); setSaveError(null); setSaveQueued(null) }}
           onSave={sheet.place ? () => { void handleSave() } : undefined}
           saved={alreadySaved}

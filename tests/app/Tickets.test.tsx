@@ -40,12 +40,12 @@ test('country tabs from trips; city chips only when a country has several trips'
   const es1 = { ...content.trip, slug: 'seville', name: 'Seville', country: 'Spain', country_code: 'es', sort: 2 }
   const es2 = { ...content.trip, slug: 'barcelona', name: 'Barcelona', country: 'Spain', country_code: 'es', sort: 3 }
   mount(content, [content.trip, es1, es2])
-  const tabs = screen.getByRole('tablist', { name: 'Country' })
-  expect(within(tabs).getAllByRole('tab').map(t => t.textContent)).toEqual([content.trip.country, 'Spain'])
-  expect(screen.queryByRole('tablist', { name: 'City' })).toBeNull()
-  fireEvent.click(within(tabs).getByRole('tab', { name: 'Spain' }))
-  const cities = screen.getByRole('tablist', { name: 'City' })
-  expect(within(cities).getAllByRole('tab').map(t => t.textContent)).toEqual(['Seville', 'Barcelona'])
+  const tabs = screen.getByRole('group', { name: 'Country' })
+  expect(within(tabs).getAllByRole('button').map(t => t.textContent)).toEqual([content.trip.country, 'Spain'])
+  expect(screen.queryByRole('group', { name: 'City' })).toBeNull()
+  fireEvent.click(within(tabs).getByRole('button', { name: 'Spain' }))
+  const cities = screen.getByRole('group', { name: 'City' })
+  expect(within(cities).getAllByRole('button').map(t => t.textContent)).toEqual(['Seville', 'Barcelona'])
 })
 
 test('bookings grouped by day with headers, walk-ins absent, cards link to detail', () => {

@@ -7,7 +7,7 @@ import type { PillTone } from '../components/Pill'
 import type { LegRow, RouteRow } from '../lib/types'
 
 const MODE_LABEL: Record<RouteRow['mode'], string> = { walking: 'Walk', driving: 'Taxi', transit: 'Transit' }
-const MODE_TONE: Record<RouteRow['mode'], PillTone> = { walking: 'accent', driving: 'banana', transit: 'columbia' }
+const MODE_TONE: Record<RouteRow['mode'], PillTone> = { walking: 'accent', driving: 'muted', transit: 'muted' }
 
 function fmtDistance(m: number): string {
   if (m >= 1000) return `${(m / 1000).toFixed(1)} km`

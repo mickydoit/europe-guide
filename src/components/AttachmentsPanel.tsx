@@ -82,7 +82,7 @@ export function AttachmentsPanel({ tripSlug, bookingId }: { tripSlug: string; bo
                 {a.filename}
               </button>
               <span className="attachments__size">{fmtSize(a.size)}</span>
-              {a.pendingUpload && <Pill tone="columbia">waiting to upload</Pill>}
+              {a.pendingUpload && <Pill tone="highlight">waiting to upload</Pill>}
               {!a.pendingUpload && cached.has(a.id) && <Pill tone="muted">offline</Pill>}
               <button type="button" className="attachments__delete" onClick={() => void handleDeleteAttachment(a)}>
                 Delete

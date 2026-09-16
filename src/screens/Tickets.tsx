@@ -63,9 +63,9 @@ export function Tickets() {
         <SyncBadge />
       </header>
 
-      <div className="seg" role="tablist" aria-label="Country">
+      <div className="seg" role="group" aria-label="Country">
         {countries.map(c => (
-          <button key={c.country} type="button" role="tab" aria-selected={c === activeCountry}
+          <button key={c.country} type="button" aria-pressed={c === activeCountry}
             className={`seg__tab${c === activeCountry ? ' seg__tab--active' : ''}`}
             onClick={() => { if (c !== activeCountry) setSlug(c.trips[0].slug) }}>
             <Icon set="kind" name={COUNTRY_ICON[c.code?.toLowerCase()] ?? 'event'} size={18} />
@@ -75,9 +75,9 @@ export function Tickets() {
       </div>
 
       {activeCountry.trips.length > 1 && (
-        <div className="chips" role="tablist" aria-label="City">
+        <div className="chips" role="group" aria-label="City">
           {activeCountry.trips.map(t => (
-            <button key={t.slug} type="button" role="tab" aria-selected={t.slug === slug}
+            <button key={t.slug} type="button" aria-pressed={t.slug === slug}
               className={`chips__chip${t.slug === slug ? ' chips__chip--active' : ''}`} onClick={() => setSlug(t.slug)}>
               {t.name}
             </button>

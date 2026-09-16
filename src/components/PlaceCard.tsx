@@ -10,7 +10,7 @@ function firstLine(s: string | null): string | null { if (!s) return null; const
 export function PlaceCard({ item, to, photoSrc }: { item: ItemRow; to: string; photoSrc?: string | null }) {
   const name = item.place_name ?? item.plan.replace(/\*\*/g, '')
   return (
-    <Link to={to} className="place-card" aria-label={name}>
+    <Link to={to} className="place-card">
       <span className="place-card__media">
         {photoSrc ? <img className="place-card__photo" src={photoSrc} alt="" /> : <Icon set="kind" name="event" size={56} className="place-card__icon" />}
       </span>
