@@ -368,3 +368,54 @@ button.status-pill { border: 0; font: inherit; font-size: 11px; font-weight: 700
 .tickets-day__heading { position: sticky; top: 0; z-index: 2; margin: 0 -16px 12px; padding: 10px 16px; background: var(--bg); font-size: 15px; font-weight: 800; letter-spacing: .02em; color: var(--text-soft); }
 .tickets-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 12px; }
 .tickets-earlier { width: 100%; min-height: 44px; margin-bottom: 16px; border: 1px dashed var(--border); border-radius: var(--radius-panel); background: none; color: var(--text-dim); font-weight: 600; cursor: pointer; }
+
+/* Back */
+.back { background: none; border: 0; color: var(--accent); font-weight: 700; font-size: 15px; padding: 0 0 12px; cursor: pointer; }
+
+/* Boarding pass — Figma 1103:45 */
+.pass { display: flex; flex-direction: column; gap: 12px; font-family: var(--font-ticket); }
+.pass__route, .pass__body, .pass__stub { background: var(--surface); border-radius: var(--radius-card); padding: 20px; }
+.pass__route { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 12px; }
+.pass__end { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.pass__end--to { text-align: right; align-items: flex-end; }
+.pass__date { font-size: 12px; color: var(--text-soft); }
+.pass__time { font-size: 26px; font-weight: 700; color: var(--accent); line-height: 1.1; }
+.pass__place { font-size: 15px; font-weight: 600; overflow-wrap: anywhere; }
+.pass__mid { display: flex; flex-direction: column; align-items: center; gap: 6px; min-width: 90px; }
+.pass__glyph { color: var(--highlight); }
+.pass__dots { width: 90px; border-top: 2px dotted rgba(255,255,255,.35); }
+.pass__head { display: flex; justify-content: space-between; gap: 12px; }
+.pass__head > div { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.pass__right { text-align: right; align-items: flex-end; }
+.pass__label { font-size: 13px; color: var(--text-soft); }
+.pass__name { font-size: 16px; font-weight: 600; overflow-wrap: anywhere; }
+.pass__ref { font-size: 16px; font-weight: 700; color: var(--accent); }
+.pass__cells { display: grid; grid-template-columns: repeat(auto-fit, minmax(72px, 1fr)); gap: 12px; margin: 16px 0 0; padding: 14px 16px; background: var(--bg); border-radius: 14px; }
+.pass__cell dt { font-size: 12px; color: var(--text-soft); margin-bottom: 4px; }
+.pass__cell dd { margin: 0; font-size: 15px; font-weight: 700; overflow-wrap: anywhere; }
+.pass__stub { position: relative; margin-top: 10px; font-family: var(--font); }
+.pass__stub::before { content: ''; position: absolute; left: 24px; right: 24px; top: -11px; border-top: 2px dashed rgba(255,255,255,.35); }
+.pass__stub::after, .pass__body::after { content: ''; position: absolute; width: 22px; height: 22px; border-radius: 50%; background: var(--bg); }
+.pass__body { position: relative; }
+.pass__body::after { left: -11px; bottom: -22px; box-shadow: calc(100% + 0px) 0 0 0 transparent; }
+.pass__stub::after { right: -11px; top: -22px; }
+.pass__status { display: flex; flex-direction: column; gap: 10px; margin-bottom: 16px; }
+.pass__notes { margin: 0; font-size: 14px; color: var(--text-soft); }
+
+/* Place detail — Figma 1103:161 as a screen */
+.place-detail { display: flex; flex-direction: column; gap: 14px; }
+.place-detail__hero { position: relative; min-height: 220px; border-radius: var(--radius-card); background: var(--lavender); color: var(--text-on-lavender);
+  display: flex; flex-direction: column; justify-content: flex-end; padding: 20px; overflow: hidden; }
+.place-detail__hero--event { background: var(--surface); color: var(--text); }
+.place-detail__glyph { position: absolute; right: 20px; top: 20px; opacity: .35; }
+.place-detail__title { margin: 0; font-family: var(--font-ticket); font-weight: 700; font-size: 28px; line-height: 1.1; text-transform: uppercase; letter-spacing: .02em; overflow-wrap: anywhere; }
+.place-detail__facts { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; font-size: 14px; font-weight: 700; color: var(--text-soft); }
+.place-detail__plan, .place-detail__text { margin: 0; font-size: 15px; line-height: 1.4; color: var(--text-soft); overflow-wrap: anywhere; }
+.place-detail__address { display: flex; align-items: center; gap: 6px; margin: 0; font-size: 14px; color: var(--text-soft); }
+.place-detail__actions { display: flex; gap: 18px; }
+.option-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.option-card { background: var(--surface); border-radius: var(--radius-panel); padding: 14px 16px; }
+.option-card__name { margin: 0; font-weight: 700; }
+.option-card__details { margin: 6px 0 8px; font-size: 14px; color: var(--text-soft); }
+.tick { width: 40px; height: 40px; border-radius: 50%; border: 1px solid var(--border); background: none; color: var(--text-dim); cursor: pointer; margin-left: auto; }
+.tick--done { color: var(--text-on-lavender); background: var(--accent); border-color: var(--accent); }

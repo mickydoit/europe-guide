@@ -10,6 +10,8 @@ import { More } from './screens/More'
 import { Home } from './screens/Home'
 import { Day } from './screens/Day'
 import { Tickets } from './screens/Tickets'
+import { TicketDetail } from './screens/TicketDetail'
+import { PlaceDetail } from './screens/PlaceDetail'
 import { Routes as RoutesScreen } from './screens/Routes'
 const MapScreen = lazy(() => import('./screens/Map'))
 function Shell() { return <><ScrollReset /><Outlet /><TabBar /></> }
@@ -30,6 +32,8 @@ export default function App() {
             </Suspense>
           } />
           <Route path="/tickets" element={<Tickets />} />
+          <Route path="/ticket/:trip/:id" element={<TicketDetail />} />
+          <Route path="/place/:id" element={<PlaceDetail />} />
           <Route path="/bookings" element={bookingsRedirect} />
           <Route path="/routes" element={<RoutesScreen />} />
           <Route path="/more" element={<More />} />

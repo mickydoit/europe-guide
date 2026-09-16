@@ -1,0 +1,31 @@
+import { render, screen, fireEvent } from '@testing-library/react'
+import { MemoryRouter, Routes, Route } from 'react-router-dom'
+import { vi, beforeEach, test, expect } from 'vitest'
+import { TripProvider } from '../../src/lib/trip'
+import { loadValle } from '../helpers/content'
+import type { CityContent } from '../../src/lib/types'
+
+const { toggle } = vi.hoisted(() => ({ toggle: vi.fn(async () => ({ queued: false })) }))
+vi.mock('../../src/lib/state', () => ({ useChecks: () => ({ done: new Set<string>(), loading: false, toggle }), QUEUED_COPY: 'q' }))
+
+import { PlaceDetail } from '../../src/screens/PlaceDetail'
+
+const throwingClient = new Proxy({}, { get() { throw new Error('no network in tests') } }) as never
+let content: CityContent
+beforeEach(async () => { content = await loadValle(); toggle.mockClear() })
+
+test('shows the stop, its details, walk link and options; tick calls toggle', () => {
+  const stop = content.items.find(i => i.kind === 'stop' && content.items.some(o => o.kind === 'option' && o.parent_item === i.id))!
+  render(
+    <MemoryRouter initialEntries={[`/place/${encodeURIComponent(stop.id)}`]}>
+      <TripProvider initial={{ trips: [content.trip], slug: 'valle', content }} client={throwingClient}>
+        <Routes><Route path="/place/:id" element={<PlaceDetail />} /></Routes>
+      </TripProvider>
+    </MemoryRouter>,
+  )
+  expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(stop.place_name ?? stop.plan.replace(/\*\*/g, ''))
+  const options = content.items.filter(o => o.kind === 'option' && o.parent_item === stop.id)
+  for (const o of options) expect(screen.getByText(new RegExp((o.place_name ?? o.plan).replace(/[.*+?^${}()|[\]\\]/g, '\\$&').slice(0, 12)))).toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button', { name: /Mark done/ }))
+  expect(toggle).toHaveBeenCalledWith(stop.id)
+})
