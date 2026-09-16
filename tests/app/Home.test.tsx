@@ -135,6 +135,8 @@ test('Home warms every non-null photo path across items and bookings', () => {
   modified.items.forEach((i, idx) => { if (idx % 2 === 0) { i.photo_path = `item-${idx}.jpg`; expected.push(i.photo_path) } })
   modified.bookings.forEach((b, idx) => { if (idx % 2 === 0) { b.photo_path = `booking-${idx}.jpg`; expected.push(b.photo_path) } })
   renderHome(modified)
+  expect(warmPhotosMock).not.toHaveBeenCalled()   // visible cards get the connection first
+  vi.advanceTimersByTime(4_000)
   expect(warmPhotosMock).toHaveBeenCalledWith('valle', expected)
 })
 

@@ -8,22 +8,22 @@ const browser = await chromium.launch({ headless: true, executablePath: process.
 const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true })
 const page = await ctx.newPage(); const log = []
 page.on('pageerror', e => log.push('[pageerror] ' + e.message))
-await page.goto(`${base}/reset#${frag}`, { waitUntil: 'networkidle' }); await page.waitForTimeout(2500)
+await page.goto(`${base}/reset#${frag}`, { waitUntil: 'load' }); await page.waitForTimeout(2500)
 const shots = [
   ['home', `/?trip=${trip}`], ['day', `/day/${date}?trip=${trip}`], ['tickets', `/tickets?trip=${trip}`], ['more', `/more?trip=${trip}`], ['map', `/map/${date}?trip=${trip}`],
 ]
 for (const [name, path] of shots) {
-  await page.goto(base + path, { waitUntil: 'networkidle' }); await page.waitForTimeout(name === 'map' ? 7000 : 2500)
+  await page.goto(base + path, { waitUntil: 'load' }); await page.waitForTimeout(name === 'map' ? 7000 : name === 'day' ? 4000 : 12000)   // photos: each card downloads its own image first
   await page.screenshot({ path: `${outDir}/${name}.png`, fullPage: name !== 'map' })
   log.push(`${name}: ${page.url()}`)
 }
 // First ticket and first place from the Tickets and Day screens
-await page.goto(`${base}/tickets?trip=${trip}`, { waitUntil: 'networkidle' }); await page.waitForTimeout(2000)
+await page.goto(`${base}/tickets?trip=${trip}`, { waitUntil: 'load' }); await page.waitForTimeout(2000)
 // The app now writes ?trip= into its own /ticket and /place links (a cold full-page load
 // re-resolves the trip from the query string), so use the href as-is and only append when
 // an older build's link arrives without it.
 const withTrip = h => (h.includes('trip=') ? h : `${h}?trip=${trip}`)
-const ticket = await page.locator('a.ticket-card__link').first().getAttribute('href'); if (ticket) { await page.goto(base + withTrip(ticket.replace('/europe-guide', '')), { waitUntil: 'networkidle' }); await page.waitForTimeout(2000); await page.screenshot({ path: `${outDir}/ticket.png`, fullPage: true }) }
-await page.goto(`${base}/day/${date}?trip=${trip}`, { waitUntil: 'networkidle' }); await page.waitForTimeout(2000)
-const place = await page.locator('a.stop-row__main').first().getAttribute('href'); if (place) { await page.goto(base + withTrip(place.replace('/europe-guide', '')), { waitUntil: 'networkidle' }); await page.waitForTimeout(2000); await page.screenshot({ path: `${outDir}/place.png`, fullPage: true }) }
+const ticket = await page.locator('a.ticket-card__link').first().getAttribute('href'); if (ticket) { await page.goto(base + withTrip(ticket.replace('/europe-guide', '')), { waitUntil: 'load' }); await page.waitForTimeout(8000); await page.screenshot({ path: `${outDir}/ticket.png`, fullPage: true }) }
+await page.goto(`${base}/day/${date}?trip=${trip}`, { waitUntil: 'load' }); await page.waitForTimeout(2000)
+const place = await page.locator('a.stop-row__main').first().getAttribute('href'); if (place) { await page.goto(base + withTrip(place.replace('/europe-guide', '')), { waitUntil: 'load' }); await page.waitForTimeout(8000); await page.screenshot({ path: `${outDir}/place.png`, fullPage: true }) }
 console.log(log.join('\n')); await browser.close()

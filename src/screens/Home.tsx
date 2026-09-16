@@ -18,6 +18,7 @@ import { warmTripAttachments } from '../lib/attachmentsWarm'
 import { warmTripPhotos } from '../lib/photos'
 
 const NOW_TICK_MS = 30_000
+const PHOTO_WARM_DELAY_MS = 4_000
 
 export function Home() {
   const { trips, content, loading, error, refresh, setSlug } = useTrip()
@@ -38,10 +39,13 @@ export function Home() {
     void warmTripAttachments(warmSlug).catch(() => {})
   }, [warmSlug])
 
+  // Photos for the whole trip, but not straight away: the cards on screen fetch their own photo
+  // first, and a 45-file background pass on the same connection would make them wait for it.
   useEffect(() => {
     if (!content) return
     const paths = [...content.items, ...content.bookings].map(r => r.photo_path).filter((p): p is string => !!p)
-    void warmTripPhotos(content.trip.slug, paths).catch(() => {})
+    const id = setTimeout(() => { void warmTripPhotos(content.trip.slug, paths).catch(() => {}) }, PHOTO_WARM_DELAY_MS)
+    return () => clearTimeout(id)
   }, [content])
 
   // The owner wakes up in the next city: the ambient trip is still whichever one they last
