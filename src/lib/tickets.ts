@@ -116,13 +116,15 @@ function norm(s: string): string { return s.replace(/\*\*/g, '').toLowerCase().r
 
 export function bookingForStop(bookings: BookingRow[], item: ItemRow): BookingRow | null {
   const names = [item.place_name, item.plan].filter((x): x is string => !!x).map(norm).filter(n => n.length >= 4)
+  const matches: BookingRow[] = []
   for (const b of bookings) {
     if (!isTicket(b)) continue
     const t = norm(b.title.split(/ — | - /)[0])
     if (t.length < 4) continue
-    if (names.some(n => n.includes(t) || t.includes(n))) return b
+    if (names.some(n => n.includes(t) || t.includes(n))) matches.push(b)
   }
-  return null
+  if (!matches.length) return null
+  return matches.find(b => b.date === item.date) ?? matches[0]
 }
 
 export function stopsForCards(content: CityContent, date: string): ItemRow[] {

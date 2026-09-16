@@ -113,17 +113,28 @@ test('effectiveStatus and cycleStatus', () => {
 })
 
 test('bookingForStop matches by name, case-insensitive, either direction of containment', () => {
-  const dinner = content.bookings.find(x => x.id === 'B01')!
   const stop = content.items.find(i => i.kind === 'stop' && /Trattoria Alba/i.test(i.plan))!
-  expect(bookingForStop(content.bookings, stop)?.id).toBe('B01')
   expect(bookingForStop(content.bookings, { ...stop, plan: 'Unrelated', place_name: 'Nowhere' })).toBeNull()
-  expect(dinner.title).toMatch(/Trattoria Alba/)
+})
+
+test('bookingForStop prefers the booking dated the same as the stop', () => {
+  // Fixture has the same dinner twice: B01 booked 2026-11-01, T01 to-book 2026-11-02.
+  // The Trattoria Alba stop itself is on 2026-11-02, so the same-date booking should win.
+  const stop = content.items.find(i => i.kind === 'stop' && /Trattoria Alba/i.test(i.plan))!
+  expect(stop.date).toBe('2026-11-02')
+  expect(bookingForStop(content.bookings, stop)?.id).toBe('T01')
+  expect(bookingForStop(content.bookings, { ...stop, date: '2026-11-01' })?.id).toBe('B01')
 })
 
 test('stopsForCards: timed, named, not a booking, sorted', () => {
-  const stops = stopsForCards(content, '2026-11-01')
-  expect(stops.every(s => s.kind === 'stop' && s.place_name && (s.time || s.time_text))).toBe(true)
-  expect(stops.some(s => /Trattoria Alba/i.test(s.plan))).toBe(false)
+  const day1 = stopsForCards(content, '2026-11-01')
+  expect(day1.every(s => s.kind === 'stop' && s.place_name && (s.time || s.time_text))).toBe(true)
+
+  // 2026-11-02 actually carries the Trattoria stop, so this exercises the booking-exclusion path.
+  const day2 = stopsForCards(content, '2026-11-02')
+  expect(day2.length).toBeGreaterThan(0)
+  expect(day2.every(s => s.kind === 'stop' && s.place_name && (s.time || s.time_text))).toBe(true)
+  expect(day2.some(s => /Trattoria Alba/i.test(s.plan))).toBe(false)
 })
 
 test('kindIcon', () => {
