@@ -1960,6 +1960,13 @@ export function StopRow({ item, tripSlug, booking, done, onToggle }: {
 - `git rm src/components/OptionsCard.tsx src/components/TileRow.tsx src/components/TripPicker.tsx src/components/StopCard.tsx` and any test files that import them.
 - `src/styles/tokens.css`: delete the legacy-alias block. Then `grep -n "var(--card)\|var(--card-alt)\|var(--bg-2)\|var(--salmon)\|var(--banana)\|var(--granny)\|var(--golden)\|var(--columbia)\|var(--coral)" src/styles/base.css` and re-point each: `--card`→`--surface`, `--card-alt`/`--bg-2`→`--surface`, `--salmon`→`--lavender`, `--banana`/`--golden`→`--highlight`, `--columbia`/`--coral`/`--granny`→`--accent`. Delete the `.trip-picker*`, `.stop-card*` rules.
 
+- [ ] **Step 7b: Carried review findings (from Tasks 4–6)**
+
+- `src/components/PlaceCard.tsx`: remove `aria-label={name}` from the Link so its accessible name comes from the visible title/text (same fix TicketCard received).
+- `src/screens/Tickets.tsx`: the country and city strips use `role="tablist"`/`role="tab"` with no tab panels. Change both containers to `role="group"` with the same `aria-label`, each button to a plain `<button type="button" aria-pressed={selected}>`, and update `tests/app/Tickets.test.tsx` to query `getByRole('group', { name: 'Country' })` / `getAllByRole('button')` within it (and the same for 'City'). Behaviour unchanged.
+- `src/lib/weather.ts`: `getCurrent`, `mapCurrent` and the `Current` type are unused since Home dropped the hero overlay. Delete them and any test that only covered them (`grep -rn "getCurrent\|mapCurrent" tests src`).
+- `src/styles/base.css`: add `.ticket-card--past .status-pill--not_booked { background: rgba(255,255,255,.08); color: var(--text-dim); }` so past cards keep pill contrast.
+
 - [ ] **Step 8: Restyle blocks (edit in base.css)**
 
 ```css
