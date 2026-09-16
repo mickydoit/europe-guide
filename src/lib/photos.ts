@@ -24,7 +24,12 @@ export function usePhoto(path: string | null | undefined, client: SupabaseClient
       try {
         const store = typeof caches === 'undefined' ? undefined : caches
         const blob = store ? await getCachedPhotoBlob(path, store) : null
-        if (blob) { objectUrl = URL.createObjectURL(blob); if (alive) setSrc(objectUrl); return }
+        if (blob) {
+          if (!alive) return   // unmounted/path changed while the cache read was pending: don't leak an object URL
+          objectUrl = URL.createObjectURL(blob)
+          setSrc(objectUrl)
+          return
+        }
         if (typeof navigator !== 'undefined' && navigator.onLine === false) return
         const url = await signedPhotoUrl(path, client)
         if (alive) setSrc(url)
