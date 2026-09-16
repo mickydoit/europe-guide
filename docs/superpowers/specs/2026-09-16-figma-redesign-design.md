@@ -41,7 +41,7 @@ Font weights shipped: Overpass 400, 600, 800; Poppins 500, 700. The existing tin
 
 ## 4. Booking kind
 
-A new `kind_hint` value on bookings, one of `transport`, `accommodation`, `event`. Set by the import from the markdown field `**kind:**` when present, otherwise inferred from title and notes with a keyword list: flight, train, AVE, taxi, Bolt, airport, transfer, ferry, cab → transport; hotel, stay, flat, apartment, check-in, Airbnb → accommodation; else event. Inference is a pure function with tests; the markdown field always wins. Column name `kind_hint` avoids clashing with the existing `kind` (booked/todo/walkin).
+A booking's kind is one of `transport`, `accommodation`, `event`, computed in the app (no new column). The markdown field `**kind:**` lands in the existing `fields` JSON via the parser and wins when it holds one of those three values; otherwise the kind is inferred from the **title only** with a keyword list: flight, train, AVE, taxi, Bolt, airport, transfer, ferry, cab → transport; hotel, stay, flat, apartment, check-in, Airbnb → accommodation; else event. Notes are not consulted because they mention taxis and hotels in passing. Inference is a pure function with tests. (Amended 16 Sep during planning: was a `kind_hint` column set at import, and title+notes.)
 
 ## 5. Screens
 
@@ -65,7 +65,7 @@ Order: greeting header; weather row; world map hero; next-up card; tickets row; 
 ### 5.3 Tickets `/tickets`
 
 - **Country tabs** from `trips.country` in trip sort order, Figma tab style (icon + label, selected filled `--highlight`). Selecting a country selects its first city.
-- **City chips** shown only when a country has two or more trips. Selecting a city calls `setSlug`, so Day and Map follow.
+- **City chips** shown only when a country has two or more trips. Selecting a city calls `setSlug`, so Day and Map follow. The app loads one city's content at a time, so the list below always shows the selected city's bookings; the tabs are how you move between cities.
 - **List** grouped by date with sticky headers "Tuesday 6 October". Each booking renders as a `TicketCard`: title, two data lines chosen by kind (transport: time and reference/cost; accommodation: check-in date and reference; event: time and cost), photo or kind icon on the right, colour by rule. Status pill (booked / not booked / unconfirmed / decide) at the bottom-right; tapping cycles status exactly as Bookings does today via the offline queue. Tapping the card opens the detail screen.
 - Days before today collapse into one row "N earlier days" that expands on tap.
 - The route `/bookings` redirects to `/tickets` so old links and the ics export keep working.
@@ -110,7 +110,7 @@ Tokens and fonts only.
 ### 6.1 Storage and schema
 
 - New private bucket `photos`, owner-only policies mirroring `maps` and `tickets`.
-- Migration `20260916000007_photos_kind.sql`: `items.photo_path text`, `items.photo_credit text`, `bookings.photo_path text`, `bookings.photo_credit text`, `bookings.kind_hint text check (kind_hint in ('transport','accommodation','event'))`. The `import_city` function is updated to carry the new columns (it uses `jsonb_populate_recordset`, so the record type must include them).
+- Migration `20260916000007_photos.sql`: `items.photo_path text`, `items.photo_credit text`, `bookings.photo_path text`, `bookings.photo_credit text`. The `import_city` function is updated to carry the new columns (it uses `jsonb_populate_recordset`, so the record type must include them).
 - Photo path convention `<trip>/<item or booking id>.jpg`, 800 px wide JPEG, quality 80.
 
 ### 6.2 Import step
@@ -132,7 +132,7 @@ The server key needs Places API (New) added to its API restrictions; this is an 
 ## 7. Data flow additions
 
 - `useTrip` gains `activeTripForToday()` used by Home; Tickets keeps calling `setSlug`.
-- `nextBooking(bookings, nowInTrip)` and `inferKind(title, notes)` are pure functions in `src/lib/tickets.ts`.
+- `nextTicket(content, date, minutes)` and `inferKind(booking)` are pure functions in `src/lib/tickets.ts`.
 - Grouping for Tickets: `groupTickets(trips, bookings) → country → city → date → bookings[]`, pure, tested.
 
 ## 8. Error handling
