@@ -162,9 +162,12 @@ test('stopsForCards: timed, named, not a booking, sorted', () => {
 
 test('kindIcon', () => {
   expect(kindIcon('transport', 'Flight to Seville')).toBe('plane')
-  expect(kindIcon('transport', 'AVE Seville → Barcelona')).toBe('car')   // trains and taxis share the car glyph until Plan 6 photos
+  expect(kindIcon('transport', 'AVE Seville → Barcelona')).toBe('train')
+  expect(kindIcon('transport', 'Metro to Sants')).toBe('train')
+  expect(kindIcon('transport', 'Bolt to Belém')).toBe('car')
+  expect(kindIcon('event', 'Trattoria Alba — dinner')).toBe('meal')
   expect(kindIcon('accommodation', 'Hotel')).toBe('hotel')
-  expect(kindIcon('event', 'Dinner')).toBe('event')
+  expect(kindIcon('event', 'Mesa de Frades — fado show')).toBe('event')
   expect(kindIcon('transport', 'Ryanair FR3628 LIS → SVQ')).toBe('plane')
 })
 

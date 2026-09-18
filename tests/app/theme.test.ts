@@ -21,7 +21,10 @@ test('fonts are self-hosted and declared', () => {
 
 test('nav and kind icons exist', () => {
   for (const n of ['home', 'calendar', 'map', 'suitcase', 'profile']) expect(existsSync(`public/icons/nav/${n}.svg`)).toBe(true)
-  for (const n of ['plane', 'car', 'hotel', 'event']) expect(existsSync(`public/icons/kind/${n}.svg`)).toBe(true)
+  for (const n of ['plane', 'car', 'train', 'hotel', 'event', 'meal']) {
+    expect(existsSync(`public/icons/kind/${n}.svg`)).toBe(true)
+    expect(existsSync(`public/icons/badge/${n}.svg`)).toBe(true)
+  }
 })
 
 test('workbox precaches woff2', () => {

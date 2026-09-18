@@ -14,6 +14,9 @@ const FLIGHT_CODE_RE = /\b[A-Z]{2}\s?\d{3,4}\b/
 const CARRIER_RE = /\b(ryanair|easyjet|vueling|iberia|tap|lufthansa|british airways|klm|air france|turkish)\b/i
 function isFlight(title: string): boolean { return FLIGHT_CODE_RE.test(title) || CARRIER_RE.test(title) }
 const STAY_RE = /\b(hotel|hostel|stay|flat|apartment|airbnb|check-?in|check-?out|nights?|riad|guesthouse)\b/i
+// Rail keywords beat the flight-code heuristic below: "AVE 03971 Madrid → Sevilla" is a train.
+const TRAIN_RE = /\b(train|rail|renfe|ave|metro|tram|subway|underground)\b/i
+const MEAL_RE = /\b(dinner|lunch|breakfast|brunch|restaurant|tapas|meal|dining|bistro|trattoria)\b/i
 
 export function inferKind(b: Pick<BookingRow, 'title' | 'fields'>): TicketKind {
   const explicit = b.fields?.kind?.trim().toLowerCase()
@@ -23,10 +26,15 @@ export function inferKind(b: Pick<BookingRow, 'title' | 'fields'>): TicketKind {
   return 'event'
 }
 
-export function kindIcon(kind: TicketKind, title: string): 'plane' | 'car' | 'hotel' | 'event' {
+export type KindIcon = 'plane' | 'car' | 'train' | 'hotel' | 'event' | 'meal'
+
+export function kindIcon(kind: TicketKind, title: string): KindIcon {
   if (kind === 'accommodation') return 'hotel'
-  if (kind === 'transport') return PLANE_RE.test(title) || isFlight(title) ? 'plane' : 'car'
-  return 'event'
+  if (kind === 'transport') {
+    if (TRAIN_RE.test(title)) return 'train'
+    return PLANE_RE.test(title) || isFlight(title) ? 'plane' : 'car'
+  }
+  return MEAL_RE.test(title) ? 'meal' : 'event'
 }
 
 export function isTicket(b: BookingRow): boolean { return b.kind !== 'walkin' }

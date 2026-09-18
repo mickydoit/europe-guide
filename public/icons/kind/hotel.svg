@@ -1,8 +1,11 @@
-<svg preserveAspectRatio="none" overflow="visible" style="display: block;" width="76" height="94" viewBox="0 0 76 94" fill="none" xmlns="http://www.w3.org/2000/svg">
-<g id="hotel">
-<g id="Vector">
-<path d="M60.5 11V2H15.5V11H2V92H29V83H47V92H74V11H60.5ZM33.5 69.5H24.5V60.5H33.5V69.5ZM33.5 51.5H24.5V42.5H33.5V51.5ZM33.5 33.5H24.5V24.5H33.5V33.5ZM51.5 69.5H42.5V60.5H51.5V69.5ZM51.5 51.5H42.5V42.5H51.5V51.5ZM51.5 33.5H42.5V24.5H51.5V33.5Z" fill="#070606" fill-opacity="0.3"/>
-<path d="M61.5 1V10H75V93H46V84H30V93H1V10H14.5V1H61.5ZM43.5 68.5H50.5V61.5H43.5V68.5ZM25.5 68.5H32.5V61.5H25.5V68.5ZM43.5 50.5H50.5V43.5H43.5V50.5ZM25.5 50.5H32.5V43.5H25.5V50.5ZM43.5 32.5H50.5V25.5H43.5V32.5ZM25.5 32.5H32.5V25.5H25.5V32.5Z" stroke="#070606" stroke-opacity="0.5" stroke-width="2"/>
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128" fill="none"><g transform="translate(6.000 13.123) scale(1.01754)">
+<g id="hotel-bed-5--bed-bedrooms-beds-bedroom-bunk-hotel">
+<path id="Rectangle 2141" d="M57 31C57 30.4477 57.4477 30 58 30H111C111.552 30 112 30.4477 112 31V84C112 84.5523 111.552 85 111 85H58C57.4477 85 57 84.5523 57 84V31Z" fill="none"/>
+<path id="Vector" d="M2 100V0" stroke="#434343" stroke-width="4"/>
+<path id="Vector_2" d="M112 100V31C112 30.4477 111.552 30 111 30L58 30.0002C57.4477 30.0002 57 30.4479 57 31.0002V85.0002" stroke="#434343" stroke-width="4"/>
+<path id="Vector_3" d="M2 85H112" stroke="#434343" stroke-width="4"/>
+<path id="Vector 4095" d="M57 65H2" stroke="#434343" stroke-width="4"/>
+<path id="Ellipse 1110" d="M39.5 37.5C39.5 43.023 35.0229 47.5 29.5 47.5C23.9771 47.5 19.5 43.023 19.5 37.5C19.5 31.9771 23.9771 27.5 29.5 27.5C35.0229 27.5 39.5 31.9771 39.5 37.5Z" fill="none"/>
+<path id="Ellipse 1111" d="M39.5 37.5C39.5 43.023 35.0229 47.5 29.5 47.5C23.9771 47.5 19.5 43.023 19.5 37.5C19.5 31.9771 23.9771 27.5 29.5 27.5C35.0229 27.5 39.5 31.9771 39.5 37.5Z" fill="none" stroke="#434343" stroke-width="4"/>
 </g>
-</g>
-</svg>
+</g></svg>

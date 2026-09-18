@@ -1,5 +1,19 @@
 # Figma source
 
+## Kind icons (current)
+File: https://www.figma.com/design/gHaBP11DxH2XY163UaVl3U/Untitled?node-id=0-1
+The six kind glyphs are 120x120 frames sitting *beside* the `Icons` panel (1:315), not inside it:
+`Ticket/event` 1:803, `Meal` 1:761, `flight` 1:779, `Accomodation` 1:770, `Train` 1:783, `Taxi` 1:793.
+Exported 18 Sep 2026 into `figma-assets/icons-2026-09-18/`.
+
+They are two-tone line icons (fill #B39DE1, stroke #434343 at 4px). `Icon` renders every SVG as a
+CSS mask, so `public/icons/kind/*` drop the fill (mask alpha = the linework) and `public/icons/badge/*`
+keep it (mask alpha = a solid silhouette, the only thing legible at 14px). Both are normalised onto a
+shared 128x128 square canvas so the set is optically consistent and the edge-centred strokes, which
+Figma exports with `overflow="visible"`, do not bleed outside the box.
+
+## Original redesign source (16 Sep)
+
 File: https://www.figma.com/design/iDR4YtZgigRmZXewbojqE9/Untitled?node-id=0-1
 Home screen frame: node 1:1478 (symbol `home` 1:575), 402 × 2580.
 Assets exported 14 Sep 2026 into `figma-assets/` (Figma's export URLs expire after 7 days).

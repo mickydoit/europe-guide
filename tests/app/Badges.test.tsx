@@ -4,14 +4,18 @@ import { Badges } from '../../src/components/Badges'
 
 function mask(el: Element | null): string { return (el as HTMLElement | null)?.style.maskImage ?? '' }
 
-test('kind badge picks the plane/car/hotel/event glyph from the badge set', () => {
+test('kind badge picks the plane/car/train/hotel/event/meal glyph from the badge set', () => {
   const { container, rerender } = render(<Badges kind="transport" title="Ryanair FR3628 LIS → SVQ" status="booked" />)
   expect(mask(container.querySelector('.badge--kind .icon'))).toContain('/icons/badge/plane.svg')
   rerender(<Badges kind="transport" title="Taxi to Benfica" status="booked" />)
   expect(mask(container.querySelector('.badge--kind .icon'))).toContain('/icons/badge/car.svg')
   rerender(<Badges kind="accommodation" title="Hotel" status="booked" />)
   expect(mask(container.querySelector('.badge--kind .icon'))).toContain('/icons/badge/hotel.svg')
+  rerender(<Badges kind="transport" title="AVE Seville → Barcelona" status="booked" />)
+  expect(mask(container.querySelector('.badge--kind .icon'))).toContain('/icons/badge/train.svg')
   rerender(<Badges kind="event" title="Dinner" status="booked" />)
+  expect(mask(container.querySelector('.badge--kind .icon'))).toContain('/icons/badge/meal.svg')
+  rerender(<Badges kind="event" title="Mesa de Frades — fado show" status="booked" />)
   expect(mask(container.querySelector('.badge--kind .icon'))).toContain('/icons/badge/event.svg')
 })
 
