@@ -2,6 +2,7 @@ import type { Status } from '../lib/tickets'
 
 const LABEL: Record<Exclude<Status, null>, string> = {
   not_booked: 'Not booked', booked: 'Booked', confirmed: 'Confirmed', cancelled: 'Cancelled', undecided: 'Undecided',
+  reserved_unpaid: 'Unpaid hold', unconfirmed: 'Unconfirmed', walk_up: 'Walk up', not_needed: 'Not needed',
 }
 
 export function StatusPill({ status, onClick }: { status: Status; onClick?: () => void }) {

@@ -292,6 +292,15 @@ button.status-pill::before { content: ''; position: absolute; inset: -12px -6px;
 .status-pill--not_booked { background: rgba(0,0,0,.35); color: #fff; }
 .status-pill--undecided { background: var(--highlight); color: var(--text-on-light); }
 .status-pill--cancelled, .status-pill--none { background: rgba(0,0,0,.25); color: rgba(255,255,255,.7); }
+/* Schema 1.1 statuses. reserved_unpaid and unconfirmed want attention (a deadline, a doubt);
+   walk_up and not_needed carry no action at all and must read as quiet, not as outstanding tasks. */
+.status-pill--reserved_unpaid { background: var(--highlight); color: var(--text-on-light); }
+.status-pill--unconfirmed { background: transparent; box-shadow: inset 0 0 0 1px var(--highlight); color: var(--highlight); }
+.status-pill--walk_up { background: rgba(255,255,255,.12); color: var(--text-soft); }
+.status-pill--not_needed { background: rgba(255,255,255,.06); color: var(--text-dim); text-decoration: line-through; }
+.ticket-card--accommodation .status-pill--walk_up, .ticket-card--event .status-pill--walk_up, .ticket-card--highlight .status-pill--walk_up,
+.ticket-card--accommodation .status-pill--not_needed, .ticket-card--event .status-pill--not_needed, .ticket-card--highlight .status-pill--not_needed { background: rgba(7,6,6,.05); color: rgba(7,6,6,.55); }
+.ticket-card--accommodation .status-pill--unconfirmed, .ticket-card--event .status-pill--unconfirmed, .ticket-card--highlight .status-pill--unconfirmed { box-shadow: inset 0 0 0 1px rgba(7,6,6,.45); color: inherit; }
 .ticket-card--accommodation .status-pill--not_booked, .ticket-card--event .status-pill--not_booked, .ticket-card--highlight .status-pill--not_booked { background: rgba(0,0,0,.12); color: inherit; }
 .ticket-card--past .status-pill--not_booked { background: rgba(255,255,255,.08); color: var(--text-dim); }
 

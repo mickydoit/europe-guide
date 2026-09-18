@@ -2,7 +2,8 @@ import type { BookingRow, CityContent, ItemRow, TripRow } from './types'
 import { fmtDay, minutesOf } from './time'
 
 export type TicketKind = 'transport' | 'accommodation' | 'event'
-export type Status = 'not_booked' | 'booked' | 'confirmed' | 'cancelled' | 'undecided' | null
+export type Status = 'not_booked' | 'booked' | 'confirmed' | 'cancelled' | 'undecided'
+  | 'reserved_unpaid' | 'unconfirmed' | 'walk_up' | 'not_needed' | null
 
 const KINDS = new Set<string>(['transport', 'accommodation', 'event'])
 // Title only: notes mention taxis and hotels in passing ("10 min by taxi") and would misfire.
@@ -113,16 +114,30 @@ export function fourCells(b: BookingRow): { key: string; value: string }[] {
   return cells.slice(0, 4)
 }
 
+const STATUSES = new Set<string>(['not_booked', 'booked', 'confirmed', 'cancelled', 'undecided',
+  'reserved_unpaid', 'unconfirmed', 'walk_up', 'not_needed'])
+
+// The trip export (schema 1.1) carries a richer vocabulary than the app's own. Anything that means
+// "turn up, there is nothing to book" collapses to walk_up; a booking whose time is not trusted is
+// unconfirmed, not booked, because the handoff says to treat it as an action rather than settled.
+const STATUS_ALIAS: Record<string, Exclude<Status, null>> = {
+  walk_in: 'walk_up', pay_on_day: 'walk_up',
+  booked_time_unverified: 'unconfirmed',
+}
+
 export function effectiveStatus(b: BookingRow, row: { status: string | null } | undefined): Status {
   const raw = row?.status ?? b.status_from_file ?? (b.kind === 'booked' ? 'booked' : null)
   if (!raw) return null
   const s = raw.toLowerCase().trim().replace(/\s+/g, '_')
-  if (s === 'booked' || s === 'confirmed' || s === 'cancelled' || s === 'undecided' || s === 'not_booked') return s
+  if (STATUSES.has(s)) return s as Exclude<Status, null>
+  if (STATUS_ALIAS[s]) return STATUS_ALIAS[s]
   if (s.startsWith('booked')) return 'booked'
   return 'not_booked'
 }
 
-export function cycleStatus(s: Status): Exclude<Status, null> {
+// Only the three values booking_state's check constraint allows: the wider schema-1.1 statuses
+// arrive from the file, they are never something the owner can tap their way into.
+export function cycleStatus(s: Status): 'not_booked' | 'booked' | 'confirmed' {
   if (s === 'booked') return 'confirmed'
   if (s === 'confirmed') return 'not_booked'
   if (s === 'cancelled') return 'not_booked'

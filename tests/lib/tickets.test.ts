@@ -135,6 +135,28 @@ test('effectiveStatus and cycleStatus', () => {
   expect(cycleStatus('booked')).toBe('confirmed'); expect(cycleStatus('confirmed')).toBe('not_booked'); expect(cycleStatus('cancelled')).toBe('not_booked')
 })
 
+test('effectiveStatus carries the schema 1.1 vocabulary', () => {
+  const f = (v: string) => effectiveStatus(b({ kind: 'todo', status_from_file: v }), undefined)
+  // Kept verbatim: each of these has its own pill and its own meaning.
+  expect(f('reserved_unpaid')).toBe('reserved_unpaid')
+  expect(f('unconfirmed')).toBe('unconfirmed')
+  expect(f('not_needed')).toBe('not_needed')
+  expect(f('walk_up')).toBe('walk_up')
+  // Aliases: anything meaning "turn up, nothing to book" lands on walk_up.
+  expect(f('walk_in')).toBe('walk_up')
+  expect(f('pay_on_day')).toBe('walk_up')
+  // A booking whose time is not trusted is an action, not a settled booking — it must NOT
+  // fall through the startsWith('booked') shortcut.
+  expect(f('booked_time_unverified')).toBe('unconfirmed')
+  expect(f('booked elsewhere')).toBe('booked')
+  // Anything genuinely unknown still fails safe to "to book".
+  expect(f('who knows')).toBe('not_booked')
+  // The owner can never tap their way to a status booking_state's check constraint would reject.
+  for (const s of ['reserved_unpaid', 'unconfirmed', 'walk_up', 'not_needed'] as const) {
+    expect(['not_booked', 'booked', 'confirmed']).toContain(cycleStatus(s))
+  }
+})
+
 test('bookingForStop matches by name, case-insensitive, either direction of containment', () => {
   const stop = content.items.find(i => i.kind === 'stop' && /Trattoria Alba/i.test(i.plan))!
   expect(bookingForStop(content.bookings, { ...stop, plan: 'Unrelated', place_name: 'Nowhere' })).toBeNull()
