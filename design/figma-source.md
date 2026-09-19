@@ -26,3 +26,11 @@ Assets exported 14 Sep 2026 into `figma-assets/` (Figma's export URLs expire aft
 - Type: SF Pro Display (H3 28/1.1 bold, H5 20 bold, Caption 14/16 regular), Inter Bold 15/20 for pills
 - Icons: Font Awesome 6 Pro (Light) in the nav — licence needed, otherwise use the exported SVGs
 - Radius: cards 8 / 17, pills 9999
+
+## App icon (current)
+
+Home-screen icon = the `App Icon` frame (3:592, 681x681, dotted globe on #202123) in
+`gHaBP11DxH2XY163UaVl3U`. Exported 19 Sep 2026 at 4x into `figma-assets/app-icon-2026-09-19/`,
+then downscaled with ffmpeg (lanczos, alpha dropped — iOS needs an opaque square) to
+`public/icons/apple-touch-icon.png` (180), `icon-192.png` and `icon-512.png`. iOS keeps the old
+icon until the app is removed from the Home Screen and re-added.
