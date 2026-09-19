@@ -280,6 +280,14 @@ button { font: inherit; }
   -webkit-mask-repeat: no-repeat; mask-repeat: no-repeat; -webkit-mask-position: center; mask-position: center;
   -webkit-mask-size: contain; mask-size: contain; }
 
+/* Screen entrance: a short fade on the route wrapper plus a 6px rise on the screen itself. The rise
+   sits on .screen (not the wrapper) so no transform ever wraps a position:fixed sheet or the map. */
+.screen-enter { animation: screen-fade 180ms ease-out both; }
+.screen-enter > .screen { animation: screen-rise 180ms ease-out both; }
+@keyframes screen-fade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes screen-rise { from { transform: translateY(6px); } to { transform: none; } }
+@media (prefers-reduced-motion: reduce) { .screen-enter, .screen-enter > .screen { animation: none; } }
+
 /* Tab bar — Figma 1:85: a glass slab (blur over whatever scrolls under it), 35px glyphs, no labels, active glyph in --highlight */
 .tabbar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 20; height: calc(84px + var(--safe-bottom));
   padding: 0 24px var(--safe-bottom); background: var(--bg-nav); backdrop-filter: blur(15px) saturate(140%);
