@@ -22,7 +22,7 @@ export function StopRow({ item, tripSlug, booking, done, onToggle }: {
       <Link to={`/place/${encodeURIComponent(item.id)}?trip=${tripSlug}`} className="stop-row__main">
         <span className="stop-row__plan"><Md text={item.plan} noLinks /></span>
         {details && <span className="stop-row__details"><Md text={details} noLinks /></span>}
-        {booking && <span className="stop-row__ticket"><Badges kind={inferKind(booking)} title={booking.title} status={effectiveStatus(booking, undefined)} /></span>}
+        {booking && <span className="stop-row__ticket"><Badges kind={inferKind(booking)} status={effectiveStatus(booking, undefined)} /></span>}
       </Link>
       {booking && <Link to={`/ticket/${tripSlug}/${booking.id}?trip=${tripSlug}`} className="stop-row__ticket-link" aria-label={`Open ticket ${booking.title}`}>Open ticket</Link>}
       <button type="button" className={`tick${done ? ' tick--done' : ''}`} aria-label={done ? 'Mark not done' : 'Mark done'} onClick={onToggle}>✓</button>

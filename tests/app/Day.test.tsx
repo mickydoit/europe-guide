@@ -212,10 +212,10 @@ test('no weather strip and no trip picker on Day', () => {
   expect(document.querySelector('.trip-picker')).toBeNull()
 })
 
-test('a row with a booking shows the kind and status badges', () => {
+test('a row with a booking shows the status badge only', () => {
   renderDay('2026-11-02', content)
   const row = screen.getByRole('link', { name: /Open ticket/ }).closest('.stop-row') as HTMLElement
-  expect(row.querySelector('.badge--kind')).not.toBeNull()
+  expect(row.querySelector('.badge--kind')).toBeNull()
   expect(row.querySelector('.badge--status')).not.toBeNull()
 })
 

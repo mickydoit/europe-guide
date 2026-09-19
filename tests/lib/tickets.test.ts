@@ -191,6 +191,19 @@ test('kindIcon', () => {
   expect(kindIcon('accommodation', 'Hotel')).toBe('hotel')
   expect(kindIcon('event', 'Mesa de Frades — fado show')).toBe('event')
   expect(kindIcon('transport', 'Ryanair FR3628 LIS → SVQ')).toBe('plane')
+  // Ground transport to an airport is a car, not a plane: only real flights get the plane.
+  expect(kindIcon('transport', 'Airport taxi, Sunday departure')).toBe('car')
+  expect(kindIcon('transport', 'Uber to Lisbon Airport')).toBe('car')
+  expect(kindIcon('transport', 'Airport transfer')).toBe('car')
+  // Trains and trams share the train glyph, whatever the operator.
+  expect(kindIcon('transport', 'iryo 06011 Sevilla Santa Justa → Barcelona Sants')).toBe('train')
+  expect(kindIcon('transport', 'Tram 28 to Graça')).toBe('train')
+  expect(kindIcon('transport', 'Cercanías to the airport')).toBe('train')
+})
+
+test('inferKind knows the Spanish rail operators', () => {
+  expect(inferKind({ title: 'iryo 06011 Sevilla Santa Justa → Barcelona Sants', fields: {} })).toBe('transport')
+  expect(inferKind({ title: 'Renfe Alvia to Madrid', fields: {} })).toBe('transport')
 })
 
 test('fourCells hides the route-strip fields (from/to/arrives/ref) but keeps seats and bags', () => {

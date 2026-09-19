@@ -1,5 +1,4 @@
 import { Icon } from './Icon'
-import { kindIcon } from '../lib/tickets'
 import type { Status, TicketKind } from '../lib/tickets'
 
 const KIND_WORD: Record<TicketKind, string> = { transport: 'Transport', accommodation: 'Stay', event: 'Event' }
@@ -14,15 +13,14 @@ function statusTone(status: Status): 'booked' | 'todo' | 'muted' {
 }
 
 /**
- * Two small round badges: what kind of thing this is (plane / car / hotel / ticket stub, from the
- * Figma tab set) and where it stands (green check = booked, yellow alert = still to book, grey =
- * undecided or cancelled). The fast read on every card and row; the pill stays the tap target.
+ * One small round badge saying where the booking stands (green check = booked, yellow alert =
+ * still to book, grey = undecided or cancelled). The kind is already the big glyph on the card,
+ * so it isn't repeated here — it only survives in the spoken label. The pill stays the tap target.
  */
-export function Badges({ kind, title, status }: { kind: TicketKind; title: string; status: Status }) {
+export function Badges({ kind, status }: { kind: TicketKind; status: Status }) {
   const tone = statusTone(status)
   return (
     <span className="badges" role="img" aria-label={`${KIND_WORD[kind]}, ${status ? STATUS_WORD[status] : 'to book'}`}>
-      <span className="badge badge--kind"><Icon set="badge" name={kindIcon(kind, title)} size={14} /></span>
       <span className={`badge badge--status badge--${tone}`}><Icon set="badge" name={tone === 'booked' ? 'check' : 'alert'} size={14} /></span>
     </span>
   )

@@ -10,7 +10,7 @@ export type CardTone = 'transport' | 'accommodation' | 'event' | 'highlight' | '
 
 /**
  * The Figma 1:208 card: Poppins title, one label+value line, one light sub line, the big faded
- * kind glyph right, kind + status badges top-right. No photo here — photos belong to the detail
+ * kind glyph right, status badge top-right. No photo here — photos belong to the detail
  * hero; the card reads at a glance by colour and glyph.
  */
 export function TicketCard({ booking, kind, status, tone, to, onCycleStatus }: {
@@ -33,7 +33,7 @@ export function TicketCard({ booking, kind, status, tone, to, onCycleStatus }: {
         </span>
         <span className="ticket-card__art"><Icon set="kind" name={kindIcon(kind, booking.title)} size={90} className="ticket-card__icon" /></span>
       </Link>
-      <span className="ticket-card__badges"><Badges kind={kind} title={booking.title} status={status} /></span>
+      <span className="ticket-card__badges"><Badges kind={kind} status={status} /></span>
       <span className="ticket-card__status"><StatusPill status={status} onClick={onCycleStatus} /></span>
     </article>
   )

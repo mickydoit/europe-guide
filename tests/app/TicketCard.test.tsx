@@ -27,7 +27,7 @@ test('transport card: teal tone, Poppins title, lines, icon, link', () => {
   expect(screen.getByText('€120 for two')).toBeInTheDocument()
   expect(link.querySelector('.ticket-card__icon')).not.toBeNull()   // the faded kind glyph, right, as in Figma 1:208
   const badges = link.closest('.ticket-card')!.querySelector('.ticket-card__badges')!
-  expect(badges.querySelector('.badge--kind')).not.toBeNull()
+  expect(badges.querySelector('.badge--kind')).toBeNull()   // the kind is the big glyph; only the status badge sits up here
   expect(badges.querySelector('.badge--status')!.className).toContain('badge--todo')
   expect(screen.getByText('Not booked')).toBeInTheDocument()
 })
