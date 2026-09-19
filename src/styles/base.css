@@ -6,7 +6,11 @@
 @font-face { font-family: 'Poppins'; font-style: normal; font-weight: 700; font-display: swap;
   src: url('/europe-guide/fonts/poppins-700.woff2') format('woff2'); }
 *, *::before, *::after { box-sizing: border-box; }
-html, body, #root { height: 100%; margin: 0; }
+/* The app root is the scroller, not the body. iOS lifts a position:fixed bar off the bottom whenever
+   the body is over-scrolled (rubber band, a route change from a long screen to a short one), and the
+   16 Sep scrollTo reset did not catch every case. A body that cannot scroll cannot be over-scrolled. */
+html, body { height: 100%; margin: 0; overflow: hidden; }
+#root { height: 100%; overflow-y: auto; overflow-x: hidden; overscroll-behavior-y: contain; -webkit-overflow-scrolling: touch; }
 body { background: var(--bg); color: var(--text); font-family: var(--font); -webkit-font-smoothing: antialiased; }
 a { color: var(--accent); }
 button { font: inherit; }
