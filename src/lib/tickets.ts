@@ -125,14 +125,18 @@ const STATUS_ALIAS: Record<string, Exclude<Status, null>> = {
   booked_time_unverified: 'unconfirmed',
 }
 
-export function effectiveStatus(b: BookingRow, row: { status: string | null } | undefined): Status {
-  const raw = row?.status ?? b.status_from_file ?? (b.kind === 'booked' ? 'booked' : null)
+/** One place that turns any written-down status into one the app knows. */
+export function normaliseStatus(raw: string | null | undefined): Status {
   if (!raw) return null
   const s = raw.toLowerCase().trim().replace(/\s+/g, '_')
   if (STATUSES.has(s)) return s as Exclude<Status, null>
   if (STATUS_ALIAS[s]) return STATUS_ALIAS[s]
   if (s.startsWith('booked')) return 'booked'
   return 'not_booked'
+}
+
+export function effectiveStatus(b: BookingRow, row: { status: string | null } | undefined): Status {
+  return normaliseStatus(row?.status ?? b.status_from_file ?? (b.kind === 'booked' ? 'booked' : null))
 }
 
 // Only the three values booking_state's check constraint allows: the wider schema-1.1 statuses

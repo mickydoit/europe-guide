@@ -33,6 +33,23 @@ describe('openReminders', () => {
     const r = openReminders(bookings, {}, '2026-10-01')
     expect(r).toEqual([{ booking: decideOnly, label: 'Decide Pick a place by 10 Oct', overdue: false }])
   })
+
+  it('closes reminders for statuses that carry no action, whatever spelling the file used', () => {
+    // A superseded row exists so nobody re-books it, and a walk-up needs no booking at all —
+    // neither should ever appear as something to chase.
+    const mk = (id: string, status: string) => {
+      const b = blankBooking(id, 'todo', `Thing ${id}`, null, null)
+      b.book_by = '2026-10-10'; b.status_from_file = status
+      return b
+    }
+    const bookings: BookingRow[] = [
+      mk('C1', 'not_needed'), mk('C2', 'walk_up'), mk('C3', 'walk in'), mk('C4', 'pay_on_day'),
+      mk('O1', 'reserved_unpaid'), mk('O2', 'unconfirmed'), mk('O3', 'not booked'),
+    ]
+    const open = openReminders(bookings, {}, '2026-10-01').map(x => x.booking.id)
+    // reserved_unpaid has a payment date and unconfirmed has an untrusted time: both are actions.
+    expect(open).toEqual(['O1', 'O2', 'O3'])
+  })
 })
 
 describe('cityDot', () => {

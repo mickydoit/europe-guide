@@ -1,3 +1,4 @@
+import { normaliseStatus } from './tickets'
 import type { BookingRow } from './types'
 
 const MONTHS_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
@@ -7,14 +8,16 @@ function fmtShortDate(date: string): string {
   return `${d} ${MONTHS_SHORT[m - 1]}`
 }
 
-const CLOSED_STATUSES = new Set(['booked', 'confirmed', 'cancelled'])
+// Nothing to chase: already done, called off, superseded, or never needed a booking.
+// reserved_unpaid and unconfirmed stay OPEN — a payment date and an untrusted time are both actions.
+const CLOSED_STATUSES = new Set<string>(['booked', 'confirmed', 'cancelled', 'not_needed', 'walk_up'])
 
 export function openReminders(
   bookings: BookingRow[], state: Record<string, { status: string | null }>, todayISO: string,
 ): { booking: BookingRow; label: string; overdue: boolean }[] {
   return bookings
     .filter(b => b.kind === 'todo')
-    .filter(b => !CLOSED_STATUSES.has(state[b.id]?.status ?? b.status_from_file ?? ''))
+    .filter(b => !CLOSED_STATUSES.has(normaliseStatus(state[b.id]?.status ?? b.status_from_file) ?? ''))
     .sort((a, b) => (a.book_by ?? a.decide_by ?? '9999').localeCompare(b.book_by ?? b.decide_by ?? '9999'))
     .map(booking => {
       const effDate = booking.book_by ?? booking.decide_by
