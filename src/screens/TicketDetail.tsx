@@ -58,7 +58,7 @@ export function TicketDetail() {
     <BookingForm key={booking.id} booking={booking} row={state[booking.id]} save={save} />
   )
 
-  if (kind === 'event') {
+  if (kind === 'event' || kind === 'meal') {   // both are places: hero photo, not a boarding pass
     const walk = walkLink({ lat: null, lng: null, name: booking.title, address: booking.address }, content.trip.name)
     return (
       <main className="screen">

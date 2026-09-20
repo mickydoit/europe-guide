@@ -21,14 +21,14 @@ describe('inferKind', () => {
     expect(inferKind(b({ title: 'AVE Seville → Barcelona' }))).toBe('transport')
     expect(inferKind(b({ title: 'Airport taxi, Sunday departure' }))).toBe('transport')
     expect(inferKind(b({ title: 'Stay at Hotel Arch' }))).toBe('accommodation')
-    expect(inferKind(b({ title: 'Trattoria Alba — dinner' }))).toBe('event')
+    expect(inferKind(b({ title: 'Trattoria Alba — dinner' }))).toBe('meal')
   })
   test('fields.kind wins over the title', () => {
     expect(inferKind(b({ title: 'Train south', fields: { kind: 'event' } }))).toBe('event')
-    expect(inferKind(b({ title: 'Dinner', fields: { kind: 'nonsense' } }))).toBe('event')
+    expect(inferKind(b({ title: 'Dinner', fields: { kind: 'nonsense' } }))).toBe('meal')
   })
   test('notes are not consulted', () => {
-    expect(inferKind(b({ title: 'Dinner', notes: 'take a taxi' }))).toBe('event')
+    expect(inferKind(b({ title: 'Dinner', notes: 'take a taxi' }))).toBe('meal')
   })
   test('a flight code or a carrier name makes it transport', () => {
     expect(inferKind({ title: 'Ryanair FR3628 LIS → SVQ', fields: {} })).toBe('transport')
@@ -36,7 +36,7 @@ describe('inferKind', () => {
     expect(inferKind({ title: 'Vueling to Barcelona', fields: {} })).toBe('transport')
   })
   test('two letters with no digits is not a flight code', () => {
-    expect(inferKind({ title: 'Dinner at FR Bistro', fields: {} })).toBe('event')
+    expect(inferKind({ title: 'Dinner at FR Bistro', fields: {} })).toBe('meal')
   })
 })
 
@@ -187,7 +187,7 @@ test('kindIcon', () => {
   expect(kindIcon('transport', 'AVE Seville → Barcelona')).toBe('train')
   expect(kindIcon('transport', 'Metro to Sants')).toBe('train')
   expect(kindIcon('transport', 'Bolt to Belém')).toBe('car')
-  expect(kindIcon('event', 'Trattoria Alba — dinner')).toBe('meal')
+  expect(kindIcon('meal', 'Trattoria Alba — dinner')).toBe('meal')
   expect(kindIcon('accommodation', 'Hotel')).toBe('hotel')
   expect(kindIcon('event', 'Mesa de Frades — fado show')).toBe('event')
   expect(kindIcon('transport', 'Ryanair FR3628 LIS → SVQ')).toBe('plane')
@@ -209,4 +209,13 @@ test('inferKind knows the Spanish rail operators', () => {
 test('fourCells hides the route-strip fields (from/to/arrives/ref) but keeps seats and bags', () => {
   const cells = fourCells(b({ fields: { ref: 'S151VF', from: 'LIS', to: 'SVQ', arrives: '10:00', seats: '21A, 21B', bags: '2 × 20 kg' } }))
   expect(cells).toEqual([{ key: 'Seats', value: '21A, 21B' }, { key: 'Bags', value: '2 × 20 kg' }])
+})
+
+test('meal vs event: bars and bodegas are tables, shows and tours with food are events, Nights is not a bed', () => {
+  for (const t of ['Bar del Pla', 'Bodega La Palma', 'Bar Canete', 'La Chunga Tapas y Platillos', 'Espacio Eslava — late dinner after AIRE', 'Taberna Sal Grosso — dinner']) expect(inferKind({ title: t, fields: {} })).toBe('meal')
+  for (const t of ['Mesa de Frades — fado show with dinner', 'Montserrat Food & Wine day - Castlexperience', 'AIRE Ancient Baths, C. Aire 15']) expect(inferKind({ title: t, fields: {} })).toBe('event')
+  expect(inferKind({ title: 'Devour - Barcelona Tapas, Taverns & History', fields: { kind: 'event' } })).toBe('event')   // a tapas tour: the file says so
+  expect(inferKind({ title: 'Casa Batllo Magical Nights - SILVER (visit + rooftop concert)', fields: {} })).toBe('event')
+  expect(inferKind({ title: 'La Pubilla', fields: { kind: 'meal' } })).toBe('meal')
+  expect(kindIcon('event', 'Mesa de Frades — fado show with dinner')).toBe('event')
 })

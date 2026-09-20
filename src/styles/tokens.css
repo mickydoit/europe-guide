@@ -2,7 +2,7 @@
   /* Figma KMHaWP7ikFa3IimN3cx520 — sampled from card fills, not the style-guide labels */
   --bg: #070606; --surface: #08353D; --surface-deep: #083740; --surface-dim: #131313;
   --bg-nav: rgba(7, 6, 6, .45);
-  --accent: #22DD85; --highlight: #F7FF88; --lavender: #BCA5ED;
+  --accent: #22DD85; --highlight: #F7FF88; --lavender: #BCA5ED; --rose: #F4B6C8;
   --text: #ffffff; --text-soft: rgba(255,255,255,.7); --text-dim: rgba(255,255,255,.45);
   --text-on-light: #083740; --text-on-lavender: #070606;
   --border: rgba(255,255,255,.12); --muted: rgba(255,255,255,.18); --pill: rgba(255,255,255,.1);

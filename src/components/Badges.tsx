@@ -1,7 +1,7 @@
 import { Icon } from './Icon'
 import type { Status, TicketKind } from '../lib/tickets'
 
-const KIND_WORD: Record<TicketKind, string> = { transport: 'Transport', accommodation: 'Stay', event: 'Event' }
+const KIND_WORD: Record<TicketKind, string> = { transport: 'Transport', accommodation: 'Stay', event: 'Event', meal: 'Table' }
 const STATUS_WORD: Record<Exclude<Status, null>, string> = { booked: 'booked', confirmed: 'confirmed', not_booked: 'to book', undecided: 'undecided', cancelled: 'cancelled',
   reserved_unpaid: 'reserved but unpaid', unconfirmed: 'unconfirmed', walk_up: 'walk up, no booking needed', not_needed: 'not needed' }
 

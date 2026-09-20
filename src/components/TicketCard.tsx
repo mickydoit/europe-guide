@@ -6,7 +6,7 @@ import { kindIcon, ticketLines } from '../lib/tickets'
 import type { Status, TicketKind } from '../lib/tickets'
 import type { BookingRow } from '../lib/types'
 
-export type CardTone = 'transport' | 'accommodation' | 'event' | 'highlight' | 'past'
+export type CardTone = 'transport' | 'accommodation' | 'event' | 'meal' | 'highlight' | 'past'
 
 /**
  * The Figma 1:208 card: Poppins title, one label+value line, one light sub line, the big faded

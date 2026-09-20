@@ -310,10 +310,10 @@ button.status-pill::before { content: ''; position: absolute; inset: -12px -6px;
 .status-pill--unconfirmed { background: transparent; box-shadow: inset 0 0 0 1px var(--highlight); color: var(--highlight); }
 .status-pill--walk_up { background: rgba(255,255,255,.12); color: var(--text-soft); }
 .status-pill--not_needed { background: rgba(255,255,255,.06); color: var(--text-dim); text-decoration: line-through; }
-.ticket-card--accommodation .status-pill--walk_up, .ticket-card--event .status-pill--walk_up, .ticket-card--highlight .status-pill--walk_up,
-.ticket-card--accommodation .status-pill--not_needed, .ticket-card--event .status-pill--not_needed, .ticket-card--highlight .status-pill--not_needed { background: rgba(7,6,6,.05); color: rgba(7,6,6,.55); }
-.ticket-card--accommodation .status-pill--unconfirmed, .ticket-card--event .status-pill--unconfirmed, .ticket-card--highlight .status-pill--unconfirmed { box-shadow: inset 0 0 0 1px rgba(7,6,6,.45); color: inherit; }
-.ticket-card--accommodation .status-pill--not_booked, .ticket-card--event .status-pill--not_booked, .ticket-card--highlight .status-pill--not_booked { background: rgba(0,0,0,.12); color: inherit; }
+.ticket-card--accommodation .status-pill--walk_up, .ticket-card--event .status-pill--walk_up, .ticket-card--meal .status-pill--walk_up, .ticket-card--highlight .status-pill--walk_up,
+.ticket-card--accommodation .status-pill--not_needed, .ticket-card--event .status-pill--not_needed, .ticket-card--meal .status-pill--not_needed, .ticket-card--highlight .status-pill--not_needed { background: rgba(7,6,6,.05); color: rgba(7,6,6,.55); }
+.ticket-card--accommodation .status-pill--unconfirmed, .ticket-card--event .status-pill--unconfirmed, .ticket-card--meal .status-pill--unconfirmed, .ticket-card--highlight .status-pill--unconfirmed { box-shadow: inset 0 0 0 1px rgba(7,6,6,.45); color: inherit; }
+.ticket-card--accommodation .status-pill--not_booked, .ticket-card--event .status-pill--not_booked, .ticket-card--meal .status-pill--not_booked, .ticket-card--highlight .status-pill--not_booked { background: rgba(0,0,0,.12); color: inherit; }
 .ticket-card--past .status-pill--not_booked { background: rgba(255,255,255,.08); color: var(--text-dim); }
 
 /* Ticket card — Figma 1:208 */
@@ -321,6 +321,7 @@ button.status-pill::before { content: ''; position: absolute; inset: -12px -6px;
 .ticket-card--transport { background: var(--surface); }
 .ticket-card--accommodation, .ticket-card--highlight { background: var(--highlight); color: var(--text-on-light); }
 .ticket-card--event { background: var(--lavender); color: var(--text-on-lavender); box-shadow: 0 10px 20px rgba(188,165,237,.16); }
+.ticket-card--meal { background: var(--rose); color: var(--text-on-lavender); box-shadow: 0 10px 20px rgba(244,182,200,.16); }
 .ticket-card--past { background: var(--surface-dim); color: var(--text-dim); }
 .ticket-card__link { display: flex; align-items: center; justify-content: space-between; gap: 12px;
   text-decoration: none; color: inherit; padding: 20px; min-height: 140px; }
@@ -462,7 +463,7 @@ button.status-pill::before { content: ''; position: absolute; inset: -12px -6px;
 .badge--booked { background: var(--accent); color: var(--text-on-lavender); }
 .badge--todo { background: var(--highlight); color: var(--text-on-light); }
 .badge--muted { background: rgba(255,255,255,.18); color: rgba(255,255,255,.75); }
-.ticket-card--accommodation .badge--muted, .ticket-card--highlight .badge--muted, .ticket-card--event .badge--muted { background: rgba(7,6,6,.12); color: var(--text-on-lavender); }
+.ticket-card--accommodation .badge--muted, .ticket-card--highlight .badge--muted, .ticket-card--event .badge--muted, .ticket-card--meal .badge--muted { background: rgba(7,6,6,.12); color: var(--text-on-lavender); }
 .ticket-card__badges { position: absolute; top: 16px; right: 16px; }
 .stop-row__ticket { display: inline-flex; margin-top: 4px; }
 .stop-row .badge { width: 20px; height: 20px; }

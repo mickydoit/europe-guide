@@ -5,7 +5,7 @@ import type { TicketKind } from '../lib/tickets'
 import { fmtDay } from '../lib/time'
 import type { BookingRow } from '../lib/types'
 
-const KIND_LABEL: Record<TicketKind, string> = { transport: 'Transport', accommodation: 'Stay', event: 'Next up' }
+const KIND_LABEL: Record<TicketKind, string> = { transport: 'Transport', accommodation: 'Stay', event: 'Next up', meal: 'Next up' }
 
 function phoneHref(contact: string | null): string | null {
   if (!contact || !/^[+\d]/.test(contact.trim())) return null

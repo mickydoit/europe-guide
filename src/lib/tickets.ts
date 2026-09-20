@@ -1,11 +1,11 @@
 import type { BookingRow, CityContent, ItemRow, TripRow } from './types'
 import { fmtDay, minutesOf } from './time'
 
-export type TicketKind = 'transport' | 'accommodation' | 'event'
+export type TicketKind = 'transport' | 'accommodation' | 'event' | 'meal'
 export type Status = 'not_booked' | 'booked' | 'confirmed' | 'cancelled' | 'undecided'
   | 'reserved_unpaid' | 'unconfirmed' | 'walk_up' | 'not_needed' | null
 
-const KINDS = new Set<string>(['transport', 'accommodation', 'event'])
+const KINDS = new Set<string>(['transport', 'accommodation', 'event', 'meal'])
 // Title only: notes mention taxis and hotels in passing ("10 min by taxi") and would misfire.
 const TRANSPORT_RE = /\b(flight|fly|plane|train|ave|iryo|alvia|renfe|rail|taxi|bolt|uber|cab|airport|transfer|shuttle|ferry|bus|metro|tram|drive|car hire)\b/i
 // "airport" is deliberately absent: an airport taxi or transfer is ground transport, not a flight.
@@ -15,18 +15,23 @@ const PLANE_RE = /\b(flight|fly|plane)\b/i
 const FLIGHT_CODE_RE = /\b[A-Z]{2}\s?\d{3,4}\b/
 const CARRIER_RE = /\b(ryanair|easyjet|vueling|iberia|tap|lufthansa|british airways|klm|air france|turkish)\b/i
 function isFlight(title: string): boolean { return FLIGHT_CODE_RE.test(title) || CARRIER_RE.test(title) }
-const STAY_RE = /\b(hotel|hostel|stay|flat|apartment|airbnb|check-?in|check-?out|nights?|riad|guesthouse)\b/i
+// "nights" is deliberately absent: Casa Batlló Magical Nights is an event, not a bed.
+const STAY_RE = /\b(hotel|hostel|stay|flat|apartment|airbnb|check-?in|check-?out|riad|guesthouse)\b/i
 // Rail keywords beat the flight-code heuristic below: "AVE 03971 Madrid → Sevilla" is a train.
 const TRAIN_RE = /\b(train|rail|renfe|ave|iryo|alvia|cercan[ií]as|intercity|metro|tram|subway|underground|funicular)\b/i
 // Cabs, rideshares and transfers beat the plane check: "Airport taxi" is a car ride.
 const CAR_RE = /\b(taxi|cab|uber|bolt|transfer|shuttle|drive|car hire)\b/i
-const MEAL_RE = /\b(dinner|lunch|breakfast|brunch|restaurant|tapas|meal|dining|bistro|trattoria)\b/i
+// A ticketed thing that happens to include food (fado show with dinner, tapas tour) is an event.
+const EVENT_RE = /\b(show|concert|tour|museum|workshop|class|baths?|entry|tickets?|guided|exhibition|match|gig)\b/i
+const MEAL_RE = /\b(dinner|lunch|breakfast|brunch|restaurant|tapas|meal|dining|bistro|trattoria|bar|bodega|taberna|tavern|caf[eé]|coffee|bakery|pastisseria|pasteler[ií]a|cervecer[ií]a|vermut|pizzeria|osteria|marisquer[ií]a)\b/i
 
 export function inferKind(b: Pick<BookingRow, 'title' | 'fields'>): TicketKind {
   const explicit = b.fields?.kind?.trim().toLowerCase()
   if (explicit && KINDS.has(explicit)) return explicit as TicketKind
   if (TRANSPORT_RE.test(b.title) || isFlight(b.title)) return 'transport'
   if (STAY_RE.test(b.title)) return 'accommodation'
+  if (EVENT_RE.test(b.title)) return 'event'
+  if (MEAL_RE.test(b.title)) return 'meal'
   return 'event'
 }
 
@@ -39,7 +44,7 @@ export function kindIcon(kind: TicketKind, title: string): KindIcon {
     if (CAR_RE.test(title)) return 'car'
     return PLANE_RE.test(title) || isFlight(title) ? 'plane' : 'car'
   }
-  return MEAL_RE.test(title) ? 'meal' : 'event'
+  return kind === 'meal' ? 'meal' : 'event'
 }
 
 export function isTicket(b: BookingRow): boolean { return b.kind !== 'walkin' }
