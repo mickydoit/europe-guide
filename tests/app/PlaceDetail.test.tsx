@@ -105,6 +105,7 @@ test('shows the walk to the next stop from the route leg and the route this stop
       </TripProvider>
     </MemoryRouter>,
   )
+  expect(screen.getByText('Next up')).toHaveClass('place-walks__kicker')
   const walk = screen.getByRole('link', { name: /Walk to Caffè Nord/ })
   expect(walk).toHaveAttribute('href', leg.google_url)
   const route = screen.getByRole('link', { name: /Open route/ })

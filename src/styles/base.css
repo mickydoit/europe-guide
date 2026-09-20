@@ -487,6 +487,7 @@ button.status-pill::before { content: ''; position: absolute; inset: -12px -6px;
 
 /* Walks on the place screen */
 .place-walks { display: flex; flex-direction: column; gap: 10px; }
+.place-walks__kicker { font-size: 12px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--text-dim); margin-bottom: -2px; }
 .place-walks__next { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; padding: 14px 16px; border-radius: var(--radius-panel);
   background: var(--surface); color: var(--text); text-decoration: none; font-weight: 700; }
 .place-walks__metric { font-size: 13px; font-weight: 600; color: var(--accent); white-space: nowrap; }

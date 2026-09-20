@@ -75,6 +75,7 @@ export function PlaceDetail() {
         </div>
         {(walkNext || route) && (
           <section className="place-walks" aria-label="Walking">
+            {walkNext && <span className="place-walks__kicker">Next up</span>}
             {walkNext && (
               <a className="place-walks__next" href={walkNext.href} target="_blank" rel="noopener noreferrer">
                 <span className="place-walks__label">Walk to {walkNext.to}</span>
