@@ -30,6 +30,9 @@ export async function getCachedCity(slug: string) { return ((await (await openDb
 export async function putCachedCity(c: CityContent) { await (await openDb()).put('content', c, c.trip.slug) }
 export async function getCachedTrips() { return ((await (await openDb()).get('meta', 'trips')) as TripRow[] | undefined) ?? [] }
 export async function putCachedTrips(t: TripRow[]) { await (await openDb()).put('meta', t, 'trips') }
+/** Booking ids that have at least one attachment, per trip — so Day rows can say "Open ticket" offline. */
+export async function getAttachedIds(trip: string) { return ((await (await openDb()).get('meta', `attached:${trip}`)) as string[] | undefined) ?? [] }
+export async function putAttachedIds(trip: string, ids: string[]) { await (await openDb()).put('meta', ids, `attached:${trip}`) }
 export async function getWeatherCache<T>(key: string) { return ((await (await openDb()).get('weather', key)) as T | undefined) ?? null }
 export async function putWeatherCache<T>(key: string, value: T) { await (await openDb()).put('weather', value, key) }
 export async function getOutboxAll() { return (await (await openDb()).getAll('outbox')) as OutboxOp[] }

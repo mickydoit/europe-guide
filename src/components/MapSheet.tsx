@@ -23,10 +23,11 @@ export interface MapSheetProps {
   queuedMsg?: string | null
   /** Stops only: a matching booking's ticket, when one exists. */
   ticketHref?: string | null
+  ticketLabel?: string
 }
 
 export function MapSheet({
-  open, kind, title, subtitle, details, walkHref, onClose, photoSrc, onSave, saved, saving, error, queuedMsg, ticketHref,
+  open, kind, title, subtitle, details, walkHref, onClose, photoSrc, onSave, saved, saving, error, queuedMsg, ticketHref, ticketLabel = 'Open ticket',
 }: MapSheetProps) {
   return (
     <Sheet open={open} title={title} onClose={onClose}>
@@ -36,7 +37,7 @@ export function MapSheet({
       {walkHref && (
         <a className="btn--text" href={walkHref} target="_blank" rel="noopener noreferrer">Walk there</a>
       )}
-      {ticketHref && <Link className="btn--text" to={ticketHref}>Open ticket</Link>}
+      {ticketHref && <Link className="btn--text" to={ticketHref}>{ticketLabel}</Link>}
       {kind === 'place' && onSave && (
         <button
           type="button"

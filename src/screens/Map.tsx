@@ -16,7 +16,8 @@ import { boundsFor, legsGeoJSON, parkedGeoJSON, placesGeoJSON, stopsGeoJSON } fr
 import { cachedMapStatus, defaultSigner, downloadCityMaps, getCachedMap, getMapsGeneration, MemorySource } from '../lib/offlineMaps'
 import { fmtTime, todayInTrip } from '../lib/time'
 import { walkLink } from '../lib/links'
-import { bookingForStop } from '../lib/tickets'
+import { bookingForStop, effectiveStatus, ticketLinkLabel } from '../lib/tickets'
+import { useAttachedBookingIds } from '../lib/attached'
 import { MapSheet, type MapFeatureKind } from '../components/MapSheet'
 import { nearbyPlaces, nearestN, photoUrl, placePhoto, shouldRefetch, type Place } from '../lib/places'
 import type { OfflineAreaRow } from '../lib/types'
@@ -202,6 +203,7 @@ export default function Map() {
   const { date: dateParam } = useParams<{ date?: string }>()
   const { content } = useTrip()
   const trip = content?.trip ?? null
+  const attached = useAttachedBookingIds(trip?.slug ?? '')
   const slug = trip?.slug ?? ''
   const { done } = useChecks(slug)
 
@@ -750,6 +752,7 @@ export default function Map() {
           photoSrc={sheet.kind === 'place' ? placePhotoSrc : sheet.photoSrc}
           walkHref={sheet.walkHref}
           ticketHref={sheetBooking && trip ? `/ticket/${trip.slug}/${sheetBooking.id}?trip=${trip.slug}` : null}
+          ticketLabel={sheetBooking ? ticketLinkLabel(effectiveStatus(sheetBooking, undefined), attached.has(sheetBooking.id)) : undefined}
           onClose={() => { setSelected(null); setSaveError(null); setSaveQueued(null) }}
           onSave={sheet.place ? () => { void handleSave() } : undefined}
           saved={alreadySaved}

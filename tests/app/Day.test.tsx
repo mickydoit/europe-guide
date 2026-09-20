@@ -179,11 +179,11 @@ test('the saved-places row stays hidden while the notes are still loading', asyn
   expect(screen.queryByText('Bar Sole')).toBeNull()
 })
 
-test('stops render as rows; a booked stop shows a ticket glyph linking to its ticket; others open the place', () => {
+test('stops render as rows; a stop with a to-book row links to it as "To book"; others open the place', () => {
   renderDay('2026-11-02', content)   // Monday carries the named stops; the Trattoria stop resolves to T01 (same date) not B01
   const rows = document.querySelectorAll('.stop-row')
   expect(rows.length).toBeGreaterThan(0)
-  const ticketLink = screen.getByRole('link', { name: /Open ticket/ })
+  const ticketLink = screen.getByRole('link', { name: /To book/ })
   expect(ticketLink).toHaveAttribute('href', '/ticket/valle/T01?trip=valle')
   const placeLinks = screen.getAllByRole('link').filter(l => l.getAttribute('href')?.startsWith('/place/'))
   expect(placeLinks.length).toBeGreaterThan(0)
@@ -214,7 +214,7 @@ test('no weather strip and no trip picker on Day', () => {
 
 test('a row with a booking shows the status badge only', () => {
   renderDay('2026-11-02', content)
-  const row = screen.getByRole('link', { name: /Open ticket/ }).closest('.stop-row') as HTMLElement
+  const row = screen.getByRole('link', { name: /To book/ }).closest('.stop-row') as HTMLElement
   expect(row.querySelector('.badge--kind')).toBeNull()
   expect(row.querySelector('.badge--status')).not.toBeNull()
 })

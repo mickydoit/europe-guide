@@ -143,6 +143,16 @@ export function effectiveStatus(b: BookingRow, row: { status: string | null } | 
   return normaliseStatus(row?.status ?? b.status_from_file ?? (b.kind === 'booked' ? 'booked' : null))
 }
 
+export type TicketLinkLabel = 'Open ticket' | 'Open booking' | 'To book' | 'Details'
+/** What the link into a booking's detail screen promises. "Open ticket" only when a file is
+ *  actually attached; a settled booking without one is "Open booking"; a to-do is "To book". */
+export function ticketLinkLabel(status: Status, hasTicket: boolean): TicketLinkLabel {
+  if (hasTicket) return 'Open ticket'
+  if (status === 'booked' || status === 'confirmed' || status === 'reserved_unpaid' || status === 'unconfirmed') return 'Open booking'
+  if (status === 'walk_up' || status === 'not_needed' || status === 'cancelled') return 'Details'
+  return 'To book'
+}
+
 // Only the three values booking_state's check constraint allows: the wider schema-1.1 statuses
 // arrive from the file, they are never something the owner can tap their way into.
 export function cycleStatus(s: Status): 'not_booked' | 'booked' | 'confirmed' {

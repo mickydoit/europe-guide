@@ -6,6 +6,7 @@ import { currentAndNext, currentBlock, dayIndex, fmtDay, nowInTz, todayInTrip } 
 import { DayStrip } from '../components/DayStrip'
 import { NowNext } from '../components/NowNext'
 import { StopRow } from '../components/StopRow'
+import { useAttachedBookingIds } from '../lib/attached'
 import { Md } from '../components/Md'
 import { SyncBadge } from '../components/SyncBadge'
 import { walkLink } from '../lib/links'
@@ -24,6 +25,7 @@ export function Day() {
   // Hooks run before this screen knows which day it is showing, so pass the raw param:
   // useDayNotes skips the query until both halves of the key are real.
   const { savedPlaces, loading: notesLoading, removePlace } = useDayNotes(content?.trip.slug ?? '', dateParam ?? '')
+  const attached = useAttachedBookingIds(content?.trip.slug ?? '')
   const [now, setNow] = useState(() => new Date())
   const [tickMsg, setTickMsg] = useState<{ text: string; tone: 'error' | 'queued' } | null>(null)
   const tickMsgTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -169,7 +171,7 @@ export function Day() {
             {g.items.map(item => {
               if (item.kind === 'stop') {
                 return (
-                  <StopRow key={item.id} item={item} tripSlug={trip.slug} booking={bookingForStop(content.bookings, item)} done={done.has(item.id)} onToggle={() => { void handleToggle(item.id) }} />
+                  <StopRow key={item.id} item={item} tripSlug={trip.slug} booking={bookingForStop(content.bookings, item)} hasTicket={(() => { const b = bookingForStop(content.bookings, item); return !!b && attached.has(b.id) })()} done={done.has(item.id)} onToggle={() => { void handleToggle(item.id) }} />
                 )
               }
               if (item.kind === 'note') {
