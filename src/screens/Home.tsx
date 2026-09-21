@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { useTrip } from '../lib/trip'
 import { useBookingState, useChecks } from '../lib/state'
 import { fmtDay, nowInTz, todayInTrip } from '../lib/time'
@@ -119,10 +120,16 @@ export function Home() {
       )}
 
       {showStart && start && (
-        <a className="start-day" href={start.href} target="_blank" rel="noopener noreferrer">
-          <span className="start-day__label">Start the day</span>
-          <span className="start-day__to"> · {start.to}{start.minutes != null ? ` · ${start.minutes} min` : ''}</span>
-        </a>
+        <Link className="start-day" to={`/day/${date}`}>
+          <span className="start-day__text">
+            <span className="start-day__label">Start the day</span>
+            <span className="start-day__to"> · {start.to}{start.minutes != null ? ` · ${start.minutes} min` : ''}</span>
+          </span>
+          <svg className="start-day__go" viewBox="0 0 28 28" width="28" height="28" aria-hidden="true" focusable="false">
+            <circle cx="14" cy="14" r="14" fill="currentColor" />
+            <path d="M9.5 14H18M14.5 10.5 18 14l-3.5 3.5" fill="none" stroke="var(--highlight)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        </Link>
       )}
 
       <section className="home-row">

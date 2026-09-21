@@ -350,10 +350,18 @@ button.status-pill::before { content: ''; position: absolute; inset: -12px -6px;
 
 /* Next-up card — Figma 1:129 */
 /* Start the day — one tap into the morning's first walk */
-.start-day { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 4px; min-height: 56px; margin: 0 0 20px; padding: 14px 20px;
+/* Two flex children — a wrapping text block and the arrow — centred as one group, so the pill reads
+   as a single button rather than a left-aligned label. The row never wraps: a long destination
+   (“Göreme Open-Air Museum”) wraps inside the text block instead of pushing the arrow onto a line
+   of its own. align-items is `center` rather than `baseline` because an SVG baseline-aligns to its
+   bottom edge and hangs low. */
+.start-day { display: flex; flex-wrap: nowrap; align-items: center; justify-content: center; gap: 8px;
+  min-height: 56px; margin: 0 0 20px; padding: 14px 20px; text-align: center;
   border-radius: var(--radius-panel); background: var(--highlight); color: var(--text-on-light); text-decoration: none; font-weight: 800; font-size: 17px; }
 .start-day:active { filter: brightness(.94); }
+.start-day__text { min-width: 0; }
 .start-day__to { font-weight: 600; opacity: .8; overflow-wrap: anywhere; }
+.start-day__go { flex: none; }
 
 .nextup { position: relative; background: var(--surface); border-radius: var(--radius-card); padding: 20px; margin: 0 0 20px; color: var(--text); }
 .nextup__link { display: flex; flex-direction: column; gap: 6px; text-decoration: none; color: inherit; }

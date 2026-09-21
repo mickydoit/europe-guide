@@ -190,14 +190,17 @@ test('Home leaves the trip alone when today is inside the loaded one', () => {
   expect(setSlug).not.toHaveBeenCalled()
 })
 
-test('Start the day opens walking directions along the first route leg, with destination and minutes', () => {
+test("Start the day opens today's itinerary, naming the first stop and the walk to it", () => {
   vi.setSystemTime(new Date('2026-11-02T07:00:00Z'))   // Mon 2 Nov 08:00 Rome — the day with walking route V1
   useChecksMock.mockReturnValue({ done: new Set<string>(), loading: false, toggle: vi.fn() })
   renderHome(content)
   const leg = content.legs.filter(l => l.route_id === 'V1').sort((a, b) => a.seq - b.seq)[0]
   const link = screen.getByRole('link', { name: /Start the day/ })
-  expect(link).toHaveAttribute('href', leg.google_url)
-  expect(link).toHaveAttribute('target', '_blank')
+  // In-app navigation to the day being shown, not an external maps hand-off: the owner taps this
+  // over breakfast to read the plan, so it must not bounce them out of the app.
+  expect(link).toHaveAttribute('href', '/day/2026-11-02')
+  expect(link).not.toHaveAttribute('target')
+  // The destination and walking minutes stay as context for the first stop.
   expect(link).toHaveTextContent(new RegExp(`Start the day · ${leg.to_name}`))
   if (leg.duration_s != null) expect(link).toHaveTextContent(new RegExp(`· ${Math.round(leg.duration_s / 60)} min`))
 })
