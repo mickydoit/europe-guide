@@ -3,7 +3,7 @@ import { MemoryRouter } from 'react-router-dom'
 import { vi } from 'vitest'
 import { TripProvider, TripContext } from '../../src/lib/trip'
 import { loadValle } from '../helpers/content'
-import type { CityContent } from '../../src/lib/types'
+import type { CityContent, OfflineAreaRow, TripRow } from '../../src/lib/types'
 
 const { useAuthMock, downloadIcsMock, useSyncMock, useOutboxOpsMock, flushOutboxMock, retryFailedMock, warmMock } = vi.hoisted(() => {
   const useAuthMock = vi.fn(() => ({ session: { user: { email: 'owner@example.com' } }, signOut: vi.fn() }))
@@ -120,7 +120,7 @@ test('Refresh data is disabled and reads "Refreshing…" while the trip context 
   render(
     <MemoryRouter initialEntries={['/more']}>
       <TripContext.Provider value={{
-        trips: [content.trip], slug: 'valle', content, loading: true, offline: false, error: null,
+        trips: [content.trip], allAreas: [], slug: 'valle', content, loading: true, offline: false, error: null,
         setSlug: () => {}, refresh: async () => {},
       }}>
         <More />
@@ -202,4 +202,59 @@ test('the offline sync notice clears itself when the phone comes back', async ()
   } finally {
     Object.defineProperty(navigator, 'onLine', { value: true, configurable: true })
   }
+})
+
+// ---- offline map readiness -------------------------------------------------
+
+function areaFor(slug: string, bytes: number, seq = 0): OfflineAreaRow {
+  return {
+    trip: slug, seq, name: `${slug} centre`, min_lng: 0, min_lat: 0, max_lng: 1, max_lat: 1,
+    pmtiles_path: `${slug}/${seq}.pmtiles`, size_bytes: bytes, built_at: '2026-01-01',
+  }
+}
+
+function nextTrip(): TripRow {
+  return {
+    slug: 'corta', name: 'Corta', country: 'Italy', country_code: 'IT',
+    start_date: '2026-11-05', end_date: '2026-11-08', base: null,
+    timezone: 'Europe/Rome', intro: null, sort: 2,
+  }
+}
+
+function renderMoreWithAreas(content: CityContent, trips: TripRow[], allAreas: OfflineAreaRow[]) {
+  return render(
+    <MemoryRouter initialEntries={['/more']}>
+      <TripProvider initial={{ trips, slug: 'valle', content, allAreas }} client={throwingClient}>
+        <More />
+      </TripProvider>
+    </MemoryRouter>,
+  )
+}
+
+test('offers a download for a city you have not reached yet', async () => {
+  vi.setSystemTime(new Date('2026-11-02T09:00:00Z'))
+  content.areas = [areaFor('valle', 1_000_000)]
+  const trips = [content.trip, nextTrip()]
+  renderMoreWithAreas(content, trips, [...content.areas, areaFor('corta', 2_000_000)])
+  expect(await screen.findByText('Corta')).toBeInTheDocument()
+  vi.useRealTimers()
+})
+
+test('says when an upcoming city’s map will be needed', async () => {
+  vi.setSystemTime(new Date('2026-11-02T09:00:00Z'))
+  content.areas = [areaFor('valle', 1_000_000)]
+  const trips = [content.trip, nextTrip()]
+  renderMoreWithAreas(content, trips, [...content.areas, areaFor('corta', 2_000_000)])
+  expect(await screen.findByText(/Needed/)).toBeInTheDocument()
+  vi.useRealTimers()
+})
+
+test('a trip that has already ended is never offered', async () => {
+  vi.setSystemTime(new Date('2026-11-02T09:00:00Z'))
+  content.areas = [areaFor('valle', 1_000_000)]
+  const past: TripRow = { ...nextTrip(), slug: 'alba', name: 'Alba', start_date: '2026-10-01', end_date: '2026-10-05' }
+  renderMoreWithAreas(content, [content.trip, past], [...content.areas, areaFor('alba', 2_000_000)])
+  await screen.findByText(/of 1 areas/)
+  expect(screen.queryByText('Alba')).toBeNull()
+  vi.useRealTimers()
 })

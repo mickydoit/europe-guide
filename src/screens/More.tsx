@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { BUILD_ID, checkForUpdate } from '../lib/updates'
 import { useTrip } from '../lib/trip'
+import { areasByTrip, useMapNeeds } from '../lib/mapReadiness'
 import { useAuth } from '../lib/auth'
 import { fmtDay } from '../lib/time'
 import { walkLink } from '../lib/links'
@@ -36,7 +37,11 @@ function summarise(ops: Array<{ kind: string }>): string {
 }
 
 export function More() {
-  const { trips, content, loading, offline, error, refresh } = useTrip()
+  const { trips, allAreas, content, loading, offline, error, refresh } = useTrip()
+  const needs = useMapNeeds()
+  const byTrip = useMemo(() => areasByTrip(allAreas), [allAreas])
+  // The city on screen already has its own card above; these are the ones still to come.
+  const aheadNeeds = needs.filter(n => n.slug !== content?.trip.slug)
   const [updateMsg, setUpdateMsg] = useState<string | null>(null)
   const { session, signOut } = useAuth()
   const { pending, failed, lastError, retryFailed } = useSync()
@@ -185,6 +190,16 @@ export function More() {
         {content.areas.length > 0
           ? <OfflineMapCard trip={content.trip.slug} areas={content.areas} />
           : <p className="caption">No offline map for this city yet</p>}
+        {/* Cities still ahead of you: the moment to fetch these is now, on wifi, not on landing. */}
+        {aheadNeeds.map(n => (
+          <OfflineMapCard
+            key={n.slug}
+            trip={n.slug}
+            name={n.name}
+            neededOn={n.neededOn}
+            areas={byTrip[n.slug] ?? []}
+          />
+        ))}
       </section>
 
       <section className="more-section">

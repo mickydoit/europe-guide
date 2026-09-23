@@ -167,7 +167,7 @@ test('when today falls inside another loaded trip, Home switches the trip contex
   const setSlug = vi.fn()
   render(
     <MemoryRouter initialEntries={['/']}>
-      <TripContext.Provider value={{ trips: [content.trip, other], slug: 'valle', content, loading: false, offline: false, error: null, setSlug, refresh: vi.fn(async () => {}) }}>
+      <TripContext.Provider value={{ allAreas: [], trips: [content.trip, other], slug: 'valle', content, loading: false, offline: false, error: null, setSlug, refresh: vi.fn(async () => {}) }}>
         <Routes><Route path="/" element={<Home />} /></Routes>
       </TripContext.Provider>
     </MemoryRouter>,
@@ -182,7 +182,7 @@ test('Home leaves the trip alone when today is inside the loaded one', () => {
   const setSlug = vi.fn()
   render(
     <MemoryRouter initialEntries={['/']}>
-      <TripContext.Provider value={{ trips: [content.trip, other], slug: 'valle', content, loading: false, offline: false, error: null, setSlug, refresh: vi.fn(async () => {}) }}>
+      <TripContext.Provider value={{ allAreas: [], trips: [content.trip, other], slug: 'valle', content, loading: false, offline: false, error: null, setSlug, refresh: vi.fn(async () => {}) }}>
         <Routes><Route path="/" element={<Home />} /></Routes>
       </TripContext.Provider>
     </MemoryRouter>,

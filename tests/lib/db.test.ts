@@ -1,4 +1,4 @@
-import { getCachedCity, putCachedCity, getCachedTrips, putCachedTrips } from '../../src/lib/db'
+import { getCachedAreas, getCachedCity, putCachedAreas, putCachedCity, getCachedTrips, putCachedTrips } from '../../src/lib/db'
 import { loadValle } from '../helpers/content'
 test('round-trips a city through IndexedDB', async () => {
   const c = await loadValle()
@@ -10,4 +10,10 @@ test('round-trips a city through IndexedDB', async () => {
 test('round-trips the trip list', async () => {
   const c = await loadValle()
   await putCachedTrips([c.trip]); expect((await getCachedTrips()).map(t => t.slug)).toEqual(['valle'])
+})
+test('round-trips the all-trips offline areas', async () => {
+  const c = await loadValle()
+  expect(await getCachedAreas()).toEqual([])
+  await putCachedAreas(c.areas)
+  expect((await getCachedAreas()).map(a => a.trip)).toEqual(c.areas.map(a => a.trip))
 })

@@ -193,7 +193,7 @@ test('a cold deep link into another trip switches the trip context to the one in
   const other = { ...content.trip, slug: 'other', name: 'Other' }
   const setSlug = vi.fn()
   const value = {
-    trips: [content.trip, other], slug: 'valle', content, loading: false, offline: false,
+    allAreas: [], trips: [content.trip, other], slug: 'valle', content, loading: false, offline: false,
     error: null, setSlug, refresh: vi.fn(async () => {}),
   }
   render(

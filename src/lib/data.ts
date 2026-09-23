@@ -1,7 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { supabase } from './supabase'
 import { normaliseTime } from './time'
-import type { AlertRow, BookingRow, CityContent, ItemRow, TripRow } from './types'
+import type { AlertRow, BookingRow, CityContent, ItemRow, OfflineAreaRow, TripRow } from './types'
 type Q = { data: unknown[] | null; error: { message: string } | null }
 async function rows<T>(p: PromiseLike<Q>, table: string): Promise<T[]> {
   const { data, error } = await p; if (error) throw new Error(`load ${table}: ${error.message}`); return (data ?? []) as T[]
@@ -30,3 +30,10 @@ export async function fetchCityWith(c: SupabaseClient, slug: string): Promise<Ci
 export const fetchCity = (slug: string) => fetchCityWith(supabase, slug)
 export async function fetchTripsWith(c: SupabaseClient) { return rows<TripRow>(c.from('trips').select('*').order('sort').order('start_date'), 'trips') }
 export const fetchTrips = () => fetchTripsWith(supabase)
+/**
+ * Offline areas for every trip, not just the city on screen — the readiness dot has to know
+ * about the city you fly to on Friday while you are still on wifi in the one you are in.
+ * A handful of rows for the whole trip, so it rides along with the trips fetch.
+ */
+export async function fetchAllAreasWith(c: SupabaseClient) { return rows<OfflineAreaRow>(c.from('offline_areas').select('*').order('trip').order('seq'), 'offline_areas') }
+export const fetchAllAreas = () => fetchAllAreasWith(supabase)

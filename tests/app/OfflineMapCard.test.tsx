@@ -149,3 +149,11 @@ test('a freshly downloaded map says nothing about stale data', async () => {
   await waitFor(() => expect(screen.getByRole('button', { name: 'Update' })).toBeInTheDocument())
   expect(screen.queryByText(STALE)).toBeNull()
 })
+
+// Safari private mode denies the Cache API outright. The card must still offer the download
+// rather than vanish — hiding it would leave no way to fetch the map at all.
+test('still offers a download when the Cache API is unavailable', async () => {
+  render(<OfflineMapCard trip="valle" areas={areas} cacheStorage={undefined as unknown as CacheStorage} />)
+  expect(await screen.findByRole('button', { name: 'Download' })).toBeInTheDocument()
+  expect(screen.getByText(/0 of 2 areas/)).toBeInTheDocument()
+})

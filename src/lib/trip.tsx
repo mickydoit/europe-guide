@@ -1,15 +1,17 @@
 import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from 'react'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { supabase } from './supabase'
-import { fetchCity, fetchCityWith, fetchTrips, fetchTripsWith } from './data'
-import { getCachedCity, putCachedCity, getCachedTrips, putCachedTrips } from './db'
+import { fetchAllAreas, fetchAllAreasWith, fetchCity, fetchCityWith, fetchTrips, fetchTripsWith } from './data'
+import { getCachedAreas, getCachedCity, putCachedAreas, putCachedCity, getCachedTrips, putCachedTrips } from './db'
 import { todayInTrip } from './time'
-import type { CityContent, TripRow } from './types'
+import type { CityContent, OfflineAreaRow, TripRow } from './types'
 
 const STORAGE_KEY = 'europe-guide.trip'
 
 interface Trip {
   trips: TripRow[]
+  /** Offline areas for EVERY trip — the readiness dot must see cities you have not opened yet. */
+  allAreas: OfflineAreaRow[]
   slug: string | null
   content: CityContent | null
   loading: boolean
@@ -48,9 +50,10 @@ function resolveSlug(trips: TripRow[]): string | null {
 export function TripProvider({ children, client, initial }: {
   children: ReactNode
   client?: SupabaseClient
-  initial?: { trips: TripRow[]; slug: string; content: CityContent }
+  initial?: { trips: TripRow[]; slug: string; content: CityContent; allAreas?: OfflineAreaRow[] }
 }) {
   const [trips, setTrips] = useState<TripRow[]>(initial?.trips ?? [])
+  const [allAreas, setAllAreas] = useState<OfflineAreaRow[]>(initial?.allAreas ?? [])
   const [slug, setSlugState] = useState<string | null>(initial?.slug ?? null)
   const [content, setContent] = useState<CityContent | null>(initial?.content ?? null)
   const [loading, setLoading] = useState(!initial)
@@ -61,6 +64,7 @@ export function TripProvider({ children, client, initial }: {
   const loadSeq = useRef(0)
 
   const doFetchTrips = () => (client ? fetchTripsWith(client) : fetchTrips())
+  const doFetchAreas = () => (client ? fetchAllAreasWith(client) : fetchAllAreas())
   const doFetchCity = (s: string) => (client ? fetchCityWith(client, s) : fetchCity(s))
 
   useEffect(() => {
@@ -91,6 +95,18 @@ export function TripProvider({ children, client, initial }: {
     if (initial) return
     let cancelled = false
     void (async () => {
+      // Areas for every trip ride along with the trips list: a few rows for the whole trip,
+      // and both are cached so a cold start with no network still knows what is missing.
+      void (async () => {
+        try {
+          const a = await doFetchAreas()
+          await putCachedAreas(a)
+          if (!cancelled && mounted.current) setAllAreas(a)
+        } catch {
+          const a = await getCachedAreas()
+          if (!cancelled && mounted.current) setAllAreas(a)
+        }
+      })()
       let list: TripRow[] = []
       try {
         list = await doFetchTrips()
@@ -136,7 +152,7 @@ export function TripProvider({ children, client, initial }: {
     }
   }
 
-  const value: Trip = { trips, slug, content, loading, offline, error, setSlug, refresh }
+  const value: Trip = { trips, allAreas, slug, content, loading, offline, error, setSlug, refresh }
   return <TripContext.Provider value={value}>{children}</TripContext.Provider>
 }
 

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { cachedMapStatus, deleteCityMaps, defaultSigner, downloadCityMaps, type Signer } from '../lib/offlineMaps'
+import { fmtDay } from '../lib/time'
 import type { OfflineAreaRow } from '../lib/types'
 
 interface Status { downloaded: number; total: number; bytes: number; stale: boolean }
@@ -25,9 +26,13 @@ function writeDownloaded(trip: string, total: number | null) {
   } catch { /* private mode */ }
 }
 
-export function OfflineMapCard({ trip, areas, signer = defaultSigner, cacheStorage }: {
+export function OfflineMapCard({ trip, areas, name, neededOn, signer = defaultSigner, cacheStorage }: {
   trip: string
   areas: OfflineAreaRow[]
+  /** Shown when the card is one of several — a bare status line cannot say which city it is. */
+  name?: string
+  /** The date you arrive, for a city you have not reached yet; omitted for the one you are in. */
+  neededOn?: string | null
   signer?: Signer
   cacheStorage?: CacheStorage
 }) {
@@ -39,7 +44,15 @@ export function OfflineMapCard({ trip, areas, signer = defaultSigner, cacheStora
   const [remembered, setRemembered] = useState<number | null>(() => readDownloaded(trip))
 
   const refresh = useCallback(async () => {
-    const s = await cachedMapStatus(trip, areas, cacheStorage)
+    // Safari private mode denies the Cache API and a quota-evicted origin can reject
+    // `caches.open`. Reading that as "nothing saved" keeps the Download offer on screen;
+    // letting it throw would hide the card and leave no way to fetch the map at all.
+    let s: Status
+    try {
+      s = await cachedMapStatus(trip, areas, cacheStorage)
+    } catch {
+      s = { downloaded: 0, total: areas.length, bytes: 0, stale: false }
+    }
     setStatus(s)
     return s
   }, [trip, areas, cacheStorage])
@@ -112,6 +125,8 @@ export function OfflineMapCard({ trip, areas, signer = defaultSigner, cacheStora
 
   return (
     <div className="offline-map-card">
+      {name && <p className="offline-map-card__name">{name}</p>}
+      {neededOn && <p className="caption">Needed {fmtDay(neededOn)}</p>}
       <p className="offline-map-card__status">
         Offline map — {status.downloaded} of {status.total} areas · {(status.bytes / (1024 * 1024)).toFixed(1)} of {totalMb} MB
       </p>

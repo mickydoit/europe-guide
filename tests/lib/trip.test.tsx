@@ -3,7 +3,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { loadValle } from '../helpers/content'
 import { mockSupabaseContent } from '../helpers/supabaseMock'
 import { TripProvider, useTrip } from '../../src/lib/trip'
-import { putCachedCity, resetDbForTests } from '../../src/lib/db'
+import { putCachedAreas, putCachedCity, resetDbForTests } from '../../src/lib/db'
 import type { CityContent } from '../../src/lib/types'
 
 function Probe() {
@@ -181,4 +181,30 @@ test('refresh() shows "Refreshing…" for as long as it runs', async () => {
 
   await waitFor(() => expect(screen.getByTestId('loading').textContent).toBe('true'))
   await waitFor(() => expect(screen.getByTestId('loading').textContent).toBe('false'))
+})
+
+function AreasProbe() {
+  const { allAreas } = useTrip()
+  return <div data-testid="all-areas">{allAreas.map(a => `${a.trip}:${a.seq}`).join(',')}</div>
+}
+
+test('the provider exposes offline areas for every trip, not just the city on screen', async () => {
+  const content = await loadValle()
+  const mock = mockSupabaseContent(content)
+  render(<TripProvider client={mock.client}><AreasProbe /></TripProvider>)
+  await waitFor(() => {
+    expect(screen.getByTestId('all-areas').textContent)
+      .toBe(content.areas.map(a => `${a.trip}:${a.seq}`).join(','))
+  })
+})
+
+test('falls back to the cached areas when the network is gone', async () => {
+  const content = await loadValle()
+  await putCachedAreas(content.areas)
+  const dead = { from: () => { throw new Error('offline') } } as unknown as SupabaseClient
+  render(<TripProvider client={dead}><AreasProbe /></TripProvider>)
+  await waitFor(() => {
+    expect(screen.getByTestId('all-areas').textContent)
+      .toBe(content.areas.map(a => `${a.trip}:${a.seq}`).join(','))
+  })
 })

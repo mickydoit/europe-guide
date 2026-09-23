@@ -28,3 +28,30 @@ test('hidden on the map route', () => {
   const { container } = mount('/map/2026-10-05')
   expect(container.querySelector('nav')).toBeNull()
 })
+
+function mountWith(path: string, mapsPending: boolean) {
+  return render(<MemoryRouter initialEntries={[path]}><TabBar mapsPending={mapsPending} /></MemoryRouter>)
+}
+
+test('no dot on the Map tab when every map ahead is saved', () => {
+  const { container } = mountWith('/', false)
+  expect(container.querySelector('.tabbar__dot')).toBeNull()
+})
+
+test('a dot marks the Map tab when a map still needs downloading', () => {
+  const { container } = mountWith('/', true)
+  const dot = container.querySelector('.tabbar__dot')
+  expect(dot).not.toBeNull()
+  expect(dot!.closest('a')).toHaveAccessibleName(/Map/)
+})
+
+// The glyph row carries no text (Figma 1:85); the dot must not smuggle any in.
+test('the dot adds no visible text to the bar', () => {
+  mountWith('/', true)
+  for (const l of screen.getAllByRole('link')) expect(l.textContent).toBe('')
+})
+
+test('the Map tab says why it is marked, for screen readers', () => {
+  mountWith('/', true)
+  expect(screen.getByRole('link', { name: 'Map — offline map not downloaded' })).toBeInTheDocument()
+})

@@ -731,3 +731,45 @@ test('a dismissed stale prompt comes back when the city is re-cut to a new size'
 
   expect(await screen.findByText(/Map data changed — update the offline map/)).toBeInTheDocument()
 })
+
+// ---- upcoming-city signpost ------------------------------------------------
+// The dot on the Map tab can be lit by a city you are not in. Landing here and finding a
+// perfectly good map would leave the dot unexplained, so the banner has to name the city.
+
+const CORTA: OfflineAreaRow[] = [
+  { trip: 'corta', seq: 0, name: 'Corta', min_lng: 0, min_lat: 0, max_lng: 1, max_lat: 1, pmtiles_path: 'corta/0.pmtiles', size_bytes: 2 * 1024 * 1024, built_at: '2026-01-01' },
+]
+const CORTA_TRIP = {
+  slug: 'corta', name: 'Corta', country: 'Italy', country_code: 'IT',
+  start_date: '2026-11-05', end_date: '2026-11-08', base: null,
+  timezone: 'Europe/Rome', intro: null, sort: 2,
+}
+
+function renderMapWithNext(c: CityContent) {
+  return render(
+    <MemoryRouter initialEntries={['/map']}>
+      <TripProvider initial={{ trips: [c.trip, CORTA_TRIP], slug: 'valle', content: c, allAreas: [...AREAS, ...CORTA] }} client={throwingClient}>
+        <Routes>
+          <Route path="/map/:date?" element={<MapScreen />} />
+        </Routes>
+      </TripProvider>
+    </MemoryRouter>,
+  )
+}
+
+test('names a city still ahead whose map is not saved, once this city’s map is', async () => {
+  content.areas = AREAS
+  await seedCache(AREAS)
+  renderMapWithNext(content)
+  expect(await screen.findByText(/Corta/)).toBeInTheDocument()
+})
+
+test('says nothing about cities ahead when every map is saved', async () => {
+  content.areas = AREAS
+  await seedCache(AREAS)
+  const cache = await cacheStorage.open('europe-guide-maps')
+  await cache.put(cacheKey('corta', 0), new Response(new Uint8Array([1, 2, 3]).buffer, { headers: { 'content-length': String(CORTA[0].size_bytes) } }))
+  renderMapWithNext(content)
+  await waitFor(() => expect(maplibreState.instances.length).toBeGreaterThan(0))
+  expect(screen.queryByText(/Corta/)).toBeNull()
+})

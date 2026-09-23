@@ -1,6 +1,6 @@
 import { loadValle } from '../helpers/content'
 import { mockSupabaseContent } from '../helpers/supabaseMock'
-import { fetchCityWith, fetchTripsWith } from '../../src/lib/data'
+import { fetchAllAreasWith, fetchCityWith, fetchTripsWith } from '../../src/lib/data'
 
 test('fetchCity assembles all ten tables for a slug', async () => {
   const content = await loadValle()
@@ -31,4 +31,12 @@ test('normalises a Postgres HH:MM:SS alert time to HH:MM', async () => {
   const c = await fetchCityWith(mock.client, 'valle')
   const found = c.alerts.find(a => a.date === alert.date && a.seq === alert.seq)
   expect(found?.time).toBe('09:15')
+})
+
+test('fetchAllAreas returns the offline areas for every trip, not just one', async () => {
+  const content = await loadValle()
+  const mock = mockSupabaseContent(content)
+  const areas = await fetchAllAreasWith(mock.client)
+  expect(areas.map(a => a.seq)).toEqual(content.areas.map(a => a.seq))
+  expect(mock.calls).toEqual(['offline_areas'])
 })

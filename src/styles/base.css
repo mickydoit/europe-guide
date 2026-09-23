@@ -164,6 +164,8 @@ button { font: inherit; }
 
 .offline-map-card { margin-top: 4px; }
 .offline-map-card__status { font-size: 14px; color: var(--text-soft); margin: 0 0 10px; }
+/* Only set when several cards stack up, so each one can say which city it is for. */
+.offline-map-card__name { font-size: 15px; font-weight: 600; color: var(--text); margin: 0 0 2px; }
 .offline-map-card__actions { display: flex; gap: 10px; }
 .offline-map-card__actions .btn { flex: 1; margin-bottom: 0; }
 
@@ -292,9 +294,14 @@ button { font: inherit; }
 .tabbar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 20; height: calc(84px + var(--safe-bottom));
   padding: 0 24px var(--safe-bottom); background: var(--bg-nav); backdrop-filter: blur(15px) saturate(140%);
   border-top: 1px solid rgba(255,255,255,.08); border-radius: 28px 28px 0 0; display: flex; justify-content: space-between; align-items: center; }
-.tabbar__tab { display: flex; align-items: center; justify-content: center; width: 52px; height: 52px; border-radius: 50%;
+.tabbar__tab { position: relative; display: flex; align-items: center; justify-content: center; width: 52px; height: 52px; border-radius: 50%;
   color: rgba(255,255,255,.28); text-decoration: none; transition: color .15s ease; }
 .tabbar__tab--active { color: var(--highlight); }
+/* A city ahead has no offline map saved. Rose rather than a warning red: it is a nudge to act
+   on while there is still wifi, not an error. The ring matches the bar so it reads as a dot
+   sitting on the glyph rather than a smudge against it. */
+.tabbar__dot { position: absolute; top: 11px; right: 11px; width: 9px; height: 9px; border-radius: 50%;
+  background: var(--rose); box-shadow: 0 0 0 2px var(--bg-nav); }
 
 /* Status pill */
 button.status-pill { position: relative; border: 0; font: inherit; font-size: 11px; font-weight: 700; letter-spacing: .03em; padding: 3px 10px; border-radius: var(--radius-pill); cursor: pointer; }

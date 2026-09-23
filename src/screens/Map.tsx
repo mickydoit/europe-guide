@@ -10,6 +10,7 @@ maplibregl.setWorkerUrl(new URL(`${WORKER_BASE}/map/maplibre-gl-worker.mjs`, typ
 import 'maplibre-gl/dist/maplibre-gl.css'
 import { PMTiles, Protocol } from 'pmtiles'
 import { useTrip } from '../lib/trip'
+import { useMapNeeds } from '../lib/mapReadiness'
 import { useChecks, useDayNotes, QUEUED_COPY, type SavedPlace } from '../lib/state'
 import { buildStyle } from '../lib/mapStyle'
 import { boundsFor, legsGeoJSON, parkedGeoJSON, placesGeoJSON, stopsGeoJSON } from '../lib/mapData'
@@ -208,6 +209,7 @@ export default function Map() {
   const { done } = useChecks(slug)
 
   const areas = useMemo<OfflineAreaRow[]>(() => content?.areas ?? [], [content])
+  const mapNeeds = useMapNeeds()
   // /map/:date pins the map to the day you came from; anything else (no param, or a
   // date that isn't in this trip) falls back to today, then to the first day.
   const date = useMemo(() => {
@@ -662,6 +664,8 @@ export default function Map() {
   }
 
   // ---- banner -------------------------------------------------------------
+  // Cities still ahead of you; the one on screen speaks for itself through the offers below.
+  const aheadNeeds = mapNeeds.filter(n => n.slug !== slug)
   const allCached = !!status && status.total > 0 && status.downloaded === status.total
   // A stale map counts as not downloaded for the prompt: the tiles on the phone are from a
   // different cut of the city. Each offer carries its own dismissal.
@@ -684,6 +688,10 @@ export default function Map() {
       actions: 'download',
       dismiss: staleOffer ? 'stale' : 'download',
     }
+  } else if (aheadNeeds.length > 0) {
+    // Lowest priority: only once this city has nothing to say for itself. Without it the dot
+    // on the Map tab would send the owner to a working map with no hint of what lit it.
+    banner = { text: `${aheadNeeds.map(n => n.name).join(' and ')} — offline map not saved. Get it in More.` }
   }
 
   return (
