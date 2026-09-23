@@ -18,6 +18,17 @@ function remember(key: string, y: number) {
 }
 function scroller(): HTMLElement | null { return document.getElementById('root') }
 
+/** How long to keep trying to reach a restored offset while the screen fills in. */
+const RESTORE_BUDGET_MS = 1500
+/** A real gesture on the scroller ends the restore immediately — the owner is driving now. */
+const TAKEOVER = ['touchstart', 'wheel', 'keydown'] as const
+/**
+ * True while a restore is re-applying. The clamped scrollTop it produces against a not-yet-filled
+ * screen fires scroll events like any other; recording those would overwrite the very offset being
+ * restored with 0, and the next attempt would have nothing left to aim at.
+ */
+let restoring = false
+
 export function ScrollReset() {
   const { pathname, key } = useLocation()
   const navType = useNavigationType()
@@ -26,7 +37,7 @@ export function ScrollReset() {
   useEffect(() => {
     const root = scroller()
     if (!root) return
-    const onScroll = () => { remember(key, root.scrollTop) }
+    const onScroll = () => { if (!restoring) remember(key, root.scrollTop) }
     root.addEventListener('scroll', onScroll, { passive: true })
     return () => root.removeEventListener('scroll', onScroll)
   }, [key])
@@ -37,8 +48,35 @@ export function ScrollReset() {
     if (root) root.scrollTop = y
     // The window call stays for any host where the body scrolls.
     window.scrollTo(0, y)
-    // A restored screen may still be filling in (photos, async rows); re-apply once it has painted.
-    if (y) requestAnimationFrame(() => { const r = scroller(); if (r && r.scrollTop !== y) r.scrollTop = y })
+    if (!y || !root) return
+
+    // Getting here with an EMPTY screen is the normal case, not the edge case: iOS reloads a
+    // backgrounded PWA, and the itinerary then arrives asynchronously (Supabase, or IndexedDB
+    // when there is no signal). scrollTop is clamped to the content that exists, so the offset
+    // above just became 0 and the saved position was applied to nothing. A single re-apply on
+    // the next frame is far too early — the content is still hundreds of milliseconds away.
+    //
+    // So keep re-applying until it takes, the budget runs out, or the owner starts scrolling —
+    // whichever comes first. Their own scroll always wins; nothing here fights a real gesture.
+    restoring = true
+    let stopped = false
+    const deadline = Date.now() + RESTORE_BUDGET_MS
+    const give_up = () => {
+      if (stopped) return
+      stopped = true
+      restoring = false
+      for (const ev of TAKEOVER) root.removeEventListener(ev, give_up)
+    }
+    const tick = () => {
+      if (stopped) return
+      if (root.scrollTop !== y) root.scrollTop = y
+      // Settled, or out of time. Either way stop touching the scroller.
+      if (root.scrollTop === y || Date.now() > deadline) { give_up(); return }
+      requestAnimationFrame(tick)
+    }
+    for (const ev of TAKEOVER) root.addEventListener(ev, give_up, { passive: true })
+    requestAnimationFrame(tick)
+    return give_up
     // Keyed on pathname, not key: a tap on the tab you are already on is a no-op (see ScrollReset.test).
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pathname])
