@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { loadValle } from '../helpers/content'
-import { openReminders, cityDot } from '../../src/lib/home'
+import { openReminders, cityDot, departureDayDone } from '../../src/lib/home'
 import type { BookingRow } from '../../src/lib/types'
 
 describe('openReminders', () => {
@@ -89,3 +89,19 @@ function blankBooking(
     status_from_file: null, fields: {}, sort: 0, photo_path: null, photo_credit: null,
   }
 }
+
+describe('departureDayDone', () => {
+  // Tue 3 Nov is the fixture's departure day: B02 "Train south" leaves at 09:10.
+  it('is false while something timed in the leaving city is still ahead', async () => {
+    const content = await loadValle()
+    expect(departureDayDone(content, '2026-11-03', 5 * 60)).toBe(false)
+  })
+  it('is true once the last timed stop or booking of the day has passed', async () => {
+    const content = await loadValle()
+    expect(departureDayDone(content, '2026-11-03', 23 * 60 + 59)).toBe(true)
+  })
+  it('is true for a day with nothing timed at all', async () => {
+    const content = await loadValle()
+    expect(departureDayDone({ ...content, items: [], bookings: [] }, '2026-11-03', 0)).toBe(true)
+  })
+})

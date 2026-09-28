@@ -887,6 +887,26 @@ test('useAttachments: a failed read still lists the queued upload', async () => 
   warn.mockRestore()
 })
 
+test('useAttachments: rows seen online are listed again on a later offline mount', async () => {
+  const row = { id: 'r1', trip: 'valle', booking_id: 'T01', storage_path: 'owner-1/valle/T01/1-a.pdf', filename: 'a.pdf', mime: 'application/pdf', size: 10, uploaded_at: '2026-01-01T00:00:00.000Z' }
+  const { client } = makeFakeClient({ attachments: [row] })
+  const online = renderHook(() => useAttachments('valle', 'T01', 'owner-1', client))
+  await waitFor(() => expect(online.result.current.list).toHaveLength(1))
+  await waitFor(() => expect(online.result.current.cached.has('r1')).toBe(true))
+  online.unmount()
+
+  // Airplane mode, app relaunched: the read fails, but the ticket must still be on the list.
+  goOffline()
+  const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+  const offline = renderHook(() => useAttachments('valle', 'T01', 'owner-1', makeOfflineReadClient()))
+  await waitFor(() => expect(offline.result.current.loading).toBe(false))
+  await waitFor(() => expect(offline.result.current.list.map(r => r.id)).toEqual(['r1']))
+  expect(offline.result.current.list[0].pendingUpload).toBeFalsy()
+  // Its bytes are on the phone, so the row says so — and url() will serve them.
+  await waitFor(() => expect(offline.result.current.cached.has('r1')).toBe(true))
+  warn.mockRestore()
+})
+
 // ---- a live write supersedes what is queued under the same key -------------
 
 test('useChecks: a successful online untick drops the stale queued tick for that item', async () => {

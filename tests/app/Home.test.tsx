@@ -176,6 +176,37 @@ test('when today falls inside another loaded trip, Home switches the trip contex
   expect(setSlug).toHaveBeenCalledTimes(1)
 })
 
+function renderWithTrips(trips: CityContent['trip'][], setSlug: (slug: string) => void) {
+  render(
+    <MemoryRouter initialEntries={['/']}>
+      <TripContext.Provider value={{ allAreas: [], trips, slug: 'valle', content, loading: false, offline: false, error: null, setSlug, refresh: vi.fn(async () => {}) }}>
+        <Routes><Route path="/" element={<Home />} /></Routes>
+      </TripContext.Provider>
+    </MemoryRouter>,
+  )
+}
+
+// A transfer day belongs to two cities: the fixture's last day (Tue 3 Nov) is also the first day
+// of the next one. "Today is inside the loaded trip" is true all day, so nothing moved the owner
+// across — Home and Day showed the city they had left until midnight. Once the last timed thing
+// in the leaving city is behind them, the arriving city is the one that matters.
+test('on a transfer day, Home moves to the arriving city once the leaving city\'s day is done', () => {
+  vi.setSystemTime(new Date('2026-11-03T21:00:00Z'))            // 22:00 Rome, train long gone
+  const next = { ...content.trip, slug: 'next', name: 'Next', start_date: '2026-11-03', end_date: '2026-11-06' }
+  const setSlug = vi.fn()
+  renderWithTrips([content.trip, next], setSlug)
+  expect(setSlug).toHaveBeenCalledWith('next')
+  expect(setSlug).toHaveBeenCalledTimes(1)
+})
+
+test('on a transfer day, Home stays with the leaving city while its day is still ahead', () => {
+  vi.setSystemTime(new Date('2026-11-03T05:00:00Z'))            // 06:00 Rome, before the 09:10 train
+  const next = { ...content.trip, slug: 'next', name: 'Next', start_date: '2026-11-03', end_date: '2026-11-06' }
+  const setSlug = vi.fn()
+  renderWithTrips([content.trip, next], setSlug)
+  expect(setSlug).not.toHaveBeenCalled()
+})
+
 test('Home leaves the trip alone when today is inside the loaded one', () => {
   vi.setSystemTime(SUNDAY_1200)
   const other = { ...content.trip, slug: 'other', name: 'Other', start_date: '2026-10-19', end_date: '2026-10-22' }

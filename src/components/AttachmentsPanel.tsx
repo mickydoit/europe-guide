@@ -27,8 +27,11 @@ export function AttachmentsPanel({ tripSlug, bookingId }: { tripSlug: string; bo
   async function handleOpenAttachment(a: AttachmentRow) {
     // Open the window synchronously in the click handler (before any await) so iOS
     // Safari's popup blocker treats it as a direct result of the user gesture; navigate
-    // it to the signed URL once that resolves.
-    const w = window.open('', '_blank', 'noopener')
+    // it to the signed URL once that resolves. No 'noopener' feature here: with it the
+    // spec makes window.open return null, so the handle was never real and every open
+    // fell through to navigating the app itself away. Cut the opener by hand instead.
+    const w = window.open('', '_blank')
+    if (w) w.opener = null
     try {
       const signedUrl = await url(a)
       if (w) w.location.href = signedUrl

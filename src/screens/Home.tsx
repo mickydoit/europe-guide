@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom'
 import { useTrip } from '../lib/trip'
 import { useBookingState, useChecks } from '../lib/state'
 import { fmtDay, nowInTz, todayInTrip } from '../lib/time'
-import { openReminders } from '../lib/home'
+import { departureDayDone, openReminders } from '../lib/home'
 import { cycleStatus, effectiveStatus, inferKind, nextTicket, stopsForCards, ticketsForDay } from '../lib/tickets'
 import { OWNER_NAME } from '../lib/config'
 import { startOfDay } from '../lib/startDay'
@@ -17,6 +17,7 @@ import { ReminderChips } from '../components/ReminderChips'
 import { SectionHeading } from '../components/SectionHeading'
 import { warmTripAttachments } from '../lib/attachmentsWarm'
 import { warmTripPhotos } from '../lib/photos'
+import type { TripRow } from '../lib/types'
 
 const NOW_TICK_MS = 30_000
 const PHOTO_WARM_DELAY_MS = 4_000
@@ -51,11 +52,21 @@ export function Home() {
 
   // The owner wakes up in the next city: the ambient trip is still whichever one they last
   // looked at (localStorage), and nothing else on Home would move them across. Once per mount.
+  //
+  // A transfer day belongs to both cities, so "today is inside this trip" holds all day and
+  // never moved anyone: Home showed the city they had left until midnight. On the trip's last
+  // day, once the last timed thing in it has passed, the city that starts today takes over.
   const switchedTrip = useRef(false)
   useEffect(() => {
     if (switchedTrip.current || !content) return
-    if (todayInTrip(content.trip, now) !== null) return
-    const match = trips.find(t => t.slug !== content.trip.slug && todayInTrip(t, now) !== null)
+    const cur = content.trip
+    const today = todayInTrip(cur, now)
+    let match: TripRow | undefined
+    if (today === null) {
+      match = trips.find(t => t.slug !== cur.slug && todayInTrip(t, now) !== null)
+    } else if (today === cur.end_date && departureDayDone(content, today, nowInTz(cur.timezone, now).minutes)) {
+      match = trips.find(t => t.slug !== cur.slug && todayInTrip(t, now) === t.start_date)
+    }
     if (!match) return
     switchedTrip.current = true
     setSlug(match.slug)

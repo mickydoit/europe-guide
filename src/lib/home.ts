@@ -1,5 +1,6 @@
-import { normaliseStatus } from './tickets'
-import type { BookingRow } from './types'
+import { isTicket, normaliseStatus } from './tickets'
+import { minutesOf } from './time'
+import type { BookingRow, CityContent } from './types'
 
 const MONTHS_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 
@@ -26,6 +27,19 @@ export function openReminders(
       const overdue = effDate != null && effDate < todayISO
       return { booking, label, overdue }
     })
+}
+
+/**
+ * Is the leaving city finished with `date`? True once every timed stop and ticket dated that day
+ * is at or before `minutes` — and true outright for a day with nothing timed. On a transfer day
+ * this is the moment Home moves across to the arriving city.
+ */
+export function departureDayDone(content: CityContent, date: string, minutes: number): boolean {
+  const times = [
+    ...content.items.filter(i => i.kind === 'stop' && i.date === date && i.time).map(i => i.time!),
+    ...content.bookings.filter(b => isTicket(b) && b.date === date && b.time).map(b => b.time!),
+  ]
+  return times.every(t => minutesOf(t) <= minutes)
 }
 
 // Calibration for public/home/world.png: 1292x853 Mercator, longitudes wrap past 180 to
