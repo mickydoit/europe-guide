@@ -222,11 +222,14 @@ test('a row with a booking shows the status badge only', () => {
 test('a chip per day replaces the arrows; the shown day is marked and tapping another navigates', () => {
   renderDay('2026-11-02', content)
   const strip = screen.getByRole('list', { name: 'Days' })
-  const chips = within(strip).getAllByRole('link')
+  const chips = [...strip.querySelectorAll('.day-chip')]
   expect(chips).toHaveLength(content.days.length)
   expect(chips.map(c => c.textContent)).toEqual(['Sun1', 'Mon2', 'Tue3'])
   expect(chips[1]).toHaveAttribute('aria-current', 'date')
   expect(screen.queryByRole('button', { name: 'Previous day' })).toBeNull()
+  // The shown day is deliberately NOT a link: a Link to the current path REPLACEs, which mints
+  // a new location.key and strands the scroll offset saved under the old one.
+  expect(within(strip).getAllByRole('link').map(c => c.textContent)).toEqual(['Sun1', 'Tue3'])
   fireEvent.click(chips[2])
   expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(/Tuesday 3 November/)
 })

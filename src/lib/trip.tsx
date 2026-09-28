@@ -136,7 +136,12 @@ export function TripProvider({ children, client, initial }: {
 
   function setSlug(s: string) {
     localStorage.setItem(STORAGE_KEY, s)
-    history.replaceState(null, '', `${location.pathname}?trip=${s}`)
+    // Carry the EXISTING history state through. react-router keeps { usr, key, idx } in it,
+    // and passing null wiped all three: `location.key` then read back as 'default', which is
+    // the exact value PlaceDetail/TicketDetail's Back button treats as "no previous screen" —
+    // so Back quietly became a REPLACE to a hard-coded route, and a REPLACE is not a POP, so
+    // the itinerary reopened at the top with the saved offset still sitting in the store.
+    history.replaceState(history.state, '', `${location.pathname}?trip=${s}`)
     setSlugState(s)
   }
 

@@ -9,19 +9,45 @@ import { useLocation, useNavigationType } from 'react-router-dom'
 // not lose them; sessionStorage is per tab and dies with it, which is exactly the lifetime wanted.
 const STORE = 'scroll-positions'
 const positions = new Map<string, number>(load())
+/**
+ * localStorage, not sessionStorage. A sessionStorage area belongs to one browsing context and
+ * dies with it — and iOS terminating a backgrounded standalone PWA destroys exactly that. The
+ * offsets were therefore guaranteed to be missing on the relaunch they were written for, which
+ * is the case this whole mechanism exists to serve. localStorage outlives the process.
+ */
 function load(): Array<[string, number]> {
-  try { return JSON.parse(sessionStorage.getItem(STORE) ?? '[]') as Array<[string, number]> } catch { return [] }
+  try { return JSON.parse(localStorage.getItem(STORE) ?? '[]') as Array<[string, number]> } catch { return [] }
 }
 function remember(key: string, y: number) {
+  // Re-insert so the Map's iteration order is least-recently-used first. Map.set on an existing
+  // key keeps its original slot, so without the delete a long-lived screen like Day would sit at
+  // the front and be the first thing `slice(-50)` dropped, while disposable detail-screen entries
+  // survived — evicting precisely the offset worth keeping.
+  positions.delete(key)
   positions.set(key, y)
-  try { sessionStorage.setItem(STORE, JSON.stringify([...positions].slice(-50))) } catch { /* private mode: memory only */ }
+  try { localStorage.setItem(STORE, JSON.stringify([...positions].slice(-50))) } catch { /* private mode: memory only */ }
 }
+
+/** Test seam: what the module currently holds, including what it loaded at import time. */
+export function savedOffsets(): ReadonlyMap<string, number> { return positions }
 function scroller(): HTMLElement | null { return document.getElementById('root') }
 
-/** How long to keep trying to reach a restored offset while the screen fills in. */
-const RESTORE_BUDGET_MS = 1500
-/** A real gesture on the scroller ends the restore immediately — the owner is driving now. */
-const TAKEOVER = ['touchstart', 'wheel', 'keydown'] as const
+/**
+ * How long to keep trying to reach a restored offset while the screen fills in. The content
+ * path is unbounded — trip.tsx asks Supabase for ten tables and only falls back to IndexedDB
+ * once that fails, with no timeout anywhere — so on a roaming connection the itinerary can be
+ * many seconds away. The old 1.5s expired long before it arrived and gave up for good.
+ */
+const RESTORE_BUDGET_MS = 10_000
+/**
+ * A real gesture ends the restore immediately — the owner is driving now.
+ *
+ * `touchmove`, NOT `touchstart`: touchstart fires for any finger contact at all, including a
+ * tap on a link or an impatient tap on a screen still showing "Loading…". Treating that as a
+ * scroll abandoned the restore on a screen that had not filled in yet — landing exactly where
+ * this is meant to prevent. A drag is a scroll; a tap is not.
+ */
+const TAKEOVER = ['touchmove', 'wheel', 'keydown'] as const
 /**
  * True while a restore is re-applying. The clamped scrollTop it produces against a not-yet-filled
  * screen fires scroll events like any other; recording those would overwrite the very offset being

@@ -208,3 +208,31 @@ test('falls back to the cached areas when the network is gone', async () => {
       .toBe(content.areas.map(a => `${a.trip}:${a.seq}`).join(','))
   })
 })
+
+// ---- setSlug must not destroy the router's history state ---------------------
+// react-router keeps { usr, key, idx } in history.state. Wiping it makes location.key read
+// back as 'default', which is the value PlaceDetail/TicketDetail's Back button treats as
+// "there is nowhere to go back to" — so Back silently becomes a REPLACE and the itinerary
+// reopens at the top.
+test('switching trip keeps the router history state intact', async () => {
+  const content = await loadValle()
+  const mock = mockSupabaseContent(content)
+  history.replaceState({ usr: null, key: 'abc12345', idx: 3 }, '', '/day/2026-11-02')
+  render(<TripProvider client={mock.client}><Probe /></TripProvider>)
+  await screen.findByTestId('slug')
+  fireEvent.click(screen.getByText('set-other'))
+  await waitFor(() => {
+    expect((history.state as { key?: string } | null)?.key).toBe('abc12345')
+    expect((history.state as { idx?: number } | null)?.idx).toBe(3)
+  })
+})
+
+test('switching trip still puts the new slug in the query string', async () => {
+  const content = await loadValle()
+  const mock = mockSupabaseContent(content)
+  history.replaceState({ usr: null, key: 'abc12345', idx: 3 }, '', '/day/2026-11-02')
+  render(<TripProvider client={mock.client}><Probe /></TripProvider>)
+  await screen.findByTestId('slug')
+  fireEvent.click(screen.getByText('set-other'))
+  await waitFor(() => expect(location.search).toBe('?trip=other'))
+})

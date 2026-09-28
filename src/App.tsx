@@ -4,6 +4,8 @@ import { AuthProvider, RequireAuth } from './lib/auth'
 import { TripProvider } from './lib/trip'
 import { useMapNeeds } from './lib/mapReadiness'
 import { TabBar } from './components/TabBar'
+import { ErrorBoundary } from './components/ErrorBoundary'
+import { MapLoading } from './components/MapLoading'
 import { ScrollReset } from './components/ScrollReset'
 import { ScreenEnter } from './components/ScreenEnter'
 import { SignIn } from './screens/SignIn'
@@ -28,14 +30,16 @@ export default function App() {
       <Routes>
         <Route path="/signin" element={<SignIn />} />
         <Route path="/reset" element={<ResetPassword />} />
-        <Route element={<RequireAuth><TripProvider><Shell /></TripProvider></RequireAuth>}>
+        <Route element={<RequireAuth><ErrorBoundary><TripProvider><Shell /></TripProvider></ErrorBoundary></RequireAuth>}>
           <Route path="/" element={<Home />} />
           <Route path="/day" element={<Day />} />
           <Route path="/day/:date" element={<Day />} />
           <Route path="/map/:date?" element={
-            <Suspense fallback={<main className="screen"><p className="caption">Loading map…</p></main>}>
-              <MapScreen />
-            </Suspense>
+            <ErrorBoundary>
+              <Suspense fallback={<MapLoading />}>
+                <MapScreen />
+              </Suspense>
+            </ErrorBoundary>
           } />
           <Route path="/tickets" element={<Tickets />} />
           <Route path="/ticket/:trip/:id" element={<TicketDetail />} />

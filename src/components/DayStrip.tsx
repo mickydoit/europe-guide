@@ -14,17 +14,21 @@ export function DayStrip({ days, selected, today }: { days: DayRow[]; selected: 
       {days.map(day => {
         const { wd, d } = parts(day.date)
         const isSel = day.date === selected
+        const className = `day-chip${isSel ? ' day-chip--selected' : ''}${day.date === today ? ' day-chip--today' : ''}`
+        const face = <><span className="day-chip__wd">{wd}</span><span className="day-chip__d">{d}</span></>
         return (
           <li key={day.date} className="day-strip__item">
-            <Link
-              to={`/day/${day.date}`}
-              className={`day-chip${isSel ? ' day-chip--selected' : ''}${day.date === today ? ' day-chip--today' : ''}`}
-              aria-current={isSel ? 'date' : undefined}
-              aria-label={`${wd} ${d}`}
-            >
-              <span className="day-chip__wd">{wd}</span>
-              <span className="day-chip__d">{d}</span>
-            </Link>
+            {/* The day you are already on is not a navigation. As a <Link> it pointed at the
+                current path, which react-router turns into a REPLACE — and a replace mints a
+                fresh location.key, stranding the scroll offset saved under the old one so the
+                next Back opened the itinerary at the top. */}
+            {isSel
+              ? <span className={className} aria-current="date" aria-label={`${wd} ${d}`}>{face}</span>
+              : (
+                <Link to={`/day/${day.date}`} className={className} aria-label={`${wd} ${d}`}>
+                  {face}
+                </Link>
+              )}
           </li>
         )
       })}

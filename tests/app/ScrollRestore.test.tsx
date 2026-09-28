@@ -1,6 +1,6 @@
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { MemoryRouter, Routes, Route, Outlet, Link, useNavigate } from 'react-router-dom'
-import { vi, beforeEach, afterEach } from 'vitest'
+import { vi, beforeEach, afterEach, test, expect } from 'vitest'
 import { ScrollReset } from '../../src/components/ScrollReset'
 
 // A forward tap lands at the top. Coming BACK returns to where the list was scrolled, so a long
@@ -82,4 +82,68 @@ test('restores the offset once the itinerary finally renders, not against an emp
   await new Promise(r => setTimeout(r, 60))
   grow(4000)                                // only NOW does the itinerary arrive
   await waitFor(() => expect(root.scrollTop).toBe(480))
+})
+
+/**
+ * iOS terminates a backgrounded standalone PWA; relaunching it from the home screen is a NEW
+ * browsing context, and a new browsing context gets an empty sessionStorage area. Offsets kept
+ * only in sessionStorage are therefore guaranteed to be gone at the exact moment they are
+ * wanted. This mounts a completely fresh copy of the module with sessionStorage wiped, which is
+ * what a relaunch looks like from the module's point of view.
+ */
+test('offsets survive the app being relaunched, not just reloaded', async () => {
+  const root = mount()
+  root.scrollTop = 480; fireEvent.scroll(root)
+
+  sessionStorage.clear()                       // the relaunch
+  vi.resetModules()
+  const fresh = await import('../../src/components/ScrollReset')
+  const saved = fresh.savedOffsets()
+  expect([...saved.values()]).toContain(480)
+})
+
+function mountGrowingApp() {
+  const { root, grow } = mountGrowing()
+  grow(4000)
+  render(
+    <MemoryRouter initialEntries={['/tickets']}>
+      <Routes>
+        <Route element={<Shell />}>
+          <Route path="/tickets" element={<><h1>Tickets</h1><Link to="/ticket/B01">Open</Link></>} />
+          <Route path="/ticket/:id" element={<><h1>Detail</h1><Back /></>} />
+        </Route>
+      </Routes>
+    </MemoryRouter>,
+    { container: root },
+  )
+  return { root, grow }
+}
+
+// touchstart fires for ANY finger contact — a tap on a link, an impatient tap on "Loading…",
+// a thumb resting on the glass. Treating that as "the owner is scrolling" abandoned the
+// restore on a screen that had not filled in yet, which lands them at the top.
+test('a tap during the restore does not abandon it', async () => {
+  const { root, grow } = mountGrowingApp()
+  root.scrollTop = 480; fireEvent.scroll(root)
+  fireEvent.click(screen.getByRole('link', { name: 'Open' }))
+  grow(0)
+  fireEvent.click(screen.getByRole('button', { name: 'Back' }))
+  fireEvent.touchStart(root)                 // an impatient tap, not a scroll
+  await new Promise(r => setTimeout(r, 60))
+  grow(4000)
+  await waitFor(() => expect(root.scrollTop).toBe(480))
+})
+
+// A real drag is the owner taking over, and must win immediately.
+test('an actual drag during the restore hands control back to the owner', async () => {
+  const { root, grow } = mountGrowingApp()
+  root.scrollTop = 480; fireEvent.scroll(root)
+  fireEvent.click(screen.getByRole('link', { name: 'Open' }))
+  grow(0)
+  fireEvent.click(screen.getByRole('button', { name: 'Back' }))
+  fireEvent.touchMove(root)
+  await new Promise(r => setTimeout(r, 60))
+  grow(4000)
+  await new Promise(r => setTimeout(r, 200))
+  expect(root.scrollTop).toBe(0)             // left where the owner put it, not yanked back
 })
