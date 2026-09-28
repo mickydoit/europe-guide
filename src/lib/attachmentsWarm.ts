@@ -11,11 +11,12 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { supabase } from './supabase'
 import { cacheAttachment, enforceCacheLimit, hasCachedAttachment } from './attachmentsCache'
+import { putAttachmentRows } from './db'
 
 /** What the caption in More counts: files on the phone, out of files the trip has. */
 export type WarmResult = { cached: number; total: number }
 
-type WarmRow = { id: string; storage_path: string; size: number; uploaded_at: string }
+type WarmRow = { id: string; booking_id: string; storage_path: string; size: number; uploaded_at: string }
 
 const NOTHING: WarmResult = { cached: 0, total: 0 }
 
@@ -42,6 +43,11 @@ async function warm(trip: string, client: SupabaseClient, cacheStorage?: CacheSt
   const { data, error } = await client.from('attachments').select('*').eq('trip', trip)
   if (error) { warn(error); return NOTHING }
   const rows = (data ?? []) as WarmRow[]
+  // The rows are what a ticket screen lists. Remember them per booking now, on wifi, so a
+  // ticket the owner never opened online still has a file to tap with no signal.
+  const byBooking = new Map<string, WarmRow[]>()
+  for (const row of rows) (byBooking.get(row.booking_id) ?? byBooking.set(row.booking_id, []).get(row.booking_id)!).push(row)
+  for (const [bookingId, list] of byBooking) await putAttachmentRows(trip, bookingId, list).catch(warn)
   let cached = 0
   // Sequential on purpose: these are multi-megabyte PDFs on a phone's connection, and a
   // parallel burst is how you get a stalled screen and a handful of timeouts.

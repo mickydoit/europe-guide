@@ -510,6 +510,9 @@ test('a tile error on a signed basemap re-signs every area once', async () => {
   renderMap(withAreas)
 
   await waitFor(() => expect(createSignedUrl).toHaveBeenCalledTimes(2))
+  // The signed sources exist before the map that listens for their errors does; firing
+  // into an instance that is not there yet was a flake, not a finding.
+  await waitFor(() => expect(maplibreState.instances.length).toBe(1))
   fire('error', { error: { status: 403 } })
   await waitFor(() => expect(createSignedUrl).toHaveBeenCalledTimes(4))
 

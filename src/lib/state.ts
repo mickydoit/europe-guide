@@ -5,6 +5,7 @@ import { enqueue, listOpsByKey, listOutbox, removeOp } from './outbox'
 import type { AttachmentUploadPayload, BookingStatePayload, CheckSetPayload, DayNotesPayload } from './outbox'
 import { flushOutbox, notify } from './sync'
 import { cacheAttachment, deleteCachedAttachment, getCachedAttachmentBlob, hasCachedAttachment } from './attachmentsCache'
+import { getAttachmentRows, putAttachmentRows } from './db'
 import { isNetworkFailure } from './net'
 import { resetWarm } from './attachmentsWarm'
 
@@ -328,6 +329,11 @@ export function useAttachments(trip: string, bookingId: string, ownerId: string,
         if (cancelled) return
         if (err) { console.warn(message(err)); setError(message(err)) }
         const rows = err ? null : (data ?? []) as AttachmentRow[]
+        // The rows are the list; the bytes alone are useless with nothing on screen to tap.
+        // Keep the last good read on the phone, and start from it when the read fails —
+        // that is the airplane-mode ticket, and it was empty before this.
+        if (rows) void putAttachmentRows(trip, bookingId, rows).catch(() => {})
+        const remembered = rows ? [] : await getAttachmentRows<AttachmentRow>(trip, bookingId).catch(() => [] as AttachmentRow[])
         const pending = (await listOutbox())
           .filter(op => op.kind === 'attachment_upload')
           .map(op => op.payload as AttachmentUploadPayload)
@@ -337,7 +343,7 @@ export function useAttachments(trip: string, bookingId: string, ownerId: string,
         // On a failed read, keep the rows already on screen (minus their stale pending
         // entries) so the queued ticket is still listed with no signal.
         setList(prev => {
-          const base = rows ?? prev.filter(r => !r.pendingUpload)
+          const base = rows ?? (remembered.length ? remembered : prev.filter(r => !r.pendingUpload))
           const paths = new Set(base.map(r => r.storage_path))
           const merged = [...base, ...pending.filter(p => !paths.has(p.storage_path))]
           const mergedPaths = new Set(merged.map(r => r.storage_path))
@@ -346,7 +352,10 @@ export function useAttachments(trip: string, bookingId: string, ownerId: string,
           const reapplied = prev.filter(r => touched.current.has(r.storage_path) && !mergedPaths.has(r.storage_path))
           return [...merged, ...reapplied]
         })
-        if (rows && rows.length) void prefetch(rows).catch(e => console.warn(e instanceof Error ? e.message : String(e)))
+        // Remembered rows too: with no signal the pass only finds what is already cached,
+        // which is exactly what the "offline" pill needs to know.
+        const listed = rows ?? remembered
+        if (listed.length) void prefetch(listed).catch(e => console.warn(e instanceof Error ? e.message : String(e)))
       } catch (e) {
         console.warn(e instanceof Error ? e.message : String(e))
       } finally {

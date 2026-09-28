@@ -3,6 +3,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { warmTripAttachments, resetWarmForTests } from '../../src/lib/attachmentsWarm'
 import { CACHE_NAME, cacheKey, cacheAttachment } from '../../src/lib/attachmentsCache'
 import { FakeCacheStorage } from '../helpers/fakeCaches'
+import { getAttachmentRows, resetDbForTests } from '../../src/lib/db'
 
 type Row = { id: string; trip: string; booking_id: string; storage_path: string; size: number; uploaded_at: string }
 
@@ -57,6 +58,16 @@ describe('warmTripAttachments', () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response(new Uint8Array([1, 2, 3]).buffer, { status: 200 })))
   })
   afterEach(() => { vi.unstubAllGlobals() })
+
+  test('remembers each booking\'s rows, so a ticket never opened online still lists offline', async () => {
+    await resetDbForTests()
+    await new Promise<void>(resolve => { const req = indexedDB.deleteDatabase('europe-guide'); req.onsuccess = req.onerror = req.onblocked = () => resolve() })
+    const rows = [row('a1'), row('a2', { booking_id: 'B2', storage_path: 'owner/valle/B2/a2.pdf' })]
+    await warmTripAttachments('valle', fakeClient(rows, calls), cacheStorage as unknown as CacheStorage)
+
+    expect((await getAttachmentRows<Row>('valle', 'B2')).map(r => r.id)).toEqual(['a2'])
+    expect((await getAttachmentRows<Row>('valle', 'B1')).map(r => r.id)).toEqual(['a1'])
+  })
 
   test('caches every ticket in the trip, not just one booking, and reports N of M', async () => {
     const rows = [row('a1'), row('a2', { booking_id: 'B2', storage_path: 'owner/valle/B2/a2.pdf' })]

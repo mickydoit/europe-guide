@@ -147,3 +147,39 @@ test('an actual drag during the restore hands control back to the owner', async 
   await new Promise(r => setTimeout(r, 200))
   expect(root.scrollTop).toBe(0)             // left where the owner put it, not yanked back
 })
+
+/**
+ * React Router gives the first entry of EVERY browsing context the key 'default'. Now that
+ * offsets outlive the context, an offset saved on one launch's first screen would be restored
+ * on the next launch's first screen — whatever screen that is. Entries are therefore keyed by
+ * path as well: a relaunch on the same screen still gets its offset back, a launch elsewhere
+ * does not inherit it.
+ */
+test('a cold launch on a different screen does not inherit the first-entry offset', async () => {
+  const root = mount()
+  root.scrollTop = 480; fireEvent.scroll(root)
+
+  vi.resetModules()
+  const fresh = await import('../../src/components/ScrollReset')
+  document.getElementById('root')?.remove()
+  const again = document.createElement('div'); again.id = 'root'; document.body.appendChild(again)
+  Object.defineProperty(again, 'scrollTop', { value: 0, writable: true })
+  function FreshShell() { return <><fresh.ScrollReset /><Outlet /></> }
+  render(
+    <MemoryRouter initialEntries={['/day']}>
+      <Routes><Route element={<FreshShell />}><Route path="/day" element={<h1>Day</h1>} /></Route></Routes>
+    </MemoryRouter>,
+    { container: again },
+  )
+  expect(screen.getByRole('heading', { name: 'Day' })).toBeInTheDocument()
+  expect(again.scrollTop).toBe(0)
+  expect(scrollTo).toHaveBeenLastCalledWith(0, 0)
+})
+
+test('a corrupt or foreign value under the storage key does not break the module', async () => {
+  localStorage.setItem('europe-guide.scroll-positions', '{}')
+  vi.resetModules()
+  const fresh = await import('../../src/components/ScrollReset')
+  expect(fresh.savedOffsets().size).toBe(0)
+  localStorage.removeItem('europe-guide.scroll-positions')
+})

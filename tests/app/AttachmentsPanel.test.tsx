@@ -39,20 +39,38 @@ test('opening an attachment opens the window synchronously before the signed url
   let resolveUrl: (v: string) => void = () => {}
   urlMock.mockImplementationOnce(() => new Promise<string>(resolve => { resolveUrl = resolve }))
   useAttachmentsMock.mockReturnValue({ list: [baseAttachment], loading: false, upload: uploadMock, url: urlMock, remove: removeMock, error: null, cached: new Set<string>() })
-  const fakeWindow = { location: { href: '' }, close: vi.fn() }
+  const fakeWindow = { location: { href: '' }, close: vi.fn(), opener: window as Window | null }
   const openSpy = vi.spyOn(window, 'open').mockReturnValue(fakeWindow as unknown as Window)
 
   mount()
   fireEvent.click(screen.getByRole('button', { name: 'ticket.pdf' }))
 
-  // window.open must already have been called before the mocked url() resolves.
+  // window.open must already have been called before the mocked url() resolves — and WITHOUT
+  // the 'noopener' feature: with it the call returns null by spec, the handle was never real,
+  // and every open fell through to navigating the app itself away.
   expect(openSpy).toHaveBeenCalledTimes(1)
-  expect(openSpy).toHaveBeenCalledWith('', '_blank', 'noopener')
+  expect(openSpy).toHaveBeenCalledWith('', '_blank')
+  expect(fakeWindow.opener).toBeNull()
   expect(urlMock).toHaveBeenCalledWith(baseAttachment)
 
   resolveUrl('https://signed.example/ticket.pdf')
   await waitFor(() => expect(fakeWindow.location.href).toBe('https://signed.example/ticket.pdf'))
 
+  openSpy.mockRestore()
+})
+
+test('when the browser refuses a popup, the app itself is navigated to the file', async () => {
+  useAttachmentsMock.mockReturnValue({ list: [baseAttachment], loading: false, upload: uploadMock, url: urlMock, remove: removeMock, error: null, cached: new Set<string>() })
+  const openSpy = vi.spyOn(window, 'open').mockReturnValue(null)
+  const assign = vi.fn()
+  const original = window.location
+  Object.defineProperty(window, 'location', { configurable: true, value: { ...original, assign } })
+
+  mount()
+  fireEvent.click(screen.getByRole('button', { name: 'ticket.pdf' }))
+  await waitFor(() => expect(assign).toHaveBeenCalledWith('https://signed.example/file.pdf'))
+
+  Object.defineProperty(window, 'location', { configurable: true, value: original })
   openSpy.mockRestore()
 })
 

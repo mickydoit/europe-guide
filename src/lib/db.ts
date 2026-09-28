@@ -36,6 +36,9 @@ export async function putCachedTrips(t: TripRow[]) { await (await openDb()).put(
 /** Booking ids that have at least one attachment, per trip — so Day rows can say "Open ticket" offline. */
 export async function getAttachedIds(trip: string) { return ((await (await openDb()).get('meta', `attached:${trip}`)) as string[] | undefined) ?? [] }
 export async function putAttachedIds(trip: string, ids: string[]) { await (await openDb()).put('meta', ids, `attached:${trip}`) }
+/** Attachment rows per booking — the list itself, so a ticket screen opened with no signal still has files to tap. */
+export async function getAttachmentRows<T>(trip: string, bookingId: string) { return ((await (await openDb()).get('meta', `attachments:${trip}:${bookingId}`)) as T[] | undefined) ?? [] }
+export async function putAttachmentRows<T>(trip: string, bookingId: string, rows: T[]) { await (await openDb()).put('meta', rows, `attachments:${trip}:${bookingId}`) }
 export async function getWeatherCache<T>(key: string) { return ((await (await openDb()).get('weather', key)) as T | undefined) ?? null }
 export async function putWeatherCache<T>(key: string, value: T) { await (await openDb()).put('weather', value, key) }
 export async function getOutboxAll() { return (await (await openDb()).getAll('outbox')) as OutboxOp[] }
