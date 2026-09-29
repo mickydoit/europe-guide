@@ -156,7 +156,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
   export type MetaFetcher = (placeId: string) => Promise<PlaceMeta | null>
   export function makeGoogleMetaFetcher(key: string, fetchImpl?: typeof fetch): MetaFetcher
   export function makeCachedMetaFetcher(inner: MetaFetcher, cache: { get(id: string): Promise<PlaceMeta | null>; set(id: string, v: PlaceMeta): Promise<void> }): MetaFetcher
-  export function supabaseMetaCache(client: SupabaseClient, ownerId: string): { get; set }
+  export function supabaseMetaCache(client: SupabaseClient): { get(id: string): Promise<PlaceMeta | null>; set(id: string, v: PlaceMeta): Promise<void> }
   export async function enrichPlaceMeta(c: CityContent, geocode: Geocoder, fetchMeta: MetaFetcher, cityHint: string): Promise<{ fetched: number; missing: string[] }>
   ```
 
@@ -515,7 +515,7 @@ describe('scorePlace', () => {
     expect(scorePlace(place('bar', ['bar'], 4.8, 100, 'bad'), V).score).toBe(0)
     expect(V.eat.typeWeight.bar).toBeCloseTo((2 / 3) * 0.7)
     expect(V.shop.typeWeight.gift_shop).toBeCloseTo((1 / 3) * 1.3)
-    expect(buildProfile(rows, [votes[1], votes[1], votes[1], votes[1]]).shop.typeWeight.gift_shop).toBe(1) // capped
+    expect(buildProfile(rows, [votes[1], votes[1], votes[1], votes[1], votes[1]]).shop.typeWeight.gift_shop).toBe(1) // (1/3)·1.3⁵ = 1.24 → capped at 1
   })
   test('thin category: any type in the category lookup counts as THIN_WEIGHT', () => {
     const T = buildProfile(rows.filter(r => r.primary_type !== 'clothing_store' && r.primary_type !== 'store' && r.primary_type !== 'manufacturer' && r.primary_type !== 'home_goods_store'))
@@ -1266,7 +1266,8 @@ import { summariseProfile } from '../../src/lib/taste'
 test('summariseProfile prints one line per category and the vote count', () => {
   const lines = summariseProfile(P)
   expect(lines).toHaveLength(4)
-  expect(lines[0]).toBe('eat · 13 places · top: restaurant, cafe, coffee_shop, portuguese_restaurant, pastry_shop · reviews ≤ 3,371 · rating ≥ 4.3')
+  // weight desc, then alphabetical: the three weight-1 types first, then the first two of the 2/3-weight types
+  expect(lines[0]).toBe('eat · 13 places · top: cafe, coffee_shop, restaurant, bakery, bar · reviews ≤ 3,371 · rating ≥ 4.3')
   expect(lines[2]).toMatch(/^see · 6 places · top: museum, tourist_attraction/)
   expect(lines[3]).toBe('votes · 0')
   expect(summariseProfile(buildProfile([]))[0]).toBe('eat · 0 places · thin — using the pre-profile rule')
