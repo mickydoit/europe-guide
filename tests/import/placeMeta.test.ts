@@ -65,23 +65,71 @@ test('enrichPlaceMeta fills items and parked from the geocoder place_id, skips r
 })
 
 test('supabaseMetaCache reads the geocode_cache row by place_id and upserts the five fields', async () => {
-  const calls: { op: string; payload?: unknown; filter?: unknown }[] = []
+  const calls: { op: string; payload?: unknown; filter?: unknown; args?: unknown }[] = []
   const fakeClient = {
     from: () => ({
-      select: () => ({ eq: (col: string, v: string) => ({ maybeSingle: async () => { calls.push({ op: 'select', filter: [col, v] }); return { data: { primary_type: 'cafe', types: ['cafe'], price_level: null, rating: 4.5, rating_count: 20, meta_fetched_at: '2026-09-29T00:00:00Z' }, error: null } } }) }),
+      select: () => ({
+        eq: (col: string, v: string) => {
+          calls.push({ op: 'select', filter: [col, v] })
+          return {
+            not: (col2: string, op2: string, val2: unknown) => {
+              calls.push({ op: 'not', args: [col2, op2, val2] })
+              return {
+                order: () => ({
+                  limit: (n: number) => {
+                    calls.push({ op: 'limit', args: [n] })
+                    return { maybeSingle: async () => ({ data: { primary_type: 'cafe', types: ['cafe'], price_level: null, rating: 4.5, rating_count: 20, meta_fetched_at: '2026-09-29T00:00:00Z' }, error: null }) }
+                  },
+                }),
+              }
+            },
+          }
+        },
+      }),
       update: (payload: unknown) => ({ eq: async (col: string, v: string) => { calls.push({ op: 'update', payload, filter: [col, v] }); return { error: null } } }),
     }),
   } as unknown as SupabaseClient
   const cache = supabaseMetaCache(fakeClient)
   expect(await cache.get('ChIJ1')).toEqual({ primary_type: 'cafe', types: ['cafe'], price_level: null, rating: 4.5, rating_count: 20 })
   expect(calls[0]).toEqual({ op: 'select', filter: ['place_id', 'ChIJ1'] })
+  expect(calls[1]).toEqual({ op: 'not', args: ['meta_fetched_at', 'is', null] })
+  expect(calls[2]).toEqual({ op: 'limit', args: [1] })
   await cache.set('ChIJ1', { primary_type: 'bar', types: ['bar'], price_level: null, rating: 4, rating_count: 1 })
-  expect(calls[1].op).toBe('update')
-  expect(calls[1].payload).toMatchObject({ primary_type: 'bar', types: ['bar'], rating: 4, rating_count: 1 })
-  expect((calls[1].payload as { meta_fetched_at: string }).meta_fetched_at).toMatch(/^\d{4}-/)
+  expect(calls[3].op).toBe('update')
+  expect(calls[3].payload).toMatchObject({ primary_type: 'bar', types: ['bar'], rating: 4, rating_count: 1 })
+  expect((calls[3].payload as { meta_fetched_at: string }).meta_fetched_at).toMatch(/^\d{4}-/)
+})
+
+test('supabaseMetaCache.get returns the newest row when several share a place_id', async () => {
+  const fakeClient = {
+    from: () => ({
+      select: () => ({
+        eq: () => ({
+          not: () => ({
+            order: () => ({
+              limit: () => ({ maybeSingle: async () => ({ data: { primary_type: 'museum', types: ['museum'], price_level: null, rating: 4.2, rating_count: 900, meta_fetched_at: '2026-09-20T00:00:00Z' }, error: null }) }),
+            }),
+          }),
+        }),
+      }),
+    }),
+  } as unknown as SupabaseClient
+  expect(await supabaseMetaCache(fakeClient).get('ChIJdup')).toEqual({ primary_type: 'museum', types: ['museum'], price_level: null, rating: 4.2, rating_count: 900 })
 })
 
 test('supabaseMetaCache treats a row without meta_fetched_at as a miss', async () => {
-  const fakeClient = { from: () => ({ select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: { primary_type: null, types: null, price_level: null, rating: null, rating_count: null, meta_fetched_at: null }, error: null }) }) }) }) } as unknown as SupabaseClient
+  const fakeClient = {
+    from: () => ({
+      select: () => ({
+        eq: () => ({
+          not: () => ({
+            order: () => ({
+              limit: () => ({ maybeSingle: async () => ({ data: { primary_type: null, types: null, price_level: null, rating: null, rating_count: null, meta_fetched_at: null }, error: null }) }),
+            }),
+          }),
+        }),
+      }),
+    }),
+  } as unknown as SupabaseClient
   expect(await supabaseMetaCache(fakeClient).get('ChIJ1')).toBeNull()
 })

@@ -30,8 +30,9 @@ export function makeCachedMetaFetcher(inner: MetaFetcher, cache: { get(id: strin
 export function supabaseMetaCache(client: SupabaseClient) {
   const cols = 'primary_type,types,price_level,rating,rating_count,meta_fetched_at'
   return {
+    // The same place is geocoded under several query strings, so one place_id can have several geocode_cache rows — take the most recently fetched.
     async get(placeId: string): Promise<PlaceMeta | null> {
-      const { data, error } = await client.from('geocode_cache').select(cols).eq('place_id', placeId).maybeSingle()
+      const { data, error } = await client.from('geocode_cache').select(cols).eq('place_id', placeId).not('meta_fetched_at', 'is', null).order('meta_fetched_at', { ascending: false }).limit(1).maybeSingle()
       if (error) { console.warn(`geocode_cache meta get failed: ${error.message}`); return null }
       if (!data || !data.meta_fetched_at) return null
       return { primary_type: data.primary_type, types: data.types, price_level: data.price_level, rating: data.rating, rating_count: data.rating_count }
