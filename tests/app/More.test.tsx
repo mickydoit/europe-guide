@@ -24,6 +24,7 @@ vi.mock('../../src/lib/ics', async importOriginal => {
 })
 
 import { More } from '../../src/screens/More'
+import { diag } from '../../src/lib/diag'
 
 const throwingClient = new Proxy({}, { get() { throw new Error('no network in tests') } }) as never
 
@@ -257,4 +258,16 @@ test('a trip that has already ended is never offered', async () => {
   await screen.findByText(/of 1 areas/)
   expect(screen.queryByText('Alba')).toBeNull()
   vi.useRealTimers()
+})
+
+test('Diagnostics shows the recent log lines so the owner can report a dead-tap spell', async () => {
+  localStorage.removeItem('europe-guide.diag')
+  diag('restore', 'start /tickets y=480')
+  diag('touchcancel', 'A.stop-row__main')
+  renderMore(content)
+  const section = await screen.findByRole('heading', { name: 'Diagnostics' })
+  expect(section).toBeInTheDocument()
+  expect(screen.getByText(/restore start \/tickets y=480/)).toBeInTheDocument()
+  expect(screen.getByText(/touchcancel A\.stop-row__main/)).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Copy diagnostics' })).toBeInTheDocument()
 })

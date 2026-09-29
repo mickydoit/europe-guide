@@ -1,5 +1,6 @@
-import { useEffect, useLayoutEffect } from 'react'
+import { useLayoutEffect } from 'react'
 import { useLocation, useNavigationType } from 'react-router-dom'
+import { diag } from '../lib/diag'
 
 // #root is the scroller (base.css) and React Router keeps its offset across client-side
 // navigations. Tapping into a new screen must land at the top; coming BACK must return to where
@@ -57,7 +58,7 @@ function scroller(): HTMLElement | null { return document.getElementById('root')
  * How long to keep trying to reach a restored offset while the screen fills in. The content
  * path is unbounded — trip.tsx asks Supabase for ten tables and only falls back to IndexedDB
  * once that fails, with no timeout anywhere — so on a roaming connection the itinerary can be
- * many seconds away. The old 1.5s expired long before it arrived and gave up for good.
+ * many seconds away.
  */
 const RESTORE_BUDGET_MS = 10_000
 /**
@@ -69,27 +70,89 @@ const RESTORE_BUDGET_MS = 10_000
  * this is meant to prevent. A drag is a scroll; a tap is not.
  */
 const TAKEOVER = ['touchmove', 'wheel', 'keydown'] as const
+
+/**
+ * The screen the scroller currently belongs to, set in the layout effect — synchronously, in
+ * the same commit that resets the scroller. The scroll listener is installed ONCE and charges
+ * every event to this path.
+ *
+ * It used to be one listener per screen, swapped in a passive effect. The reset-to-top on the
+ * way into a detail screen fires a scroll event, and the browser dispatches it before React has
+ * run the passive effects that swap the listener — so the OLD screen's listener heard it and
+ * wrote 0 over the offset it had just saved. Back then had nothing to restore. Whether the race
+ * was lost depended on timing, which is why it hit some screens and not others.
+ */
+let currentPath: string | null = null
 /**
  * True while a restore is re-applying. The clamped scrollTop it produces against a not-yet-filled
  * screen fires scroll events like any other; recording those would overwrite the very offset being
  * restored with 0, and the next attempt would have nothing left to aim at.
  */
 let restoring = false
+let listening = false
+function listen(root: HTMLElement) {
+  if (listening) return
+  listening = true
+  root.addEventListener('scroll', () => { if (!restoring && currentPath) remember(currentPath, root.scrollTop) }, { passive: true })
+}
+
+/**
+ * Re-apply `y` whenever the content changes size, until it takes, the budget runs out or the
+ * owner scrolls. NOT every animation frame: a list can come back shorter than the offset (a
+ * collapsed "earlier days" list, a screen still loading), and a loop that writes scrollTop
+ * sixty times a second for ten seconds — 1,203 writes measured in a real browser — is a
+ * scroller being driven under the owner's finger. On iOS that swallows every tap.
+ */
+function restoreUntilSettled(root: HTMLElement, y: number, pathname: string): () => void {
+  restoring = true
+  let stopped = false
+  let writes = 0
+  const deadline = Date.now() + RESTORE_BUDGET_MS
+  let observer: ResizeObserver | MutationObserver | null = null
+  const stop = (reason: 'settled' | 'gesture' | 'timeout' | 'left') => () => {
+    if (stopped) return
+    stopped = true
+    restoring = false
+    observer?.disconnect()
+    for (const ev of TAKEOVER) root.removeEventListener(ev, onGesture)
+    clearTimeout(timer)
+    diag('restore', `${reason} at ${Math.round(root.scrollTop)} after ${writes} write${writes === 1 ? '' : 's'}`)
+  }
+  const onGesture = stop('gesture')
+  const timer = setTimeout(stop('timeout'), RESTORE_BUDGET_MS)
+  const apply = () => {
+    if (stopped) return
+    if (Date.now() > deadline) { stop('timeout')(); return }
+    if (Math.abs(root.scrollTop - y) > 1) { root.scrollTop = y; writes += 1 }
+    if (Math.abs(root.scrollTop - y) <= 1) stop('settled')()
+  }
+  diag('restore', `start ${pathname} y=${y}`)
+  for (const ev of TAKEOVER) root.addEventListener(ev, onGesture, { passive: true })
+  apply()
+  if (stopped) return stop('left')
+  // Content growing is the only thing that can make an unreachable offset reachable.
+  if (typeof ResizeObserver !== 'undefined') {
+    const ro = new ResizeObserver(apply)
+    ro.observe(root)
+    for (const child of Array.from(root.children)) ro.observe(child)
+    observer = ro
+  } else if (typeof MutationObserver !== 'undefined') {
+    const mo = new MutationObserver(apply)
+    mo.observe(root, { childList: true, subtree: true })
+    observer = mo
+  }
+  return stop('left')
+}
 
 export function ScrollReset() {
   const { pathname, key, state } = useLocation()
   const navType = useNavigationType()
 
-  // Record where this entry is scrolled, continuously, so leaving it needs no cleanup timing.
-  useEffect(() => {
-    const root = scroller()
-    if (!root) return
-    const onScroll = () => { if (!restoring) remember(pathname, root.scrollTop) }
-    root.addEventListener('scroll', onScroll, { passive: true })
-    return () => root.removeEventListener('scroll', onScroll)
-  }, [pathname])
-
   useLayoutEffect(() => {
+    const root = scroller()
+    if (root) listen(root)
+    // Charged before the reset below, so the scroll event that reset fires lands on the new screen.
+    currentPath = pathname
     // A Back inside this page (POP to an entry that is not the first) always restores. A launch
     // (POP onto the first entry) or a Back-fallback (a REPLACE that says `state.back`, made when
     // there was no entry to pop to) restores only a recent offset.
@@ -98,39 +161,14 @@ export function ScrollReset() {
     const insidePage = navType === 'POP' && key !== 'default'
     const recent = !!entry && Date.now() - entry.at < LAUNCH_RESTORE_MS
     const y = entry && back && (insidePage || recent) ? entry.y : 0
-    const root = scroller()
     if (root) root.scrollTop = y
     // The window call stays for any host where the body scrolls.
     window.scrollTo(0, y)
     if (!y || !root) return
-
     // Getting here with an EMPTY screen is the normal case, not the edge case: iOS reloads a
-    // backgrounded PWA, and the itinerary then arrives asynchronously (Supabase, or IndexedDB
-    // when there is no signal). scrollTop is clamped to the content that exists, so the offset
-    // above just became 0 and the saved position was applied to nothing. A single re-apply on
-    // the next frame is far too early — the content is still hundreds of milliseconds away.
-    //
-    // So keep re-applying until it takes, the budget runs out, or the owner starts scrolling —
-    // whichever comes first. Their own scroll always wins; nothing here fights a real gesture.
-    restoring = true
-    let stopped = false
-    const deadline = Date.now() + RESTORE_BUDGET_MS
-    const give_up = () => {
-      if (stopped) return
-      stopped = true
-      restoring = false
-      for (const ev of TAKEOVER) root.removeEventListener(ev, give_up)
-    }
-    const tick = () => {
-      if (stopped) return
-      if (root.scrollTop !== y) root.scrollTop = y
-      // Settled, or out of time. Either way stop touching the scroller.
-      if (root.scrollTop === y || Date.now() > deadline) { give_up(); return }
-      requestAnimationFrame(tick)
-    }
-    for (const ev of TAKEOVER) root.addEventListener(ev, give_up, { passive: true })
-    requestAnimationFrame(tick)
-    return give_up
+    // backgrounded PWA, and the itinerary then arrives asynchronously. scrollTop is clamped to
+    // the content that exists, so the write above may have landed short of `y`.
+    return restoreUntilSettled(root, y, pathname)
     // Keyed on pathname, not key: a tap on the tab you are already on is a no-op (see ScrollReset.test).
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pathname])

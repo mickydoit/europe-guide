@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useTrip } from '../lib/trip'
 import { useBookingState } from '../lib/state'
 import { fmtDay, nowInTz, todayInTrip } from '../lib/time'
@@ -9,10 +9,24 @@ import { Icon } from '../components/Icon'
 
 const COUNTRY_ICON: Record<string, string> = { tr: 'plane', pt: 'car', es: 'hotel', eg: 'event' }
 
+// Remembered per trip, not component state: opening a ticket and pressing Back remounts this
+// screen, and a list that came back collapsed was far shorter than the offset Back wanted to
+// restore — every Back from a past city's ticket landed at the top.
+function earlierKey(trip: string): string { return `europe-guide.ticketsEarlier.${trip}` }
+function readEarlier(trip: string): boolean {
+  try { return localStorage.getItem(earlierKey(trip)) === '1' } catch { return false }
+}
+function writeEarlier(trip: string, shown: boolean) {
+  try { if (shown) localStorage.setItem(earlierKey(trip), '1'); else localStorage.removeItem(earlierKey(trip)) } catch { /* private mode */ }
+}
+
 export function Tickets() {
   const { trips, slug, content, loading, error, setSlug, refresh } = useTrip()
   const { state, save } = useBookingState(content?.trip.slug ?? '')
-  const [showEarlier, setShowEarlier] = useState(false)
+  const [showEarlier, setShowEarlierState] = useState(() => readEarlier(content?.trip.slug ?? ''))
+  const showEarlierFor = (trip: string, shown: boolean) => { writeEarlier(trip, shown); setShowEarlierState(shown) }
+  // Switching city (the country tabs) re-reads that city's own answer.
+  useEffect(() => { setShowEarlierState(readEarlier(slug ?? '')) }, [slug])
 
   if (loading && !content) return <main className="screen"><p className="caption">Loading…</p></main>
   if (error && !content) {
@@ -86,7 +100,7 @@ export function Tickets() {
       )}
 
       {earlier.length > 0 && !showEarlier && (
-        <button type="button" className="tickets-earlier" onClick={() => setShowEarlier(true)}>
+        <button type="button" className="tickets-earlier" onClick={() => showEarlierFor(trip.slug, true)}>
           {earlier.length} earlier {earlier.length === 1 ? 'day' : 'days'}
         </button>
       )}

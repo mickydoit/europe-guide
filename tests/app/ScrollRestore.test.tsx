@@ -2,7 +2,9 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { MemoryRouter, Routes, Route, Outlet, Link, useNavigate } from 'react-router-dom'
 import { vi, beforeEach, afterEach, test, expect } from 'vitest'
 import { ScrollReset } from '../../src/components/ScrollReset'
+import { readDiag } from '../../src/lib/diag'
 import type React from 'react'
+import { useLayoutEffect } from 'react'
 
 // A forward tap lands at the top. Coming BACK returns to where the list was scrolled, so a long
 // Tickets list or Day does not snap to the top after peeking into an event.
@@ -57,7 +59,8 @@ function mountGrowing() {
     get: () => y,
     set: (v: number) => { y = Math.max(0, Math.min(v, Math.max(0, height - 800))) },
   })
-  return { root, grow: (h: number) => { height = h } }
+  // Real content arriving IS a DOM mutation (and a size change); the restore re-applies on those.
+  return { root, grow: (h: number) => { height = h; root.appendChild(document.createElement('i')) } }
 }
 
 test('restores the offset once the itinerary finally renders, not against an empty screen', async () => {
@@ -254,4 +257,67 @@ test('a tap on the tab you are already on leaves the list where it is', async ()
   root.scrollTop = 200; fireEvent.scroll(root)
   fireEvent.click(screen.getByRole('button', { name: 'Same tab' }))
   expect(root.scrollTop).toBe(200)
+})
+
+/**
+ * Leaving a screen resets the scroller to the top in a layout effect. The scroll event that
+ * reset fires is dispatched by the browser before React's passive effects have swapped the
+ * scroll listener over to the new screen, so the OLD screen's listener heard it and wrote 0
+ * over the offset it had just saved. Back then had nothing to restore. Whether the race is
+ * lost depends on timing — which is exactly why it only happened on some screens, sometimes.
+ * The probe below fires the event at the point in the commit where the browser would.
+ */
+test('the reset-to-top on the way into a detail is charged to the detail, never to the list left behind', async () => {
+  localStorage.removeItem(STORE)
+  function Detail() {
+    useLayoutEffect(() => { const r = document.getElementById('root')!; r.scrollTop = 0; fireEvent.scroll(r) }, [])
+    return <><h1>Detail</h1><Back /></>
+  }
+  const root = await page('/tickets', <>
+    <Route path="/tickets" element={<><h1>Tickets</h1><Link to="/ticket/B01">Open</Link></>} />
+    <Route path="/ticket/:id" element={<Detail />} />
+  </>)
+  root.scrollTop = 480; fireEvent.scroll(root)
+  fireEvent.click(screen.getByRole('link', { name: 'Open' }))
+  expect(screen.getByRole('heading', { name: 'Detail' })).toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button', { name: 'Back' }))
+  expect(screen.getByRole('heading', { name: 'Tickets' })).toBeInTheDocument()
+  expect(root.scrollTop).toBe(480)
+})
+
+/**
+ * A list can come back SHORTER than the offset wants (a "N earlier days" list that collapsed,
+ * a screen still loading). The restore used to re-write scrollTop every animation frame for
+ * ten seconds trying to get there — 1,203 writes measured in a real browser — and on iOS a
+ * scroller being driven every frame swallows taps. Re-apply only when the content changes.
+ */
+test('a screen that cannot reach the offset is written to a handful of times, not every frame', async () => {
+  localStorage.setItem(STORE, JSON.stringify([['/tickets', { y: 900, at: Date.now() }]]))
+  vi.resetModules()
+  const fresh = await import('../../src/components/ScrollReset')
+  document.getElementById('root')?.remove()
+  const { root } = mountGrowing()                       // content stays 400px tall: max scrollTop is 0
+  ;(root as unknown as { grow: (h: number) => void })
+  let writes = 0
+  const desc = Object.getOwnPropertyDescriptor(root, 'scrollTop')!
+  Object.defineProperty(root, 'scrollTop', { configurable: true, get: desc.get, set: (v: number) => { writes += 1; desc.set!.call(root, v) } })
+  function FreshShell() { return <><fresh.ScrollReset /><Outlet /></> }
+  render(
+    <MemoryRouter initialEntries={['/tickets']}>
+      <Routes><Route element={<FreshShell />}><Route path="/tickets" element={<h1>Tickets</h1>} /></Route></Routes>
+    </MemoryRouter>,
+    { container: root },
+  )
+  await new Promise(r => setTimeout(r, 400))            // ~24 animation frames
+  expect(writes).toBeLessThanOrEqual(3)
+})
+
+test('a restore leaves a trace in the diagnostics log: where it started and how it ended', async () => {
+  localStorage.clear()
+  localStorage.setItem(STORE, JSON.stringify([['/tickets', { y: 480, at: Date.now() }]]))
+  const root = await page('/tickets', listAndDetail)
+  expect(root.scrollTop).toBe(480)
+  const lines = readDiag().join('\n')
+  expect(lines).toMatch(/restore start \/tickets y=480/)
+  expect(lines).toMatch(/restore settled/)
 })

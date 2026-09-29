@@ -13,6 +13,7 @@ import { useSync, useOutboxOps, flushOutbox } from '../lib/sync'
 import type { OutboxOp } from '../lib/outbox'
 import { buildIcs, downloadIcs } from '../lib/ics'
 import { warmTripAttachments, type WarmResult } from '../lib/attachmentsWarm'
+import { clearDiag, readDiag } from '../lib/diag'
 
 const NOTE_SECTIONS: Array<{ key: 'standing' | 'walkin' | 'routes'; heading: string }> = [
   { key: 'standing', heading: 'Standing notes' },
@@ -49,6 +50,8 @@ export function More() {
   const [tickets, setTickets] = useState<WarmResult | null>(null)
   const [syncMsg, setSyncMsg] = useState<string | null>(null)
   const warmSlug = content?.trip.slug ?? null
+  const [diagLines, setDiagLines] = useState<string[]>(() => readDiag())
+  const [diagMsg, setDiagMsg] = useState<string | null>(null)
 
   // "Offline — will sync when connected" is only true until it isn't: drop it the moment
   // the phone says it has signal, rather than leaving a stale excuse on screen.
@@ -209,6 +212,22 @@ export function More() {
           Sign out
         </button>
         <p className="caption more-version">Version {BUILD_ID}</p>
+      </section>
+
+      {/* A bug that only happens on the phone cannot be reproduced on a laptop. This is the trail
+          left by the things that could explain a spell of dead taps: restores, hides and shows,
+          windows opened, touches the system cancelled. Show it when it happens. */}
+      <section className="more-section">
+        <h2 className="h5 more-section__heading">Diagnostics</h2>
+        {diagLines.length === 0
+          ? <p className="caption">Nothing logged yet</p>
+          : <pre className="more-diag">{diagLines.slice(-30).join('\n')}</pre>}
+        <button type="button" className="btn btn--secondary" onClick={() => {
+          const text = readDiag().join('\n')
+          void navigator.clipboard?.writeText(text).then(() => setDiagMsg('Copied')).catch(() => setDiagMsg('Could not copy — screenshot it instead'))
+        }}>Copy diagnostics</button>
+        <button type="button" className="btn btn--text" onClick={() => { clearDiag(); setDiagLines([]); setDiagMsg(null) }}>Clear</button>
+        {diagMsg && <p className="caption">{diagMsg}</p>}
         <button type="button" className="btn btn--text" onClick={() => {
           setUpdateMsg('Checking…')
           void checkForUpdate().then(r => setUpdateMsg(r === 'updated' ? 'Update found — reloading…' : r === 'current' ? 'You have the latest version' : 'Updates unavailable in this browser'))

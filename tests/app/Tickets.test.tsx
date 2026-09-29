@@ -32,6 +32,7 @@ beforeEach(async () => {
   content = await loadValle()
   useBookingStateMock.mockReturnValue({ state: {}, loading: false, save: saveMock })
   saveMock.mockClear()
+  localStorage.clear()
   vi.useFakeTimers({ shouldAdvanceTime: true }); vi.setSystemTime(new Date('2026-10-20T08:00:00Z'))
 })
 afterEach(() => vi.useRealTimers())
@@ -91,4 +92,22 @@ test('day headings carry the calendar glyph', () => {
   mount(content)
   const h = screen.getByRole('heading', { name: 'Sunday 1 November' })
   expect((h.querySelector('.icon') as HTMLElement | null)?.style.maskImage ?? '').toContain('/icons/nav/calendar.svg')
+})
+
+/**
+ * Opening a ticket and pressing Back remounts the list. The "N earlier days" expansion lived in
+ * component state, so the list came back collapsed — far shorter than the offset Back wanted to
+ * restore — and every Back from a past city's ticket landed at the top. The expansion is per
+ * trip and remembered.
+ */
+test('earlier days stay expanded when you come back to the list', () => {
+  vi.setSystemTime(new Date('2026-11-05T08:00:00Z'))          // after the Valle fixture: every day is earlier
+  const first = mount(content)
+  fireEvent.click(screen.getByRole('button', { name: /earlier day/ }))
+  expect(screen.queryByRole('button', { name: /earlier day/ })).toBeNull()
+  first.unmount()
+
+  mount(content)
+  expect(screen.queryByRole('button', { name: /earlier day/ })).toBeNull()
+  expect(screen.getAllByRole('heading', { level: 2 }).length).toBeGreaterThan(0)
 })

@@ -4,6 +4,9 @@ import { useAuth } from '../lib/auth'
 import { useAttachments, QUEUED_COPY } from '../lib/state'
 import type { AttachmentRow } from '../lib/state'
 import { Pill } from './Pill'
+import { diag } from '../lib/diag'
+
+function w_label(a: AttachmentRow): string { return a.pendingUpload ? 'queued' : 'stored' }
 
 function fmtSize(bytes: number): string {
   if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
@@ -30,6 +33,7 @@ export function AttachmentsPanel({ tripSlug, bookingId }: { tripSlug: string; bo
     // it to the signed URL once that resolves. No 'noopener' feature here: with it the
     // spec makes window.open return null, so the handle was never real and every open
     // fell through to navigating the app itself away. Cut the opener by hand instead.
+    diag('open', `${a.filename} (${w_label(a)})`)
     const w = window.open('', '_blank')
     if (w) w.opener = null
     try {
