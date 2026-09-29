@@ -4,43 +4,53 @@ import { useLocation, useNavigationType } from 'react-router-dom'
 // #root is the scroller (base.css) and React Router keeps its offset across client-side
 // navigations. Tapping into a new screen must land at the top; coming BACK must return to where
 // the list was, so a long Tickets list or Day does not snap to the top after peeking into an event.
-// Offsets are remembered per history entry (location.key) AND path, and mirrored to
+// Offsets are remembered per PATH, with the moment they were recorded, and mirrored to
 // localStorage so an update reload, or iOS dropping the page in the background, does not lose them.
 //
-// Path as well as key, because React Router gives the first entry of EVERY browsing context the
-// key 'default': keyed on that alone, the offset saved on one launch's first screen came back on
-// the next launch's first screen, whichever screen that was. Same key and same path is a relaunch
-// of the screen the offset belongs to; anything else starts at the top.
+// Path, not history key. iOS recreates the page whenever it likes — reliably after a ticket PDF
+// opens in a new window and the app sits behind it — and the new page has a fresh history: one
+// entry, key 'default', and no memory of the entries before it. Keyed by history key, the saved
+// offset could never be found again, so every Back after that landed at the top (and the Back
+// button itself, with no entry to pop to, falls back to a REPLACE that never restored anything).
+// The path is the one thing both pages agree on.
 const STORE = 'europe-guide.scroll-positions'
-const positions = new Map<string, number>(load())
+type Entry = { y: number; at: number }
+const positions = new Map<string, Entry>(load())
+/**
+ * How recent an offset must be for a (re)launch to restore it. A page iOS dropped ten minutes
+ * ago should come back where it was; the app opened over breakfast the next day should not open
+ * scrolled to wherever it was last night.
+ */
+const LAUNCH_RESTORE_MS = 60 * 60 * 1000
 /**
  * localStorage, not sessionStorage. A sessionStorage area belongs to one browsing context and
  * dies with it — and iOS terminating a backgrounded standalone PWA destroys exactly that. The
  * offsets were therefore guaranteed to be missing on the relaunch they were written for, which
  * is the case this whole mechanism exists to serve. localStorage outlives the process.
  */
-function load(): Array<[string, number]> {
-  // Anything but a list of [key, offset] pairs is ignored: this runs at module load, before
+function load(): Array<[string, Entry]> {
+  // Anything but a list of [path, { y, at }] pairs is ignored: this runs at module load, before
   // React or the error boundary exist, and a throw here is a blank app with no way to clear it.
   try {
     const raw: unknown = JSON.parse(localStorage.getItem(STORE) ?? '[]')
     if (!Array.isArray(raw)) return []
-    return raw.filter((e): e is [string, number] => Array.isArray(e) && typeof e[0] === 'string' && typeof e[1] === 'number')
+    return raw.filter((e): e is [string, Entry] =>
+      Array.isArray(e) && typeof e[0] === 'string' && !!e[1] && typeof e[1] === 'object'
+      && typeof (e[1] as Entry).y === 'number' && typeof (e[1] as Entry).at === 'number')
   } catch { return [] }
 }
-function entryKey(key: string, pathname: string): string { return `${key}|${pathname}` }
 function remember(key: string, y: number) {
   // Re-insert so the Map's iteration order is least-recently-used first. Map.set on an existing
   // key keeps its original slot, so without the delete a long-lived screen like Day would sit at
   // the front and be the first thing `slice(-50)` dropped, while disposable detail-screen entries
   // survived — evicting precisely the offset worth keeping.
   positions.delete(key)
-  positions.set(key, y)
+  positions.set(key, { y, at: Date.now() })
   try { localStorage.setItem(STORE, JSON.stringify([...positions].slice(-50))) } catch { /* private mode: memory only */ }
 }
 
 /** Test seam: what the module currently holds, including what it loaded at import time. */
-export function savedOffsets(): ReadonlyMap<string, number> { return positions }
+export function savedOffsets(): ReadonlyMap<string, number> { return new Map([...positions].map(([k, e]) => [k, e.y])) }
 function scroller(): HTMLElement | null { return document.getElementById('root') }
 
 /**
@@ -67,20 +77,27 @@ const TAKEOVER = ['touchmove', 'wheel', 'keydown'] as const
 let restoring = false
 
 export function ScrollReset() {
-  const { pathname, key } = useLocation()
+  const { pathname, key, state } = useLocation()
   const navType = useNavigationType()
 
   // Record where this entry is scrolled, continuously, so leaving it needs no cleanup timing.
   useEffect(() => {
     const root = scroller()
     if (!root) return
-    const onScroll = () => { if (!restoring) remember(entryKey(key, pathname), root.scrollTop) }
+    const onScroll = () => { if (!restoring) remember(pathname, root.scrollTop) }
     root.addEventListener('scroll', onScroll, { passive: true })
     return () => root.removeEventListener('scroll', onScroll)
-  }, [key, pathname])
+  }, [pathname])
 
   useLayoutEffect(() => {
-    const y = (navType === 'POP' ? positions.get(entryKey(key, pathname)) : undefined) ?? 0
+    // A Back inside this page (POP to an entry that is not the first) always restores. A launch
+    // (POP onto the first entry) or a Back-fallback (a REPLACE that says `state.back`, made when
+    // there was no entry to pop to) restores only a recent offset.
+    const entry = positions.get(pathname)
+    const back = navType === 'POP' || (navType === 'REPLACE' && (state as { back?: boolean } | null)?.back === true)
+    const insidePage = navType === 'POP' && key !== 'default'
+    const recent = !!entry && Date.now() - entry.at < LAUNCH_RESTORE_MS
+    const y = entry && back && (insidePage || recent) ? entry.y : 0
     const root = scroller()
     if (root) root.scrollTop = y
     // The window call stays for any host where the body scrolls.

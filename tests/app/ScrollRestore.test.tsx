@@ -2,6 +2,7 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { MemoryRouter, Routes, Route, Outlet, Link, useNavigate } from 'react-router-dom'
 import { vi, beforeEach, afterEach, test, expect } from 'vitest'
 import { ScrollReset } from '../../src/components/ScrollReset'
+import type React from 'react'
 
 // A forward tap lands at the top. Coming BACK returns to where the list was scrolled, so a long
 // Tickets list or Day does not snap to the top after peeking into an event.
@@ -182,4 +183,75 @@ test('a corrupt or foreign value under the storage key does not break the module
   const fresh = await import('../../src/components/ScrollReset')
   expect(fresh.savedOffsets().size).toBe(0)
   localStorage.removeItem('europe-guide.scroll-positions')
+})
+
+/**
+ * iOS recreates the page whenever it likes — reliably after a PDF opens in a new window and the
+ * app sits in the background. The new page has a fresh history: one entry, key 'default', and no
+ * memory of the entry the owner came from. Back on a detail screen therefore falls back to a
+ * REPLACE of the list's route. Keyed by history key, the saved offset could never be found again,
+ * so every such Back landed at the top. Offsets are keyed by path, and a Back-fallback says so.
+ *
+ * Each `page()` below is a separate page lifetime: a fresh copy of the module (its memory starts
+ * from localStorage, like a real relaunch) and a fresh router whose first entry is 'default'.
+ */
+const STORE = 'europe-guide.scroll-positions'
+function BackFallback({ to }: { to: string }) {
+  const nav = useNavigate()
+  return <button onClick={() => nav(to, { replace: true, state: { back: true } })}>Back</button>
+}
+async function page(initial: string, routes: React.ReactNode) {
+  vi.resetModules()
+  const fresh = await import('../../src/components/ScrollReset')
+  document.getElementById('root')?.remove()
+  const root = document.createElement('div'); root.id = 'root'; document.body.appendChild(root)
+  Object.defineProperty(root, 'scrollTop', { value: 0, writable: true })
+  function FreshShell() { return <><fresh.ScrollReset /><Outlet /></> }
+  render(
+    <MemoryRouter initialEntries={[initial]}>
+      <Routes><Route element={<FreshShell />}>{routes}</Route></Routes>
+    </MemoryRouter>,
+    { container: root },
+  )
+  return root
+}
+const listAndDetail = <>
+  <Route path="/tickets" element={<><h1>Tickets</h1><Link to="/ticket/B01">Open</Link></>} />
+  <Route path="/ticket/:id" element={<><h1>Detail</h1><BackFallback to="/tickets" /></>} />
+</>
+
+test('after iOS recreates the page on a detail screen, Back still returns to where the list was', async () => {
+  localStorage.removeItem(STORE)
+  const first = await page('/tickets', listAndDetail)
+  first.scrollTop = 480; fireEvent.scroll(first)
+  fireEvent.click(screen.getByRole('link', { name: 'Open' }))
+
+  const again = await page('/ticket/B01', listAndDetail)             // iOS dropped and relaunched the page here
+  fireEvent.click(screen.getByRole('button', { name: 'Back' }))
+  expect(screen.getByRole('heading', { name: 'Tickets' })).toBeInTheDocument()
+  expect(again.scrollTop).toBe(480)
+})
+
+test('a relaunch straight onto the list gets its recent offset back', async () => {
+  localStorage.removeItem(STORE)
+  const first = await page('/tickets', listAndDetail)
+  first.scrollTop = 480; fireEvent.scroll(first)
+
+  const again = await page('/tickets', listAndDetail)
+  expect(again.scrollTop).toBe(480)
+})
+
+test('an offset from hours ago is not restored on a launch', async () => {
+  localStorage.setItem(STORE, JSON.stringify([['/tickets', { y: 480, at: Date.now() - 3 * 60 * 60 * 1000 }]]))
+  const again = await page('/tickets', listAndDetail)
+  expect(again.scrollTop).toBe(0)
+})
+
+test('a tap on the tab you are already on leaves the list where it is', async () => {
+  localStorage.removeItem(STORE)
+  function Replace() { const nav = useNavigate(); return <button onClick={() => nav('/tickets', { replace: true })}>Same tab</button> }
+  const root = await page('/tickets', <Route path="/tickets" element={<><h1>Tickets</h1><Replace /></>} />)
+  root.scrollTop = 200; fireEvent.scroll(root)
+  fireEvent.click(screen.getByRole('button', { name: 'Same tab' }))
+  expect(root.scrollTop).toBe(200)
 })

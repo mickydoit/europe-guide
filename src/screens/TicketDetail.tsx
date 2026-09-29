@@ -49,7 +49,9 @@ export function TicketDetail() {
   const status = effectiveStatus(booking, state[booking.id])
   // react-router stamps the first entry of a history stack with key 'default'; anything
   // else means there is a real previous screen to go back to (same pattern as Map.tsx).
-  const back = () => (location.key !== 'default' ? navigate(-1) : navigate('/tickets', { replace: true }))
+  // `state.back` tells ScrollReset this REPLACE is a Back, so the list's offset is restored
+  // (iOS recreates the page after a ticket PDF opens; the old entry is gone but the offset is not).
+  const back = () => (location.key !== 'default' ? navigate(-1) : navigate('/tickets', { replace: true, state: { back: true } }))
 
   // BookingForm seeds its fields once, at mount. Mounting it before the saved row arrives
   // leaves them blank and Save then writes nulls over the stored ref/cost/notes — so wait for

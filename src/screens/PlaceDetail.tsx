@@ -62,7 +62,7 @@ export function PlaceDetail() {
 
   return (
     <main className="screen">
-      <button type="button" className="back" onClick={() => (location.key !== 'default' ? navigate(-1) : navigate(`/day/${item.date}`, { replace: true }))}>‹ Back</button>
+      <button type="button" className="back" onClick={() => (location.key !== 'default' ? navigate(-1) : navigate(`/day/${item.date}`, { replace: true, state: { back: true } }))}>‹ Back</button>
       <article className="place-detail" aria-label={name}>
         <PlaceHero photoPath={item.photo_path} credit={item.photo_credit} title={name} description={item.details} meta={meta} />
         <div className="place-detail__facts">

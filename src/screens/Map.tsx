@@ -531,7 +531,7 @@ export default function Map() {
     // else means there is a real previous screen to go back to. window.history.length is
     // the whole tab's history, which on iOS includes entries from before the PWA loaded.
     if (location.key !== 'default') navigate(-1)
-    else navigate('/day', { replace: true })
+    else navigate('/day', { replace: true, state: { back: true } })
   }
 
   async function handleDownload() {
