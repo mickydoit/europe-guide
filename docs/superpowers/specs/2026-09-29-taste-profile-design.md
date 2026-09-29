@@ -52,9 +52,9 @@ scorePlace(place: Place, profile: TasteProfile): { score: number; category: Cate
 `PlaceMeta` is the five metadata fields from any item or parked venue that has them. `Category` is `eat | shop | see`, derived from `primary_type` (fallback: first matching entry in `types`) via a fixed lookup table in the module; unknown types are ignored.
 
 `TasteProfile` holds, per category:
-- `typeWeight`: for each Google type seen among chosen places in that category, its share of those places (a type carried as `primary_type` counts twice). Normalised so the largest weight is 1.
-- `countBand`: 10th and 90th percentile of `rating_count` among chosen places.
-- `minRating`: 25th percentile of chosen `rating`, floored at 4.0 for eat and shop; unused for see.
+- `typeWeight`: for each Google type in the category's own lookup table seen among chosen places, `min(1, timesChosen / 3)`. A type chosen three or more times is fully trusted; generic types (`point_of_interest`, `food`, a café's `store`) never count. (Simulated on the Lisbon data: "share of the most common type" starved cafés because restaurants dominate; saturation treats every kind of place the owner keeps choosing as equally wanted.)
+- `countP75`: nearest-rank 75th percentile of `rating_count` among chosen places (eat and shop only).
+- `minRating`: nearest-rank 25th percentile of chosen `rating`, floored at 4.0 (eat and shop only).
 - `n`: how many chosen places fed the category. A category with `n < 5` is marked `thin`.
 
 Votes (§4) adjust the profile after it is built: each down-vote on a type multiplies that type's weight by 0.7; each save multiplies by 1.3 (capped at 1). A down-voted `place_id` is stored in `profile.hidden`.
@@ -65,12 +65,12 @@ Rows come from **every trip**, not just the city on screen: `fetchAllPlaceMeta()
 
 `scorePlace` returns 0 for: no category; `place_id` in `hidden`; any type in a short hard-avoid list (`fast_food_restaurant`, `meal_takeaway`, `steak_house`, `night_club`, `amusement_center`, `casino`). Otherwise:
 
-- `affinity` = max weight over the place's types, with the place's own primary type given priority. A place none of whose types appear in the profile scores 0.
-- `ratingTerm` (eat, shop) = clamp((rating − minRating) / 0.5, 0, 1). Unrated eat/shop places score 0. For see, `ratingTerm` = 1, and unrated sights keep the existing landmark rule (kept if `tourist_attraction`, `historical_landmark`, `church`, `museum`).
-- `crowdPenalty` (eat, shop) = 0 while `rating_count ≤ countBand.p90`, rising linearly to 1 at 4 × p90. For see, 0.
+- `affinity` = the largest weight among the place's types (primary type included). A place none of whose types appear in the profile scores 0.
+- `ratingTerm` (eat, shop) = clamp((rating − minRating + 0.2) / 0.5, 0, 1): full marks 0.3 stars above the owner's floor, nothing 0.2 stars below it. Unrated eat/shop places score 0. For see, `ratingTerm` = 1; an unrated sight of a landmark type (`tourist_attraction`, `historical_landmark`, `church`, `museum`) scores at least 0.5.
+- `crowdPenalty` (eat, shop) = 0 while `rating_count ≤ countP75`, rising linearly to 1 at 4 × countP75. For see, 0.
 - `score = affinity × ratingTerm × (1 − crowdPenalty)`.
 
-A discovery earns a "!" when `score ≥ 0.45`. The threshold is one exported constant with a comment, chosen so that on the Lisbon spike data Falta Café, Isco and wetheknot pass and A Brasileira (cafe, 10,500 reviews, 4.2) does not.
+A discovery earns a "!" when `score ≥ 0.45`. The threshold is one exported constant with a comment. Simulated on the Lisbon spike data (29 Sep): Falta Café 1.0, Isco 1.0, a 4.6 tasca with 300 reviews 1.0, a 4.4 café with 600 reviews 0.6, wetheknot 1.0, Belém Tower 1.0 all pass; A Brasileira (cafe, 10,535 reviews, 4.2) 0.06, a 4.3 restaurant with 8,000 reviews 0.22, a 4.3 gift shop with 5,000 reviews 0.0, and Manteigaria-shaped input (10,923 reviews) 0.17 all fail.
 
 `nearbyPlaces()` keeps its request shape but widens `INCLUDED_TYPES` to add `restaurant`, `bar`, `coffee_shop`, `market`, `clothing_store`, `home_goods_store` (not `shopping_mall`). The response filter `keep()` is replaced by `scorePlace(...) ≥ THRESHOLD`; the Map effect passes the current profile in. The map layer, sheet and save flow are otherwise unchanged.
 
