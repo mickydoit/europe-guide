@@ -60,9 +60,10 @@ async function main() {
   const geocoder = makeCachedGeocoder(makeGoogleGeocoder(env.googleServerKey, content.trip.country_code), supabaseCache(client, env.ownerId))
   const { misses } = await geocodeContent(content, geocoder, cityHint)
   // Taste profile metadata (spec 2026-09-29). One Place Details call per place, ever: the cache row is the geocode row.
-  const metaFetcher = makeCachedMetaFetcher(makeGoogleMetaFetcher(env.googleServerKey), supabaseMetaCache(client))
+  const metaStats = { live: 0 }
+  const metaFetcher = makeCachedMetaFetcher(makeGoogleMetaFetcher(env.googleServerKey), supabaseMetaCache(client), metaStats)
   const meta = await enrichPlaceMeta(content, geocoder, metaFetcher, cityHint)
-  if (meta.fetched) warnings.push(`place metadata: ${meta.fetched} Details call(s)`)
+  if (meta.fetched) warnings.push(`place metadata: ${meta.fetched} place(s) resolved, ${metaStats.live} Details call(s)`)
   for (const leg of content.legs) {
     const mode = content.routes.find(r => r.id === leg.route_id)!.mode
     try { const p = await fetchPolyline(env.googleServerKey, leg, mode); if (p) Object.assign(leg, p); else warnings.push(`no polyline for ${leg.route_id}#${leg.seq} (${leg.from_name} → ${leg.to_name})`) }

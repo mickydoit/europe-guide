@@ -34,9 +34,11 @@ test('cached meta fetcher hits the cache first and writes on miss', async () => 
   const store = new Map<string, PlaceMeta>()
   let calls = 0
   const inner = async () => { calls++; return { primary_type: 'cafe', types: ['cafe'], price_level: null, rating: 4.5, rating_count: 10 } }
-  const f = makeCachedMetaFetcher(inner, { get: async id => store.get(id) ?? null, set: async (id, v) => { store.set(id, v) } })
+  const stats = { live: 0 }
+  const f = makeCachedMetaFetcher(inner, { get: async id => store.get(id) ?? null, set: async (id, v) => { store.set(id, v) } }, stats)
   await f('a'); await f('a'); await f('b')
   expect(calls).toBe(2); expect(store.size).toBe(2)
+  expect(stats.live).toBe(2)
 })
 
 test('enrichPlaceMeta fills items and parked from the geocoder place_id, skips rows without a place, reports misses', async () => {

@@ -22,8 +22,8 @@ export function makeGoogleMetaFetcher(key: string, fetchImpl: typeof fetch = fet
   }
 }
 
-export function makeCachedMetaFetcher(inner: MetaFetcher, cache: { get(id: string): Promise<PlaceMeta | null>; set(id: string, v: PlaceMeta): Promise<void> }): MetaFetcher {
-  return async id => { const hit = await cache.get(id); if (hit) return hit; const v = await inner(id); if (v) await cache.set(id, v); return v }
+export function makeCachedMetaFetcher(inner: MetaFetcher, cache: { get(id: string): Promise<PlaceMeta | null>; set(id: string, v: PlaceMeta): Promise<void> }, stats?: { live: number }): MetaFetcher {
+  return async id => { const hit = await cache.get(id); if (hit) return hit; if (stats) stats.live++; const v = await inner(id); if (v) await cache.set(id, v); return v }
 }
 
 /** The metadata lives on the geocode_cache row that already holds this place_id. */
