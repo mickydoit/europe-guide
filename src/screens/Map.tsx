@@ -11,7 +11,8 @@ import 'maplibre-gl/dist/maplibre-gl.css'
 import { PMTiles, Protocol } from 'pmtiles'
 import { useTrip } from '../lib/trip'
 import { useMapNeeds } from '../lib/mapReadiness'
-import { useChecks, useDayNotes, QUEUED_COPY, type SavedPlace } from '../lib/state'
+import { useChecks, useDayNotes, usePlaceVotes, QUEUED_COPY, type SavedPlace } from '../lib/state'
+import { buildProfile, scorePlace, THRESHOLD, type TasteProfile } from '../lib/taste'
 import { buildStyle } from '../lib/mapStyle'
 import { boundsFor, legsGeoJSON, parkedGeoJSON, placesGeoJSON, stopsGeoJSON } from '../lib/mapData'
 import { cachedMapStatus, defaultSigner, downloadCityMaps, getCachedMap, getMapsGeneration, MemorySource } from '../lib/offlineMaps'
@@ -202,11 +203,14 @@ export default function Map() {
   const navigate = useNavigate()
   const location = useLocation()
   const { date: dateParam } = useParams<{ date?: string }>()
-  const { content } = useTrip()
+  const { content, placeMeta } = useTrip()
   const trip = content?.trip ?? null
   const attached = useAttachedBookingIds(trip?.slug ?? '')
   const slug = trip?.slug ?? ''
   const { done } = useChecks(slug)
+  const placeVotes = usePlaceVotes()
+  // One taste across every city (spec 2026-09-29): chosen-place metadata plus the owner's votes.
+  const tasteProfile = useMemo(() => buildProfile(placeMeta, placeVotes.votes), [placeMeta, placeVotes.votes])
 
   const areas = useMemo<OfflineAreaRow[]>(() => content?.areas ?? [], [content])
   const mapNeeds = useMapNeeds()
@@ -248,6 +252,9 @@ export default function Map() {
   const placesRef = useRef<globalThis.Map<string, Place>>(new globalThis.Map())
   const lastPlacesQueryRef = useRef<{ lat: number; lng: number; at: number } | null>(null)
   const lastResignAt = useRef(0)
+  // Read by redrawPlaces so a profile change can re-score without depending on `position`
+  // (which would redraw the layer on every GPS tick, not just a fetch or a vote).
+  const positionRef = useRef(position)
 
   const placesKey = (import.meta.env.VITE_GOOGLE_BROWSER_KEY as string | undefined) || null
 
@@ -468,6 +475,23 @@ export default function Map() {
     setData(map, 'places', placesGeoJSON([]))
   }, [placesEnabled, ready])
 
+  // Keep positionRef current without making it a redrawPlaces/effect dependency: a GPS
+  // tick alone must not re-rank the layer, only a fetch or a vote.
+  useEffect(() => { positionRef.current = position }, [position])
+
+  // Re-scores and redraws whatever is already in placesRef against the given profile —
+  // the one path the fetch's .then, handleReject and the profile-change effect all share.
+  function redrawPlaces(profile: TasteProfile) {
+    const m = mapRef.current
+    const pos = positionRef.current
+    if (!m || !ready || !pos) return
+    const kept = [...placesRef.current.values()].filter(p =>
+      !profile.hidden.has(p.id) &&
+      scorePlace({ id: p.id, types: p.types, primaryType: p.primaryType, rating: p.rating, ratingCount: p.ratingCount }, profile).score >= THRESHOLD,
+    )
+    setData(m, 'places', placesGeoJSON(nearestN(kept, pos.lat, pos.lng)))
+  }
+
   // ---- places fetch ---------------------------------------------------------
   useEffect(() => {
     if (!placesKey || !placesEnabled || !position) return
@@ -480,17 +504,23 @@ export default function Map() {
     lastPlacesQueryRef.current = now
 
     let cancelled = false
-    nearbyPlaces(position.lat, position.lng, placesKey)
+    nearbyPlaces(position.lat, position.lng, placesKey, undefined, tasteProfile)
       .then(found => {
         if (cancelled) return
         for (const place of found) placesRef.current.set(place.id, place)
-        const all = nearestN([...placesRef.current.values()], position.lat, position.lng)
-        const m = mapRef.current
-        if (m) setData(m, 'places', placesGeoJSON(all))
+        redrawPlaces(tasteProfile)
       })
       .catch(e => console.warn(e instanceof Error ? e.message : String(e)))
     return () => { cancelled = true }
+    // tasteProfile is intentionally not a dependency: shouldRefetch's 150 m / 60 s guard
+    // above means a profile change alone must never trigger a new Places call. The
+    // effect below re-scores the markers already on screen instead.
   }, [position, placesEnabled, placesKey, ready])
+
+  // A vote or late-arriving metadata must re-score the markers already on screen without
+  // a new Places call. The layer re-ranks by distance only on a fetch or a vote, as before —
+  // not on every GPS tick, which is why `position` is read from positionRef, not as a dep.
+  useEffect(() => { redrawPlaces(tasteProfile) }, [tasteProfile, ready])
 
   useEffect(() => {
     const goOnline = () => { setOnline(true); setTileError(false); maybeResign() }
@@ -654,6 +684,8 @@ export default function Map() {
     try {
       const result = await notes.savePlace({ ...sheet.place, saved_at: new Date().toISOString() })
       if (result?.queued) setSaveQueued(QUEUED_COPY)
+      const saved = placesRef.current.get(sheet.place.id)
+      void placeVotes.vote(sheet.place.id, saved?.primaryType ?? null, 1).catch(() => {})
     } catch (e) {
       // The raw PostgREST message is noise to the person holding the phone.
       console.warn('save place', e instanceof Error ? e.message : String(e))
@@ -661,6 +693,17 @@ export default function Map() {
     } finally {
       setSaving(false)
     }
+  }
+
+  async function handleReject() {
+    if (!sheet?.place) return
+    const place = placesRef.current.get(sheet.place.id)
+    // Hide first: the marker must vanish on the tap, whatever the network does.
+    placesRef.current.delete(sheet.place.id)
+    redrawPlaces(tasteProfile)
+    setSelected(null); setSaveError(null); setSaveQueued(null)
+    try { await placeVotes.vote(sheet.place.id, place?.primaryType ?? null, -1) }
+    catch (e) { console.warn('reject place', e instanceof Error ? e.message : String(e)) }
   }
 
   // ---- banner -------------------------------------------------------------
@@ -763,6 +806,7 @@ export default function Map() {
           ticketLabel={sheetBooking ? ticketLinkLabel(effectiveStatus(sheetBooking, undefined), attached.has(sheetBooking.id)) : undefined}
           onClose={() => { setSelected(null); setSaveError(null); setSaveQueued(null) }}
           onSave={sheet.place ? () => { void handleSave() } : undefined}
+          onReject={sheet.place ? () => { void handleReject() } : undefined}
           saved={alreadySaved}
           saving={saving}
           error={saveError}

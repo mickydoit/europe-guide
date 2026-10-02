@@ -16,6 +16,8 @@ export interface MapSheetProps {
   photoSrc?: string | null
   /** Places only (Task 5): saves the place onto the selected day's notes. */
   onSave?: () => void
+  /** Places only: records a "Not for us" vote and hides the marker. */
+  onReject?: () => void
   saved?: boolean
   saving?: boolean
   error?: string | null
@@ -27,7 +29,7 @@ export interface MapSheetProps {
 }
 
 export function MapSheet({
-  open, kind, title, subtitle, details, walkHref, onClose, photoSrc, onSave, saved, saving, error, queuedMsg, ticketHref, ticketLabel = 'Open ticket',
+  open, kind, title, subtitle, details, walkHref, onClose, photoSrc, onSave, onReject, saved, saving, error, queuedMsg, ticketHref, ticketLabel = 'Open ticket',
 }: MapSheetProps) {
   return (
     <Sheet open={open} title={title} onClose={onClose}>
@@ -47,6 +49,9 @@ export function MapSheet({
         >
           {saved ? 'Saved' : saving ? 'Saving…' : 'Save for today'}
         </button>
+      )}
+      {kind === 'place' && onReject && (
+        <button type="button" className="btn btn--text" onClick={onReject}>Not for us</button>
       )}
       {queuedMsg && <p className="form__msg form__msg--queued">{queuedMsg}</p>}
       {error && <p className="form__msg form__msg--error">{error}</p>}

@@ -3,8 +3,8 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { loadValle } from '../helpers/content'
 import { mockSupabaseContent } from '../helpers/supabaseMock'
 import { TripProvider, useTrip } from '../../src/lib/trip'
-import { putCachedAreas, putCachedCity, resetDbForTests } from '../../src/lib/db'
-import type { CityContent } from '../../src/lib/types'
+import { getCachedPlaceMeta, putCachedAreas, putCachedCity, resetDbForTests } from '../../src/lib/db'
+import type { CityContent, PlaceMeta } from '../../src/lib/types'
 
 function Probe() {
   const { slug, content, offline, error, loading, setSlug, refresh } = useTrip()
@@ -38,6 +38,7 @@ function raceMock(contents: Record<string, CityContent>, delays: Record<string, 
     const q: Record<string, unknown> = {
       select() { return q }, order() { return q }, limit() { return q },
       eq(_col: string, val: string) { slug = val; return q },
+      not() { return q },
       then(res: (v: { data: unknown[]; error: null }) => void) {
         const respond = () => {
           if (slug === null) { res({ data: Object.values(contents).map(c => c.trip), error: null }); return }
@@ -207,6 +208,50 @@ test('falls back to the cached areas when the network is gone', async () => {
     expect(screen.getByTestId('all-areas').textContent)
       .toBe(content.areas.map(a => `${a.trip}:${a.seq}`).join(','))
   })
+})
+
+function PlaceMetaProbe() {
+  const { placeMeta } = useTrip()
+  return <div data-testid="place-meta">{placeMeta.map(p => p.primary_type).join(',')}</div>
+}
+
+/**
+ * Like raceMock, but the `items`/`parked_venues` chains also support `.select(META_COLS).not(...)`
+ * (the metadata fetch), answering with `meta` — or rejecting both tables when `meta` is null, to
+ * exercise the cached-fallback path. Everything else behaves like mockSupabaseContent's client.
+ */
+function metaMock(content: CityContent, meta: { items: PlaceMeta[]; parked: PlaceMeta[] } | null): SupabaseClient {
+  function query(table: string) {
+    let rows: unknown[] = table === 'trips' ? [content.trip] : (content[RACE_TABLE[table]] as unknown[] ?? [])
+    const q: Record<string, unknown> = {
+      select() { return q }, order() { return q }, limit() { return q },
+      eq(col: string, val: unknown) { rows = (rows as Record<string, unknown>[]).filter(r => r[col] === val); return q },
+      not(..._args: unknown[]) {
+        if (meta === null) return Promise.reject(new Error(`${table} meta down`))
+        return Promise.resolve({ data: table === 'items' ? meta.items : meta.parked, error: null })
+      },
+      then(res: (v: { data: unknown[]; error: null }) => void) { res({ data: rows, error: null }) },
+    }
+    return q
+  }
+  return { from: query } as unknown as SupabaseClient
+}
+
+test('TripProvider exposes placeMeta fetched with the trips, and serves the cached copy when the fetch fails', async () => {
+  const content = await loadValle()
+  const meta = {
+    items: [{ primary_type: 'cafe', types: ['cafe'], price_level: null, rating: 4.9, rating_count: 198 }] as PlaceMeta[],
+    parked: [{ primary_type: 'castle', types: ['castle'], price_level: null, rating: 4.4, rating_count: 5000 }] as PlaceMeta[],
+  }
+  const live = metaMock(content, meta)
+  const { unmount } = render(<TripProvider client={live}><PlaceMetaProbe /></TripProvider>)
+  await waitFor(() => expect(screen.getByTestId('place-meta')).toHaveTextContent('cafe,castle'))
+  expect(await getCachedPlaceMeta()).toEqual([...meta.items, ...meta.parked])
+  unmount()
+
+  const dead = metaMock(content, null)
+  render(<TripProvider client={dead}><PlaceMetaProbe /></TripProvider>)
+  await waitFor(() => expect(screen.getByTestId('place-meta')).toHaveTextContent('cafe,castle'))
 })
 
 // ---- setSlug must not destroy the router's history state ---------------------

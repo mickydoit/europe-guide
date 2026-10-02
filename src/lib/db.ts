@@ -1,5 +1,5 @@
 import { openDB, type IDBPDatabase } from 'idb'
-import type { CityContent, OfflineAreaRow, TripRow } from './types'
+import type { CityContent, OfflineAreaRow, PlaceMeta, TripRow } from './types'
 import type { OutboxOp } from './outbox'
 let dbp: Promise<IDBPDatabase> | null = null
 export function openDb() {
@@ -32,6 +32,9 @@ export async function getCachedTrips() { return ((await (await openDb()).get('me
 /** Offline areas for every trip, so the readiness dot survives a cold start with no network. */
 export async function getCachedAreas() { return ((await (await openDb()).get('meta', 'areas')) as OfflineAreaRow[] | undefined) ?? [] }
 export async function putCachedAreas(a: OfflineAreaRow[]) { await (await openDb()).put('meta', a, 'areas') }
+/** Chosen-place metadata for every trip: the taste profile must exist on a cold start with no network. */
+export async function getCachedPlaceMeta() { return ((await (await openDb()).get('meta', 'placeMeta')) as PlaceMeta[] | undefined) ?? [] }
+export async function putCachedPlaceMeta(rows: PlaceMeta[]) { await (await openDb()).put('meta', rows, 'placeMeta') }
 export async function putCachedTrips(t: TripRow[]) { await (await openDb()).put('meta', t, 'trips') }
 /** Booking ids that have at least one attachment, per trip — so Day rows can say "Open ticket" offline. */
 export async function getAttachedIds(trip: string) { return ((await (await openDb()).get('meta', `attached:${trip}`)) as string[] | undefined) ?? [] }

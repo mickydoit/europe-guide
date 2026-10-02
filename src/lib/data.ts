@@ -1,7 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { supabase } from './supabase'
 import { normaliseTime } from './time'
-import type { AlertRow, BookingRow, CityContent, ItemRow, OfflineAreaRow, TripRow } from './types'
+import type { AlertRow, BookingRow, CityContent, ItemRow, OfflineAreaRow, PlaceMeta, TripRow } from './types'
 type Q = { data: unknown[] | null; error: { message: string } | null }
 async function rows<T>(p: PromiseLike<Q>, table: string): Promise<T[]> {
   const { data, error } = await p; if (error) throw new Error(`load ${table}: ${error.message}`); return (data ?? []) as T[]
@@ -37,3 +37,16 @@ export const fetchTrips = () => fetchTripsWith(supabase)
  */
 export async function fetchAllAreasWith(c: SupabaseClient) { return rows<OfflineAreaRow>(c.from('offline_areas').select('*').order('trip').order('seq'), 'offline_areas') }
 export const fetchAllAreas = () => fetchAllAreasWith(supabase)
+const META_COLS = 'primary_type,types,price_level,rating,rating_count'
+/**
+ * Metadata of every chosen place in every trip — the taste profile is one taste, not one per
+ * city. A few hundred five-column rows; rides along with the trips fetch and is cached with it.
+ */
+export async function fetchAllPlaceMetaWith(c: SupabaseClient): Promise<PlaceMeta[]> {
+  const [items, parked] = await Promise.all([
+    rows<PlaceMeta>(c.from('items').select(META_COLS).not('primary_type', 'is', null), 'items meta'),
+    rows<PlaceMeta>(c.from('parked_venues').select(META_COLS).not('primary_type', 'is', null), 'parked meta'),
+  ])
+  return [...items, ...parked]
+}
+export const fetchAllPlaceMeta = () => fetchAllPlaceMetaWith(supabase)

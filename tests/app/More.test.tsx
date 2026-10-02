@@ -121,7 +121,7 @@ test('Refresh data is disabled and reads "Refreshing…" while the trip context 
   render(
     <MemoryRouter initialEntries={['/more']}>
       <TripContext.Provider value={{
-        trips: [content.trip], allAreas: [], slug: 'valle', content, loading: true, offline: false, error: null,
+        trips: [content.trip], allAreas: [], placeMeta: [], slug: 'valle', content, loading: true, offline: false, error: null,
         setSlug: () => {}, refresh: async () => {},
       }}>
         <More />

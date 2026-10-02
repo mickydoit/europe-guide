@@ -6,6 +6,7 @@ import { createClient } from '@supabase/supabase-js'
 import { loadEnv } from './env'
 import { assembleCity, rewriteCity } from './write'
 import { makeGoogleGeocoder, makeCachedGeocoder, supabaseCache, geocodeContent } from './geocode'
+import { makeGoogleMetaFetcher, makeCachedMetaFetcher, supabaseMetaCache, enrichPlaceMeta } from './placeMeta'
 import { fetchPolyline } from './legs'
 import { buildOfflineAreas, supabaseUploader } from './offline'
 import { photoTargets, describeTargets, attachPhotos, supabasePhotoStore } from './photos'
@@ -58,6 +59,11 @@ async function main() {
   const warnings: string[] = [...assembleWarnings]
   const geocoder = makeCachedGeocoder(makeGoogleGeocoder(env.googleServerKey, content.trip.country_code), supabaseCache(client, env.ownerId))
   const { misses } = await geocodeContent(content, geocoder, cityHint)
+  // Taste profile metadata (spec 2026-09-29). One Place Details call per place, ever: the cache row is the geocode row.
+  const metaStats = { live: 0 }
+  const metaFetcher = makeCachedMetaFetcher(makeGoogleMetaFetcher(env.googleServerKey), supabaseMetaCache(client), metaStats)
+  const meta = await enrichPlaceMeta(content, geocoder, metaFetcher, cityHint)
+  if (meta.fetched) warnings.push(`place metadata: ${meta.fetched} place(s) resolved, ${metaStats.live} Details call(s)`)
   for (const leg of content.legs) {
     const mode = content.routes.find(r => r.id === leg.route_id)!.mode
     try { const p = await fetchPolyline(env.googleServerKey, leg, mode); if (p) Object.assign(leg, p); else warnings.push(`no polyline for ${leg.route_id}#${leg.seq} (${leg.from_name} → ${leg.to_name})`) }
@@ -95,7 +101,7 @@ async function main() {
   // A dry run is the only chance to read the queries before they are spent and cached.
   const queries = dryRun && !skipPhotos ? describeTargets(content, cityHint) : []
   const counts = dryRun
-    ? { ...Object.fromEntries(Object.entries(content).filter(([k]) => k !== 'trip').map(([k, v]) => [k, (v as unknown[]).length])), photos: queries.length }
+    ? { ...Object.fromEntries(Object.entries(content).filter(([k]) => k !== 'trip').map(([k, v]) => [k, (v as unknown[]).length])), photos: queries.length, meta: content.items.filter(i => i.primary_type).length + content.parked.filter(p => p.primary_type).length }
     : { ...(await rewriteCity(client, env.ownerId, content)), photos: photoCounts.attached + photoCounts.skipped + photoCounts.shared }
   printReport({ slug, counts, misses, warnings, dryRun, queries, url: `https://mickydoit.github.io/europe-guide/?trip=${slug}` })
 }

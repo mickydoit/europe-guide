@@ -2,6 +2,8 @@ import { describe, test, expect, vi } from 'vitest'
 import {
   nearbyPlaces, placePhoto, shouldRefetch, photoUrl, nearestN, INCLUDED_TYPES, EXCLUDED_TYPES,
 } from '../../src/lib/places'
+import { buildProfile } from '../../src/lib/taste'
+import fixture from '../fixtures/lisbon-place-meta.json'
 
 function rawPlace(overrides: Record<string, unknown> = {}) {
   return {
@@ -38,7 +40,7 @@ describe('nearbyPlaces request shape', () => {
     const mask = headers['X-Goog-FieldMask']
     expect(mask).toBe(
       'places.id,places.displayName,places.location,places.rating,places.userRatingCount,'
-      + 'places.currentOpeningHours.openNow,places.types,places.formattedAddress',
+      + 'places.currentOpeningHours.openNow,places.types,places.primaryType,places.formattedAddress',
     )
     expect(mask).not.toContain('places.photos')
 
@@ -179,7 +181,7 @@ describe('photoUrl', () => {
 describe('nearestN', () => {
   test('sorts by distance and caps at n', () => {
     const base = {
-      rating: null, ratingCount: null, openNow: null, types: [], photoName: null, address: null,
+      rating: null, ratingCount: null, openNow: null, types: [], primaryType: null, photoName: null, address: null,
     }
     const far = { ...base, id: 'far', name: 'Far', lat: 38.72, lng: -9.14 }
     const near = { ...base, id: 'near', name: 'Near', lat: 38.7101, lng: -9.14 }
@@ -187,5 +189,38 @@ describe('nearestN', () => {
 
     const result = nearestN([far, near, mid], 38.71, -9.14, 2)
     expect(result.map(p => p.id)).toEqual(['near', 'mid'])
+  })
+})
+
+describe('nearbyPlaces with a taste profile', () => {
+  const profile = buildProfile(fixture as never)
+  const respond = (places: unknown[]) => vi.fn(async () => new Response(JSON.stringify({ places }), { status: 200 })) as unknown as typeof fetch
+
+  test('the request asks for restaurants, bars and shops too, and for primaryType', async () => {
+    let body: { includedTypes: string[] } | null = null
+    const fetchImpl = vi.fn(async (_url: string, init: RequestInit) => { body = JSON.parse(init.body as string); return new Response(JSON.stringify({ places: [] }), { status: 200 }) })
+    await nearbyPlaces(38.71, -9.14, 'k', fetchImpl as unknown as typeof fetch, profile)
+    for (const t of ['restaurant', 'bar', 'coffee_shop', 'market', 'clothing_store', 'home_goods_store', 'cafe', 'museum']) expect(body!.includedTypes).toContain(t)
+    expect(body!.includedTypes).not.toContain('shopping_mall')
+    const mask = (fetchImpl.mock.calls[0][1] as RequestInit).headers as Record<string, string>
+    expect(mask['X-Goog-FieldMask']).toContain('places.primaryType')
+  })
+
+  test('keeps a tasca and drops a tourist-square restaurant and a 10k-review café', async () => {
+    const places = await nearbyPlaces(38.71, -9.14, 'k', respond([
+      rawPlace({ id: 'tasca', primaryType: 'portuguese_restaurant', types: ['portuguese_restaurant', 'restaurant', 'food'], rating: 4.6, userRatingCount: 300 }),
+      rawPlace({ id: 'trap', primaryType: 'restaurant', types: ['restaurant', 'food'], rating: 4.3, userRatingCount: 8000 }),
+      rawPlace({ id: 'brasileira', primaryType: 'cafe', types: ['cafe', 'coffee_shop'], rating: 4.2, userRatingCount: 10535 }),
+    ]), profile)
+    expect(places.map(p => p.id)).toEqual(['tasca'])
+    expect(places[0].primaryType).toBe('portuguese_restaurant')
+  })
+
+  test('without a profile the legacy rule still applies', async () => {
+    const places = await nearbyPlaces(38.71, -9.14, 'k', respond([
+      rawPlace({ id: 'ok', rating: 4.5, userRatingCount: 200 }),
+      rawPlace({ id: 'low', rating: 4.0, userRatingCount: 200 }),
+    ]))
+    expect(places.map(p => p.id)).toEqual(['ok'])
   })
 })

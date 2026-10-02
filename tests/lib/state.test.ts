@@ -1,12 +1,12 @@
 import '../helpers/blobClone'
 import { renderHook, act, waitFor } from '@testing-library/react'
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { useChecks, useBookingState, useAttachments, useDayNotes } from '../../src/lib/state'
+import { useChecks, useBookingState, useAttachments, useDayNotes, usePlaceVotes } from '../../src/lib/state'
 import type { SavedPlace } from '../../src/lib/state'
 import { resetDbForTests } from '../../src/lib/db'
 import * as outbox from '../../src/lib/outbox'
 import { enqueue, listOutbox } from '../../src/lib/outbox'
-import type { AttachmentUploadPayload, CheckSetPayload, DayNotesPayload } from '../../src/lib/outbox'
+import type { AttachmentUploadPayload, CheckSetPayload, DayNotesPayload, PlaceVotePayload } from '../../src/lib/outbox'
 import { resetSyncForTests } from '../../src/lib/sync'
 import * as attachmentsCache from '../../src/lib/attachmentsCache'
 import { FakeCacheStorage } from '../helpers/fakeCaches'
@@ -1324,4 +1324,74 @@ test('useAttachments: a live upload lets the ticket warm pass run again for that
 
   await warmTripAttachments('valle', warmClient, fakeCaches as unknown as CacheStorage)
   expect(warmSelects).toBe(2)
+})
+
+function votesClient(rows: unknown[], calls: { op: string; payload?: unknown; opts?: unknown }[] = [], fail = false) {
+  return {
+    from: (table: string) => {
+      expect(table).toBe('place_votes')
+      return {
+        select: () => Promise.resolve({ data: rows, error: null }),
+        upsert: (payload: unknown, opts: unknown) => { calls.push({ op: 'upsert', payload, opts }); return Promise.resolve(fail ? { error: { message: 'TypeError: Failed to fetch' } } : { error: null }) },
+      }
+    },
+  } as unknown as SupabaseClient
+}
+
+test('usePlaceVotes: loads server rows, then overlays a pending outbox vote on top', async () => {
+  await enqueue({ key: 'vote:ChIJ2', kind: 'place_vote', payload: { placeId: 'ChIJ2', primaryType: 'cafe', vote: -1 } satisfies PlaceVotePayload })
+  // Built once, outside the renderHook callback — like every other hook test in this file — so
+  // the client's identity stays stable across re-renders. (The hook's effect depends on
+  // `[client]`; a fresh client built inline on every render would make it refetch forever.)
+  const client = votesClient([{ place_id: 'ChIJ1', primary_type: 'bar', vote: 1, voted_at: '2026-09-29T00:00:00Z' }, { place_id: 'ChIJ2', primary_type: 'cafe', vote: 1, voted_at: '2026-09-28T00:00:00Z' }])
+  const { result } = renderHook(() => usePlaceVotes(client))
+  await waitFor(() => expect(result.current.loading).toBe(false))
+  const byId = Object.fromEntries(result.current.votes.map(v => [v.place_id, v.vote]))
+  expect(byId).toEqual({ ChIJ1: 1, ChIJ2: -1 })          // the queued -1 beats the server's older +1
+})
+
+test('usePlaceVotes: vote() upserts with onConflict place_id and updates the list optimistically', async () => {
+  const calls: { op: string; payload?: unknown; opts?: unknown }[] = []
+  const client = votesClient([], calls)
+  const { result } = renderHook(() => usePlaceVotes(client))
+  await waitFor(() => expect(result.current.loading).toBe(false))
+  await act(async () => { await result.current.vote('ChIJ9', 'restaurant', -1) })
+  expect(result.current.votes).toEqual([expect.objectContaining({ place_id: 'ChIJ9', primary_type: 'restaurant', vote: -1 })])
+  expect(calls[0].opts).toEqual({ onConflict: 'place_id' })
+  expect(calls[0].payload).toMatchObject({ place_id: 'ChIJ9', primary_type: 'restaurant', vote: -1 })
+  expect(await listOutbox()).toEqual([])
+})
+
+test('usePlaceVotes: a network failure queues the vote and keeps it in the list', async () => {
+  const client = votesClient([], [], true)
+  const { result } = renderHook(() => usePlaceVotes(client))
+  await waitFor(() => expect(result.current.loading).toBe(false))
+  let r: { queued: boolean } | undefined
+  await act(async () => { r = await result.current.vote('ChIJ9', 'bar', 1) })
+  expect(r).toEqual({ queued: true })
+  expect(result.current.votes.map(v => v.place_id)).toEqual(['ChIJ9'])
+  const ops = await listOutbox()
+  expect(ops).toHaveLength(1); expect(ops[0].kind).toBe('place_vote'); expect(ops[0].key).toBe('vote:ChIJ9')
+})
+
+test('usePlaceVotes: a non-network rejection reverts the optimistic vote and rejects', async () => {
+  const client = {
+    from: (table: string) => {
+      expect(table).toBe('place_votes')
+      return {
+        select: () => Promise.resolve({ data: [], error: null }),
+        upsert: () => Promise.resolve({ error: { message: 'new row violates check constraint "place_votes_vote_check"', code: '23514' } }),
+      }
+    },
+  } as unknown as SupabaseClient
+  const { result } = renderHook(() => usePlaceVotes(client))
+  await waitFor(() => expect(result.current.loading).toBe(false))
+
+  const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+  await act(async () => {
+    await expect(result.current.vote('ChIJ9', 'bar', 1)).rejects.toThrow(/check constraint/)
+  })
+  expect(result.current.votes).toEqual([])
+  expect(await listOutbox()).toEqual([])
+  warn.mockRestore()
 })
