@@ -74,7 +74,7 @@ export function buildProfile(rows: readonly Partial<PlaceMeta>[], votes: readonl
     const c = categoryOf(v.primary_type, null)
     if (!c || !v.primary_type) continue
     const cat = profile[c]
-    const current = cat.typeWeight[v.primary_type] ?? (cat.thin ? THIN_WEIGHT : 0)
+    const current = cat.typeWeight[v.primary_type] ?? (cat.thin ? THIN_WEIGHT : v.vote > 0 ? 1 / TYPE_SATURATION : 0)
     cat.typeWeight[v.primary_type] = Math.min(1, current * (v.vote < 0 ? DOWNVOTE_FACTOR : UPVOTE_FACTOR))
   }
   return profile
@@ -100,7 +100,7 @@ export function scorePlace(
   if (profile.empty) return { score: legacyScore(place), category }
   if (!category) return { score: 0, category: null }
   const cat = profile[category]
-  const weights = types.filter(t => SETS[category].has(t)).map(t => cat.typeWeight[t] ?? (cat.thin ? THIN_WEIGHT : 0))
+  const weights = types.filter(t => SETS[category].has(t)).map(t => { const w = cat.typeWeight[t] ?? 0; return cat.thin ? Math.max(w, THIN_WEIGHT) : w })
   const affinity = weights.length ? Math.max(...weights) : 0
   if (category === 'see') {
     if (place.rating == null) return { score: types.some(t => UNRATED_LANDMARKS.has(t)) ? Math.max(affinity, UNRATED_SEE_SCORE) : affinity, category }
@@ -119,8 +119,8 @@ export function scorePlace(
 export function summariseProfile(p: TasteProfile): string[] {
   const line = (c: Category) => {
     const cat = p[c]
-    if (cat.n === 0) return `${c} · 0 places · thin — using the pre-profile rule`
-    const top = Object.entries(cat.typeWeight).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).slice(0, 5).map(([t]) => t).join(', ')
+    if (cat.n === 0) return p.empty ? `${c} · 0 places · thin — using the pre-profile rule` : `${c} · 0 places (thin)`
+    const top = Object.entries(cat.typeWeight).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).slice(0, 5).map(([t, w]) => `${t} (${w.toFixed(2)})`).join(', ')
     const parts = [`${c} · ${cat.n} places${cat.thin ? ' (thin)' : ''}`, `top: ${top}`]
     if (cat.countP75 != null) parts.push(`reviews ≤ ${cat.countP75.toLocaleString('en-GB')}`)
     if (cat.minRating != null) parts.push(`rating ≥ ${cat.minRating}`)

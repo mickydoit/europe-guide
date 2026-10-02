@@ -4,7 +4,7 @@ import { vi, beforeEach, afterEach, test, expect } from 'vitest'
 import { TripProvider } from '../../src/lib/trip'
 import { cacheKey, downloadCityMaps } from '../../src/lib/offlineMaps'
 import { loadValle } from '../helpers/content'
-import type { CityContent, OfflineAreaRow } from '../../src/lib/types'
+import type { CityContent, OfflineAreaRow, PlaceVoteRow } from '../../src/lib/types'
 
 // ---------------------------------------------------------------- maplibre stub
 interface Recorded { ev: string; layers: string[] | null; fn: (arg?: unknown) => void }
@@ -82,7 +82,7 @@ const checksStub = { done: doneSet, loading: false, toggle: vi.fn() }
 Object.assign(notesStub, { note: '', savedPlaces: [], loading: false, setNote: vi.fn(), savePlace, removePlace: vi.fn() })
 // Taste profile: no votes recorded yet, and voting is a no-op spy (Map.tsx fires it
 // fire-and-forget after a save, and on reject — neither is under test here).
-const placeVotesStub = { votes: [] as never[], loading: false, vote: vi.fn().mockResolvedValue({ queued: false }) }
+const placeVotesStub = { votes: [] as PlaceVoteRow[], loading: false, vote: vi.fn().mockResolvedValue({ queued: false }) }
 vi.mock('../../src/lib/state', () => ({
   useChecks: () => checksStub,
   useDayNotes: () => notesStub,
@@ -353,7 +353,7 @@ test('the map container is a .map-canvas inside .map-screen (maplibre sets posit
   expect(canvas).toBe(screen.getByTestId('map-canvas'))
 })
 
-test('a GPS tick updates only the user source, not the itinerary sources', async () => {
+test('a GPS tick updates only the user and places sources, not the itinerary', async () => {
   renderMap(content)
   await waitFor(() => expect(maplibreState.instances.length).toBe(1))
   fire('load')
@@ -365,7 +365,9 @@ test('a GPS tick updates only the user source, not the itinerary sources', async
 
   act(() => { onPosition({ coords: { latitude: 38.71, longitude: -9.14 } }) })
 
-  expect(maplibreState.setDataCalls.map(c => c.id)).toEqual(['user'])
+  // 'places' is re-scored synchronously against the (still empty, nothing fetched yet)
+  // places cache whenever position moves — the same path a vote or late metadata uses.
+  expect(maplibreState.setDataCalls.map(c => c.id)).toEqual(['user', 'places'])
 })
 
 test('a position tick with a places key fetches nearby places and updates the places source', async () => {
@@ -548,9 +550,9 @@ test('a tile error logs the status, never the (token-bearing) URL', async () => 
 })
 
 // ---------------------------------------------------------------- I4 save failures
-async function openPlaceSheet() {
+async function openPlaceSheet(overrides: Partial<Place> = {}) {
   vi.stubEnv('VITE_GOOGLE_BROWSER_KEY', 'k')
-  const p = place({ id: 'pl-9', name: 'Bar Sole' })
+  const p = place({ id: 'pl-9', name: 'Bar Sole', ...overrides })
   nearbyPlacesMock.mockResolvedValue([p])
 
   renderMap(content)
@@ -563,13 +565,20 @@ async function openPlaceSheet() {
   await waitFor(() => expect(maplibreState.setDataCalls.some(c => c.id === 'places')).toBe(true))
 
   fire('click', { features: [{ layer: { id: 'places-hit' }, properties: { id: p.id, kind: 'place' } }] })
-  return screen.findByRole('button', { name: 'Save for today' })
+  const button = await screen.findByRole('button', { name: 'Save for today' })
+  return { button, place: p }
+}
+
+function lastPlaces(): GeoJSON.FeatureCollection {
+  const call = maplibreState.setDataCalls.filter(c => c.id === 'places').at(-1)
+  expect(call).toBeDefined()
+  return call!.data as GeoJSON.FeatureCollection
 }
 
 test('Save for today while offline still saves — the hook queues it and the sheet says so', async () => {
   vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false)
   savePlace.mockResolvedValueOnce({ queued: true })
-  const button = await openPlaceSheet()
+  const { button } = await openPlaceSheet()
 
   fireEvent.click(button)
 
@@ -582,12 +591,49 @@ test('Save for today while offline still saves — the hook queues it and the sh
 test('a rejected save shows the plain-language message, not the raw error', async () => {
   vi.spyOn(console, 'warn').mockImplementation(() => {})
   savePlace.mockRejectedValueOnce(new Error('PGRST301 JWT expired'))
-  const button = await openPlaceSheet()
+  const { button } = await openPlaceSheet()
 
   fireEvent.click(button)
 
   expect(await screen.findByText("Couldn't save — try again when online")).toBeInTheDocument()
   expect(screen.queryByText(/PGRST301/)).toBeNull()
+})
+
+// ---------------------------------------------------------------- Important 3: vote wiring
+test('Save for today votes +1 for the place, by id and primary type, after the save resolves', async () => {
+  savePlace.mockResolvedValueOnce({ queued: false })
+  const { button, place: p } = await openPlaceSheet({ primaryType: 'bar' })
+
+  fireEvent.click(button)
+
+  await waitFor(() => expect(placeVotesStub.vote).toHaveBeenCalledWith(p.id, p.primaryType, 1))
+})
+
+test('"Not for us" votes -1 for the place and removes it from the places source', async () => {
+  const { place: p } = await openPlaceSheet({ primaryType: 'bar' })
+
+  fireEvent.click(screen.getByRole('button', { name: 'Not for us' }))
+
+  await waitFor(() => expect(placeVotesStub.vote).toHaveBeenCalledWith(p.id, p.primaryType, -1))
+  expect(lastPlaces().features.some(f => f.properties?.id === p.id)).toBe(false)
+})
+
+test('a place already down-voted is never drawn, even when a nearby fetch returns it', async () => {
+  vi.stubEnv('VITE_GOOGLE_BROWSER_KEY', 'k')
+  placeVotesStub.votes = [{ place_id: 'pl-rejected', primary_type: 'cafe', vote: -1, voted_at: '2026-10-01T00:00:00Z' }]
+  const p = place({ id: 'pl-rejected', name: 'Café Hidden', primaryType: 'cafe', types: ['cafe'] })
+  nearbyPlacesMock.mockResolvedValue([p])
+
+  renderMap(content)
+  await waitFor(() => expect(maplibreState.instances.length).toBe(1))
+  fire('load')
+
+  const geo = navigator.geolocation as unknown as { watchPosition: ReturnType<typeof vi.fn> }
+  const onPosition = geo.watchPosition.mock.calls[0][0] as (pos: unknown) => void
+  act(() => { onPosition({ coords: { latitude: 38.71, longitude: -9.14 } }) })
+  await waitFor(() => expect(nearbyPlacesMock).toHaveBeenCalled())
+
+  await waitFor(() => expect(lastPlaces().features.some(f => f.properties?.id === p.id)).toBe(false))
 })
 
 // ---------------------------------------------------------------- I6 registry reuse

@@ -91,10 +91,17 @@ describe('scorePlace', () => {
     expect(V.shop.typeWeight.gift_shop).toBeCloseTo((1 / 3) * 1.3)
     expect(buildProfile(rows, [votes[1], votes[1], votes[1], votes[1], votes[1]]).shop.typeWeight.gift_shop).toBe(1) // (1/3)·1.3⁵ = 1.24 → capped at 1
   })
+  test('an up-vote on a type never chosen seeds it, so a save counts as one choice', () => {
+    const votes: PlaceVoteRow[] = [{ place_id: 'new', primary_type: 'wine_bar', vote: 1, voted_at: '2026-09-29T00:00:00Z' }]
+    const V = buildProfile(rows, votes)
+    expect(V.eat.typeWeight.wine_bar).toBeCloseTo((1 / 3) * 1.3)
+  })
   test('thin category: any type in the category lookup counts as THIN_WEIGHT', () => {
     const T = buildProfile(rows.filter(r => r.primary_type !== 'clothing_store' && r.primary_type !== 'store' && r.primary_type !== 'manufacturer' && r.primary_type !== 'home_goods_store'))
     expect(T.shop.n).toBeLessThan(5); expect(T.shop.thin).toBe(true)
     expect(scorePlace(place('jewelry_store', ['jewelry_store', 'store'], 4.7, 80), T).score).toBeCloseTo(THIN_WEIGHT)
+    // A type the owner actually chose must not score below a type they never picked.
+    expect(scorePlace(place('book_store', ['book_store', 'store'], 4.7, 80), T).score).toBeGreaterThanOrEqual(THIN_WEIGHT)
   })
   test('empty profile falls back to the legacy rule: rating ≥ 4.2 with ≥ 50 reviews, or an unrated landmark', () => {
     const E = buildProfile([])
@@ -110,9 +117,13 @@ describe('summariseProfile', () => {
     const lines = summariseProfile(P)
     expect(lines).toHaveLength(4)
     // weight desc, then alphabetical: the three weight-1 types first, then the first two of the 2/3-weight types
-    expect(lines[0]).toBe('eat · 13 places · top: cafe, coffee_shop, restaurant, bakery, bar · reviews ≤ 3,371 · rating ≥ 4.3')
-    expect(lines[2]).toMatch(/^see · 6 places · top: museum, tourist_attraction/)
+    expect(lines[0]).toBe('eat · 13 places · top: cafe (1.00), coffee_shop (1.00), restaurant (1.00), bakery (0.67), bar (0.67) · reviews ≤ 3,371 · rating ≥ 4.3')
+    expect(lines[2]).toMatch(/^see · 6 places · top: museum \(1\.00\), tourist_attraction \(1\.00\)/)
     expect(lines[3]).toBe('votes · 0')
     expect(summariseProfile(buildProfile([]))[0]).toBe('eat · 0 places · thin — using the pre-profile rule')
+  })
+  test('a category with zero chosen places in an otherwise non-empty profile reads as thin, not as the pre-profile rule', () => {
+    const noShop = buildProfile(rows.filter(r => categoryOf(r.primary_type, r.types) !== 'shop'))
+    expect(summariseProfile(noShop)[1]).toBe('shop · 0 places (thin)')
   })
 })

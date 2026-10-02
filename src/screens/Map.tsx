@@ -12,7 +12,7 @@ import { PMTiles, Protocol } from 'pmtiles'
 import { useTrip } from '../lib/trip'
 import { useMapNeeds } from '../lib/mapReadiness'
 import { useChecks, useDayNotes, usePlaceVotes, QUEUED_COPY, type SavedPlace } from '../lib/state'
-import { buildProfile } from '../lib/taste'
+import { buildProfile, scorePlace, THRESHOLD, type TasteProfile } from '../lib/taste'
 import { buildStyle } from '../lib/mapStyle'
 import { boundsFor, legsGeoJSON, parkedGeoJSON, placesGeoJSON, stopsGeoJSON } from '../lib/mapData'
 import { cachedMapStatus, defaultSigner, downloadCityMaps, getCachedMap, getMapsGeneration, MemorySource } from '../lib/offlineMaps'
@@ -472,6 +472,18 @@ export default function Map() {
     setData(map, 'places', placesGeoJSON([]))
   }, [placesEnabled, ready])
 
+  // Re-scores and redraws whatever is already in placesRef against the given profile —
+  // the one path the fetch's .then, handleReject and the profile-change effect all share.
+  function redrawPlaces(profile: TasteProfile) {
+    const m = mapRef.current
+    if (!m || !ready || !position) return
+    const kept = [...placesRef.current.values()].filter(p =>
+      !profile.hidden.has(p.id) &&
+      scorePlace({ id: p.id, types: p.types, primaryType: p.primaryType, rating: p.rating, ratingCount: p.ratingCount }, profile).score >= THRESHOLD,
+    )
+    setData(m, 'places', placesGeoJSON(nearestN(kept, position.lat, position.lng)))
+  }
+
   // ---- places fetch ---------------------------------------------------------
   useEffect(() => {
     if (!placesKey || !placesEnabled || !position) return
@@ -488,13 +500,18 @@ export default function Map() {
       .then(found => {
         if (cancelled) return
         for (const place of found) placesRef.current.set(place.id, place)
-        const all = nearestN([...placesRef.current.values()].filter(p => !tasteProfile.hidden.has(p.id)), position.lat, position.lng)
-        const m = mapRef.current
-        if (m) setData(m, 'places', placesGeoJSON(all))
+        redrawPlaces(tasteProfile)
       })
       .catch(e => console.warn(e instanceof Error ? e.message : String(e)))
     return () => { cancelled = true }
-  }, [position, placesEnabled, placesKey, ready, tasteProfile])
+    // tasteProfile is intentionally not a dependency: shouldRefetch's 150 m / 60 s guard
+    // above means a profile change alone must never trigger a new Places call. The
+    // effect below re-scores the markers already on screen instead.
+  }, [position, placesEnabled, placesKey, ready])
+
+  // A vote or late-arriving metadata must re-score the markers already on screen without
+  // a new Places call.
+  useEffect(() => { redrawPlaces(tasteProfile) }, [tasteProfile, ready, position])
 
   useEffect(() => {
     const goOnline = () => { setOnline(true); setTileError(false); maybeResign() }
@@ -674,8 +691,7 @@ export default function Map() {
     const place = placesRef.current.get(sheet.place.id)
     // Hide first: the marker must vanish on the tap, whatever the network does.
     placesRef.current.delete(sheet.place.id)
-    const m = mapRef.current
-    if (m && position) setData(m, 'places', placesGeoJSON(nearestN([...placesRef.current.values()], position.lat, position.lng)))
+    redrawPlaces(tasteProfile)
     setSelected(null); setSaveError(null); setSaveQueued(null)
     try { await placeVotes.vote(sheet.place.id, place?.primaryType ?? null, -1) }
     catch (e) { console.warn('reject place', e instanceof Error ? e.message : String(e)) }
