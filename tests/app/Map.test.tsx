@@ -221,7 +221,7 @@ afterEach(() => {
 function place(overrides: Partial<Place> = {}): Place {
   return {
     id: 'pl1', name: 'Café X', lat: 38.7101, lng: -9.1401,
-    rating: 4.5, ratingCount: 200, openNow: true, types: ['cafe'], photoName: null, address: '1 Rua X',
+    rating: 4.5, ratingCount: 200, openNow: true, types: ['cafe'], primaryType: null, photoName: null, address: '1 Rua X',
     ...overrides,
   }
 }

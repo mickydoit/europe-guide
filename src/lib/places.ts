@@ -1,4 +1,5 @@
 import { haversineM } from './geo'
+import { buildProfile, scorePlace, THRESHOLD, type TasteProfile } from './taste'
 
 export interface Place {
   id: string
@@ -9,14 +10,17 @@ export interface Place {
   ratingCount: number | null
   openNow: boolean | null
   types: string[]
+  primaryType: string | null
   photoName: string | null
   address: string | null
 }
 
-// Places API (New) Table A types only.
+// Places API (New) Table A types only. Widened 29 Sep 2026: the taste profile now decides what
+// earns a "!", so restaurants, bars and shops are searched for at all.
 export const INCLUDED_TYPES = [
-  'tourist_attraction', 'historical_landmark', 'museum', 'art_gallery', 'church',
-  'cafe', 'bakery', 'book_store', 'gift_shop', 'park',
+  'tourist_attraction', 'historical_landmark', 'museum', 'art_gallery', 'church', 'park',
+  'cafe', 'coffee_shop', 'bakery', 'restaurant', 'bar',
+  'book_store', 'gift_shop', 'clothing_store', 'home_goods_store', 'market',
 ]
 export const EXCLUDED_TYPES = ['lodging', 'bank', 'atm', 'gas_station', 'parking']
 
@@ -26,12 +30,11 @@ const SEARCH_URL = 'https://places.googleapis.com/v1/places:searchNearby'
 // only for the one place a sheet actually opens.
 const FIELD_MASK = [
   'places.id', 'places.displayName', 'places.location', 'places.rating', 'places.userRatingCount',
-  'places.currentOpeningHours.openNow', 'places.types', 'places.formattedAddress',
+  'places.currentOpeningHours.openNow', 'places.types', 'places.primaryType', 'places.formattedAddress',
 ].join(',')
 const DETAILS_FIELD_MASK = 'photos'
 const RADIUS_M = 300
-// Unrated places are still worth surfacing when they're a landmark-ish type.
-const UNRATED_KEEP_TYPES = new Set(['tourist_attraction', 'historical_landmark', 'church', 'museum'])
+const EMPTY_PROFILE = buildProfile([])
 
 interface RawPlace {
   id?: string
@@ -41,15 +44,12 @@ interface RawPlace {
   userRatingCount?: number
   currentOpeningHours?: { openNow?: boolean }
   types?: string[]
+  primaryType?: string
   formattedAddress?: string
 }
 
-function keep(p: RawPlace): boolean {
-  if ((p.rating ?? 0) >= 4.2 && (p.userRatingCount ?? 0) >= 50) return true
-  if (p.rating == null) {
-    return (p.types ?? []).some(t => UNRATED_KEEP_TYPES.has(t))
-  }
-  return false
+function keepByTaste(p: Place, profile: TasteProfile): boolean {
+  return scorePlace({ id: p.id, types: p.types, primaryType: p.primaryType, rating: p.rating, ratingCount: p.ratingCount }, profile).score >= THRESHOLD
 }
 
 function mapPlace(p: RawPlace): Place {
@@ -62,6 +62,7 @@ function mapPlace(p: RawPlace): Place {
     ratingCount: p.userRatingCount ?? null,
     openNow: p.currentOpeningHours?.openNow ?? null,
     types: p.types ?? [],
+    primaryType: p.primaryType ?? null,
     // Photos are no longer part of the nearby search response; a sheet fetches one
     // lazily via placePhoto() when the place is actually opened.
     photoName: null,
@@ -74,6 +75,7 @@ export async function nearbyPlaces(
   lng: number,
   key: string,
   fetchImpl: typeof fetch = fetch,
+  profile: TasteProfile = EMPTY_PROFILE,
 ): Promise<Place[]> {
   const res = await fetchImpl(SEARCH_URL, {
     referrerPolicy: 'no-referrer-when-downgrade',
@@ -96,7 +98,7 @@ export async function nearbyPlaces(
     throw new Error(`places HTTP ${res.status}: ${text.slice(0, 200)}`)
   }
   const json = await res.json() as { places?: RawPlace[] }
-  return (json.places ?? []).filter(keep).map(mapPlace)
+  return (json.places ?? []).map(mapPlace).filter(p => keepByTaste(p, profile))
 }
 
 export function shouldRefetch(
