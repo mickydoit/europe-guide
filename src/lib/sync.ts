@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { supabase } from './supabase'
 import { countOutbox, listDueOps, listOutbox, removeOp, updateOp } from './outbox'
-import type { AttachmentUploadPayload, CheckSetPayload, DayNotesPayload, OutboxOp } from './outbox'
+import type { AttachmentUploadPayload, CheckSetPayload, DayNotesPayload, OutboxOp, PlaceVotePayload } from './outbox'
 import { isNetworkFailure } from './net'
 
 /** Give up flushing an op after this many failures; it is kept and shown with a Retry. */
@@ -113,6 +113,15 @@ export async function replay(client: SupabaseClient, op: OutboxOp): Promise<void
     // on this column, so it has to carry the author's clock, not the network's.
     const row = { trip, date, ...patch, updated_at: new Date(op.createdAt).toISOString() }
     const { error } = (await client.from('day_notes').upsert(row, { onConflict: 'trip,date' })) as { error: PgError }
+    if (error) throw asError(error)
+    return
+  }
+
+  if (op.kind === 'place_vote') {
+    const { placeId, primaryType, vote } = op.payload as PlaceVotePayload
+    // voted_at is the owner's clock (op.createdAt), for the same reason day_notes uses it.
+    const row = { place_id: placeId, primary_type: primaryType, vote, voted_at: new Date(op.createdAt).toISOString() }
+    const { error } = (await client.from('place_votes').upsert(row, { onConflict: 'place_id' })) as { error: PgError }
     if (error) throw asError(error)
     return
   }

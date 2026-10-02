@@ -511,3 +511,14 @@ test('replay keeps the error status, so a 503 from the server reads as no signal
   expect(stored.networkHolds).toBe(1)
   expect(stored.nextAt).toBe(1000 + 30_000)
 })
+
+test('replays a place_vote as an upsert on place_votes keyed by place_id, with the op time as voted_at', async () => {
+  const calls: Call[] = []
+  const op = await enqueue({ key: 'vote:ChIJ1', kind: 'place_vote', payload: { placeId: 'ChIJ1', primaryType: 'bar', vote: -1 } })
+  const res = await flushOutbox(fakeClient(calls), soon(), () => true)
+  expect(res).toEqual({ done: 1, remaining: 0, failed: 0 })
+  expect(calls[0].table).toBe('place_votes')
+  expect(calls[0].op).toBe('upsert')
+  expect(calls[0].upsertOpts).toEqual({ onConflict: 'place_id' })
+  expect(calls[0].payload).toEqual({ place_id: 'ChIJ1', primary_type: 'bar', vote: -1, voted_at: new Date(op.createdAt).toISOString() })
+})

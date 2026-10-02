@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from 'react'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { supabase } from './supabase'
 import { enqueue, listOpsByKey, listOutbox, removeOp } from './outbox'
-import type { AttachmentUploadPayload, BookingStatePayload, CheckSetPayload, DayNotesPayload } from './outbox'
+import type { AttachmentUploadPayload, BookingStatePayload, CheckSetPayload, DayNotesPayload, PlaceVotePayload } from './outbox'
+import type { PlaceVoteRow } from './types'
 import { flushOutbox, notify } from './sync'
 import { cacheAttachment, deleteCachedAttachment, getCachedAttachmentBlob, hasCachedAttachment } from './attachmentsCache'
 import { getAttachmentRows, putAttachmentRows } from './db'
@@ -655,4 +656,58 @@ export function useDayNotes(trip: string, date: string, client: SupabaseClient =
   }
 
   return { note, savedPlaces, loading, setNote, savePlace, removePlace }
+}
+
+/**
+ * Taste votes on Google places (spec 2026-09-29 §4). Same shape as useChecks: server rows first,
+ * pending outbox votes on top, so a "Not for us" tapped with no signal counts at once and survives a relaunch.
+ */
+export function usePlaceVotes(client: SupabaseClient = supabase) {
+  const [votes, setVotes] = useState<PlaceVoteRow[]>([])
+  const votesRef = useRef<PlaceVoteRow[]>([])
+  const [loading, setLoading] = useState(true)
+
+  const commit = (next: PlaceVoteRow[]) => { votesRef.current = next; setVotes(next) }
+  const upsertLocal = (list: PlaceVoteRow[], row: PlaceVoteRow) => [...list.filter(v => v.place_id !== row.place_id), row]
+
+  useEffect(() => {
+    let cancelled = false
+    setLoading(true)
+    void (async () => {
+      try {
+        const { data, error } = await client.from('place_votes').select('*')
+        if (cancelled) return
+        if (error) console.warn(message(error))
+        let next: PlaceVoteRow[] = error ? [...votesRef.current] : ((data ?? []) as PlaceVoteRow[])
+        for (const op of await listOutbox()) {
+          if (op.kind !== 'place_vote') continue
+          const p = op.payload as PlaceVotePayload
+          next = upsertLocal(next, { place_id: p.placeId, primary_type: p.primaryType, vote: p.vote, voted_at: new Date(op.createdAt).toISOString() })
+        }
+        if (cancelled) return
+        commit(next)
+      } catch (e) {
+        console.warn(e instanceof Error ? e.message : String(e))
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    })()
+    return () => { cancelled = true }
+  }, [client])
+
+  async function vote(placeId: string, primaryType: string | null, v: 1 | -1): Promise<WriteResult> {
+    const startedAt = Date.now()
+    const row: PlaceVoteRow = { place_id: placeId, primary_type: primaryType, vote: v, voted_at: new Date(startedAt).toISOString() }
+    commit(upsertLocal(votesRef.current, row))
+    const payload: PlaceVotePayload = { placeId, primaryType, vote: v }
+    const enqueueIt = () => queue({ key: `vote:${placeId}`, kind: 'place_vote', payload })
+    if (!isOnline()) return enqueueIt()
+    const outcome = await runWrite(() => client.from('place_votes').upsert(row, { onConflict: 'place_id' }) as PromiseLike<{ error: unknown }>)
+    if (outcome.ok) { await settle(client, `vote:${placeId}`, startedAt); return { queued: false } }
+    if (outcome.network) return enqueueIt()
+    console.warn(outcome.error.message)
+    throw new Error(outcome.error.message)
+  }
+
+  return { votes, loading, vote }
 }

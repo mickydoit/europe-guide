@@ -11,7 +11,7 @@ export type OutboxOp = {
   id: string
   /** Dedupe key. A newer op for the same key replaces the older one (last write wins). */
   key: string
-  kind: 'check_set' | 'booking_state' | 'day_notes' | 'attachment_upload'
+  kind: 'check_set' | 'booking_state' | 'day_notes' | 'attachment_upload' | 'place_vote'
   payload: unknown
   createdAt: number
   attempts: number
@@ -31,6 +31,8 @@ export type CheckSetPayload = { itemId: string; done: boolean }
 /** The whole `booking_state` upsert row, exactly as `useBookingState.save` sends it. */
 export type BookingStatePayload = { trip: string; booking_id: string; updated_at: string; [key: string]: unknown }
 export type DayNotesPayload = { trip: string; date: string; patch: { text?: string; saved_places?: unknown[] } }
+/** One taste vote on a Google place. +1 = saved to notes, -1 = "Not for us". Key `vote:<placeId>`, last wins. */
+export type PlaceVotePayload = { placeId: string; primaryType: string | null; vote: 1 | -1 }
 export type AttachmentUploadPayload = {
   trip: string
   bookingId: string
