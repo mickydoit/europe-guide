@@ -697,6 +697,7 @@ export function usePlaceVotes(client: SupabaseClient = supabase) {
 
   async function vote(placeId: string, primaryType: string | null, v: 1 | -1): Promise<WriteResult> {
     const startedAt = Date.now()
+    const previous = votesRef.current.find(v => v.place_id === placeId) ?? null
     const row: PlaceVoteRow = { place_id: placeId, primary_type: primaryType, vote: v, voted_at: new Date(startedAt).toISOString() }
     commit(upsertLocal(votesRef.current, row))
     const payload: PlaceVotePayload = { placeId, primaryType, vote: v }
@@ -705,6 +706,7 @@ export function usePlaceVotes(client: SupabaseClient = supabase) {
     const outcome = await runWrite(() => client.from('place_votes').upsert(row, { onConflict: 'place_id' }) as PromiseLike<{ error: unknown }>)
     if (outcome.ok) { await settle(client, `vote:${placeId}`, startedAt); return { queued: false } }
     if (outcome.network) return enqueueIt()
+    commit(previous ? upsertLocal(votesRef.current, previous) : votesRef.current.filter(v => v.place_id !== placeId))
     console.warn(outcome.error.message)
     throw new Error(outcome.error.message)
   }

@@ -1373,3 +1373,25 @@ test('usePlaceVotes: a network failure queues the vote and keeps it in the list'
   const ops = await listOutbox()
   expect(ops).toHaveLength(1); expect(ops[0].kind).toBe('place_vote'); expect(ops[0].key).toBe('vote:ChIJ9')
 })
+
+test('usePlaceVotes: a non-network rejection reverts the optimistic vote and rejects', async () => {
+  const client = {
+    from: (table: string) => {
+      expect(table).toBe('place_votes')
+      return {
+        select: () => Promise.resolve({ data: [], error: null }),
+        upsert: () => Promise.resolve({ error: { message: 'new row violates check constraint "place_votes_vote_check"', code: '23514' } }),
+      }
+    },
+  } as unknown as SupabaseClient
+  const { result } = renderHook(() => usePlaceVotes(client))
+  await waitFor(() => expect(result.current.loading).toBe(false))
+
+  const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+  await act(async () => {
+    await expect(result.current.vote('ChIJ9', 'bar', 1)).rejects.toThrow(/check constraint/)
+  })
+  expect(result.current.votes).toEqual([])
+  expect(await listOutbox()).toEqual([])
+  warn.mockRestore()
+})
