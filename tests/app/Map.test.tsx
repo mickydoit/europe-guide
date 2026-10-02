@@ -353,7 +353,7 @@ test('the map container is a .map-canvas inside .map-screen (maplibre sets posit
   expect(canvas).toBe(screen.getByTestId('map-canvas'))
 })
 
-test('a GPS tick updates only the user and places sources, not the itinerary', async () => {
+test('a GPS tick updates only the user source, not the itinerary sources', async () => {
   renderMap(content)
   await waitFor(() => expect(maplibreState.instances.length).toBe(1))
   fire('load')
@@ -365,9 +365,7 @@ test('a GPS tick updates only the user and places sources, not the itinerary', a
 
   act(() => { onPosition({ coords: { latitude: 38.71, longitude: -9.14 } }) })
 
-  // 'places' is re-scored synchronously against the (still empty, nothing fetched yet)
-  // places cache whenever position moves — the same path a vote or late metadata uses.
-  expect(maplibreState.setDataCalls.map(c => c.id)).toEqual(['user', 'places'])
+  expect(maplibreState.setDataCalls.map(c => c.id)).toEqual(['user'])
 })
 
 test('a position tick with a places key fetches nearby places and updates the places source', async () => {

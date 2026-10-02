@@ -252,6 +252,9 @@ export default function Map() {
   const placesRef = useRef<globalThis.Map<string, Place>>(new globalThis.Map())
   const lastPlacesQueryRef = useRef<{ lat: number; lng: number; at: number } | null>(null)
   const lastResignAt = useRef(0)
+  // Read by redrawPlaces so a profile change can re-score without depending on `position`
+  // (which would redraw the layer on every GPS tick, not just a fetch or a vote).
+  const positionRef = useRef(position)
 
   const placesKey = (import.meta.env.VITE_GOOGLE_BROWSER_KEY as string | undefined) || null
 
@@ -472,16 +475,21 @@ export default function Map() {
     setData(map, 'places', placesGeoJSON([]))
   }, [placesEnabled, ready])
 
+  // Keep positionRef current without making it a redrawPlaces/effect dependency: a GPS
+  // tick alone must not re-rank the layer, only a fetch or a vote.
+  useEffect(() => { positionRef.current = position }, [position])
+
   // Re-scores and redraws whatever is already in placesRef against the given profile —
   // the one path the fetch's .then, handleReject and the profile-change effect all share.
   function redrawPlaces(profile: TasteProfile) {
     const m = mapRef.current
-    if (!m || !ready || !position) return
+    const pos = positionRef.current
+    if (!m || !ready || !pos) return
     const kept = [...placesRef.current.values()].filter(p =>
       !profile.hidden.has(p.id) &&
       scorePlace({ id: p.id, types: p.types, primaryType: p.primaryType, rating: p.rating, ratingCount: p.ratingCount }, profile).score >= THRESHOLD,
     )
-    setData(m, 'places', placesGeoJSON(nearestN(kept, position.lat, position.lng)))
+    setData(m, 'places', placesGeoJSON(nearestN(kept, pos.lat, pos.lng)))
   }
 
   // ---- places fetch ---------------------------------------------------------
@@ -510,8 +518,9 @@ export default function Map() {
   }, [position, placesEnabled, placesKey, ready])
 
   // A vote or late-arriving metadata must re-score the markers already on screen without
-  // a new Places call.
-  useEffect(() => { redrawPlaces(tasteProfile) }, [tasteProfile, ready, position])
+  // a new Places call. The layer re-ranks by distance only on a fetch or a vote, as before —
+  // not on every GPS tick, which is why `position` is read from positionRef, not as a dep.
+  useEffect(() => { redrawPlaces(tasteProfile) }, [tasteProfile, ready])
 
   useEffect(() => {
     const goOnline = () => { setOnline(true); setTileError(false); maybeResign() }
