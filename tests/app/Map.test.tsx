@@ -80,9 +80,13 @@ vi.mock('pmtiles', () => {
 
 const checksStub = { done: doneSet, loading: false, toggle: vi.fn() }
 Object.assign(notesStub, { note: '', savedPlaces: [], loading: false, setNote: vi.fn(), savePlace, removePlace: vi.fn() })
+// Taste profile: no votes recorded yet, and voting is a no-op spy (Map.tsx fires it
+// fire-and-forget after a save, and on reject — neither is under test here).
+const placeVotesStub = { votes: [] as never[], loading: false, vote: vi.fn().mockResolvedValue({ queued: false }) }
 vi.mock('../../src/lib/state', () => ({
   useChecks: () => checksStub,
   useDayNotes: () => notesStub,
+  usePlaceVotes: () => placeVotesStub,
   QUEUED_COPY: 'Saved on this phone — will sync when online',
 }))
 
@@ -203,6 +207,9 @@ beforeEach(async () => {
   placePhotoMock.mockResolvedValue(null)
   savePlace.mockReset()
   savePlace.mockResolvedValue(undefined)
+  placeVotesStub.votes = []
+  placeVotesStub.vote.mockReset()
+  placeVotesStub.vote.mockResolvedValue({ queued: false })
   getCachedMapCalls.mockReset()
   // The registry is module-level (it mirrors the protocol singleton), so each test has to
   // start from an empty one or a later test would inherit an earlier test's registrations.
@@ -375,7 +382,11 @@ test('a position tick with a places key fetches nearby places and updates the pl
 
   act(() => { onPosition({ coords: { latitude: 38.71, longitude: -9.14 } }) })
 
-  await waitFor(() => expect(nearbyPlacesMock).toHaveBeenCalledWith(38.71, -9.14, 'k'))
+  // Taste profile (spec 2026-09-29): the 5th arg, built from this trip's placeMeta (empty
+  // in this fixture) and votes (none stubbed) — an empty profile, not a particular shape.
+  await waitFor(() => expect(nearbyPlacesMock).toHaveBeenCalledWith(
+    38.71, -9.14, 'k', undefined, expect.objectContaining({ empty: true, votes: 0, hidden: new Set() }),
+  ))
   await waitFor(() => {
     const call = maplibreState.setDataCalls.filter(c => c.id === 'places').at(-1)
     expect(call).toBeDefined()

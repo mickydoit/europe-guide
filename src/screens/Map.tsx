@@ -11,7 +11,8 @@ import 'maplibre-gl/dist/maplibre-gl.css'
 import { PMTiles, Protocol } from 'pmtiles'
 import { useTrip } from '../lib/trip'
 import { useMapNeeds } from '../lib/mapReadiness'
-import { useChecks, useDayNotes, QUEUED_COPY, type SavedPlace } from '../lib/state'
+import { useChecks, useDayNotes, usePlaceVotes, QUEUED_COPY, type SavedPlace } from '../lib/state'
+import { buildProfile } from '../lib/taste'
 import { buildStyle } from '../lib/mapStyle'
 import { boundsFor, legsGeoJSON, parkedGeoJSON, placesGeoJSON, stopsGeoJSON } from '../lib/mapData'
 import { cachedMapStatus, defaultSigner, downloadCityMaps, getCachedMap, getMapsGeneration, MemorySource } from '../lib/offlineMaps'
@@ -202,11 +203,14 @@ export default function Map() {
   const navigate = useNavigate()
   const location = useLocation()
   const { date: dateParam } = useParams<{ date?: string }>()
-  const { content } = useTrip()
+  const { content, placeMeta } = useTrip()
   const trip = content?.trip ?? null
   const attached = useAttachedBookingIds(trip?.slug ?? '')
   const slug = trip?.slug ?? ''
   const { done } = useChecks(slug)
+  const placeVotes = usePlaceVotes()
+  // One taste across every city (spec 2026-09-29): chosen-place metadata plus the owner's votes.
+  const tasteProfile = useMemo(() => buildProfile(placeMeta, placeVotes.votes), [placeMeta, placeVotes.votes])
 
   const areas = useMemo<OfflineAreaRow[]>(() => content?.areas ?? [], [content])
   const mapNeeds = useMapNeeds()
@@ -480,17 +484,17 @@ export default function Map() {
     lastPlacesQueryRef.current = now
 
     let cancelled = false
-    nearbyPlaces(position.lat, position.lng, placesKey)
+    nearbyPlaces(position.lat, position.lng, placesKey, undefined, tasteProfile)
       .then(found => {
         if (cancelled) return
         for (const place of found) placesRef.current.set(place.id, place)
-        const all = nearestN([...placesRef.current.values()], position.lat, position.lng)
+        const all = nearestN([...placesRef.current.values()].filter(p => !tasteProfile.hidden.has(p.id)), position.lat, position.lng)
         const m = mapRef.current
         if (m) setData(m, 'places', placesGeoJSON(all))
       })
       .catch(e => console.warn(e instanceof Error ? e.message : String(e)))
     return () => { cancelled = true }
-  }, [position, placesEnabled, placesKey, ready])
+  }, [position, placesEnabled, placesKey, ready, tasteProfile])
 
   useEffect(() => {
     const goOnline = () => { setOnline(true); setTileError(false); maybeResign() }
@@ -654,6 +658,8 @@ export default function Map() {
     try {
       const result = await notes.savePlace({ ...sheet.place, saved_at: new Date().toISOString() })
       if (result?.queued) setSaveQueued(QUEUED_COPY)
+      const saved = placesRef.current.get(sheet.place.id)
+      void placeVotes.vote(sheet.place.id, saved?.primaryType ?? null, 1).catch(() => {})
     } catch (e) {
       // The raw PostgREST message is noise to the person holding the phone.
       console.warn('save place', e instanceof Error ? e.message : String(e))
@@ -661,6 +667,18 @@ export default function Map() {
     } finally {
       setSaving(false)
     }
+  }
+
+  async function handleReject() {
+    if (!sheet?.place) return
+    const place = placesRef.current.get(sheet.place.id)
+    // Hide first: the marker must vanish on the tap, whatever the network does.
+    placesRef.current.delete(sheet.place.id)
+    const m = mapRef.current
+    if (m && position) setData(m, 'places', placesGeoJSON(nearestN([...placesRef.current.values()], position.lat, position.lng)))
+    setSelected(null); setSaveError(null); setSaveQueued(null)
+    try { await placeVotes.vote(sheet.place.id, place?.primaryType ?? null, -1) }
+    catch (e) { console.warn('reject place', e instanceof Error ? e.message : String(e)) }
   }
 
   // ---- banner -------------------------------------------------------------
@@ -763,6 +781,7 @@ export default function Map() {
           ticketLabel={sheetBooking ? ticketLinkLabel(effectiveStatus(sheetBooking, undefined), attached.has(sheetBooking.id)) : undefined}
           onClose={() => { setSelected(null); setSaveError(null); setSaveQueued(null) }}
           onSave={sheet.place ? () => { void handleSave() } : undefined}
+          onReject={sheet.place ? () => { void handleReject() } : undefined}
           saved={alreadySaved}
           saving={saving}
           error={saveError}
