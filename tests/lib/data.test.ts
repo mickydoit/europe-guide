@@ -1,6 +1,7 @@
 import { loadValle } from '../helpers/content'
 import { mockSupabaseContent } from '../helpers/supabaseMock'
-import { fetchAllAreasWith, fetchCityWith, fetchTripsWith } from '../../src/lib/data'
+import { fetchAllAreasWith, fetchAllPlaceMetaWith, fetchCityWith, fetchTripsWith } from '../../src/lib/data'
+import type { SupabaseClient } from '@supabase/supabase-js'
 
 test('fetchCity assembles all ten tables for a slug', async () => {
   const content = await loadValle()
@@ -39,4 +40,23 @@ test('fetchAllAreas returns the offline areas for every trip, not just one', asy
   const areas = await fetchAllAreasWith(mock.client)
   expect(areas.map(a => a.seq)).toEqual(content.areas.map(a => a.seq))
   expect(mock.calls).toEqual(['offline_areas'])
+})
+
+test('fetchAllPlaceMetaWith reads the five columns from items and parked_venues where primary_type is set, across trips', async () => {
+  const calls: { table: string; select: string; filter: unknown }[] = []
+  const answer = (table: string) => table === 'items'
+    ? [{ primary_type: 'cafe', types: ['cafe'], price_level: null, rating: 4.9, rating_count: 198 }]
+    : [{ primary_type: 'castle', types: ['castle'], price_level: null, rating: 4.4, rating_count: 5000 }]
+  const client = {
+    from: (table: string) => ({
+      select: (select: string) => ({
+        not: (col: string, op: string, v: unknown) => { calls.push({ table, select, filter: [col, op, v] }); return Promise.resolve({ data: answer(table), error: null }) },
+      }),
+    }),
+  } as unknown as SupabaseClient
+  const rows = await fetchAllPlaceMetaWith(client)
+  expect(rows).toHaveLength(2)
+  expect(rows[0].primary_type).toBe('cafe'); expect(rows[1].primary_type).toBe('castle')
+  expect(calls.map(c => c.table).sort()).toEqual(['items', 'parked_venues'])
+  for (const c of calls) { expect(c.select).toBe('primary_type,types,price_level,rating,rating_count'); expect(c.filter).toEqual(['primary_type', 'is', null]) }
 })

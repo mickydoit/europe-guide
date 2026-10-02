@@ -1,10 +1,10 @@
 import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from 'react'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { supabase } from './supabase'
-import { fetchAllAreas, fetchAllAreasWith, fetchCity, fetchCityWith, fetchTrips, fetchTripsWith } from './data'
-import { getCachedAreas, getCachedCity, putCachedAreas, putCachedCity, getCachedTrips, putCachedTrips } from './db'
+import { fetchAllAreas, fetchAllAreasWith, fetchAllPlaceMeta, fetchAllPlaceMetaWith, fetchCity, fetchCityWith, fetchTrips, fetchTripsWith } from './data'
+import { getCachedAreas, getCachedCity, getCachedPlaceMeta, putCachedAreas, putCachedCity, putCachedPlaceMeta, getCachedTrips, putCachedTrips } from './db'
 import { todayInTrip } from './time'
-import type { CityContent, OfflineAreaRow, TripRow } from './types'
+import type { CityContent, OfflineAreaRow, PlaceMeta, TripRow } from './types'
 
 const STORAGE_KEY = 'europe-guide.trip'
 
@@ -12,6 +12,8 @@ interface Trip {
   trips: TripRow[]
   /** Offline areas for EVERY trip — the readiness dot must see cities you have not opened yet. */
   allAreas: OfflineAreaRow[]
+  /** Chosen-place metadata for EVERY trip — the taste profile is one taste, not one per city. */
+  placeMeta: PlaceMeta[]
   slug: string | null
   content: CityContent | null
   loading: boolean
@@ -50,10 +52,11 @@ function resolveSlug(trips: TripRow[]): string | null {
 export function TripProvider({ children, client, initial }: {
   children: ReactNode
   client?: SupabaseClient
-  initial?: { trips: TripRow[]; slug: string; content: CityContent; allAreas?: OfflineAreaRow[] }
+  initial?: { trips: TripRow[]; slug: string; content: CityContent; allAreas?: OfflineAreaRow[]; placeMeta?: PlaceMeta[] }
 }) {
   const [trips, setTrips] = useState<TripRow[]>(initial?.trips ?? [])
   const [allAreas, setAllAreas] = useState<OfflineAreaRow[]>(initial?.allAreas ?? [])
+  const [placeMeta, setPlaceMeta] = useState<PlaceMeta[]>(initial?.placeMeta ?? [])
   const [slug, setSlugState] = useState<string | null>(initial?.slug ?? null)
   const [content, setContent] = useState<CityContent | null>(initial?.content ?? null)
   const [loading, setLoading] = useState(!initial)
@@ -65,6 +68,7 @@ export function TripProvider({ children, client, initial }: {
 
   const doFetchTrips = () => (client ? fetchTripsWith(client) : fetchTrips())
   const doFetchAreas = () => (client ? fetchAllAreasWith(client) : fetchAllAreas())
+  const doFetchMeta = () => (client ? fetchAllPlaceMetaWith(client) : fetchAllPlaceMeta())
   const doFetchCity = (s: string) => (client ? fetchCityWith(client, s) : fetchCity(s))
 
   useEffect(() => {
@@ -105,6 +109,17 @@ export function TripProvider({ children, client, initial }: {
         } catch {
           const a = await getCachedAreas()
           if (!cancelled && mounted.current) setAllAreas(a)
+        }
+      })()
+      // Chosen-place metadata for the taste profile: one taste across every city, cached like areas.
+      void (async () => {
+        try {
+          const m = await doFetchMeta()
+          await putCachedPlaceMeta(m)
+          if (!cancelled && mounted.current) setPlaceMeta(m)
+        } catch {
+          const m = await getCachedPlaceMeta()
+          if (!cancelled && mounted.current) setPlaceMeta(m)
         }
       })()
       let list: TripRow[] = []
@@ -157,7 +172,7 @@ export function TripProvider({ children, client, initial }: {
     }
   }
 
-  const value: Trip = { trips, allAreas, slug, content, loading, offline, error, setSlug, refresh }
+  const value: Trip = { trips, allAreas, placeMeta, slug, content, loading, offline, error, setSlug, refresh }
   return <TripContext.Provider value={value}>{children}</TripContext.Provider>
 }
 
