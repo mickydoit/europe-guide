@@ -38,6 +38,7 @@ function raceMock(contents: Record<string, CityContent>, delays: Record<string, 
     const q: Record<string, unknown> = {
       select() { return q }, order() { return q }, limit() { return q },
       eq(_col: string, val: string) { slug = val; return q },
+      not() { return q },
       then(res: (v: { data: unknown[]; error: null }) => void) {
         const respond = () => {
           if (slug === null) { res({ data: Object.values(contents).map(c => c.trip), error: null }); return }
