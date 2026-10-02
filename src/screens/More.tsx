@@ -14,6 +14,8 @@ import type { OutboxOp } from '../lib/outbox'
 import { buildIcs, downloadIcs } from '../lib/ics'
 import { warmTripAttachments, type WarmResult } from '../lib/attachmentsWarm'
 import { clearDiag, readDiag } from '../lib/diag'
+import { usePlaceVotes } from '../lib/state'
+import { buildProfile, summariseProfile } from '../lib/taste'
 
 const NOTE_SECTIONS: Array<{ key: 'standing' | 'walkin' | 'routes'; heading: string }> = [
   { key: 'standing', heading: 'Standing notes' },
@@ -38,7 +40,7 @@ function summarise(ops: Array<{ kind: string }>): string {
 }
 
 export function More() {
-  const { trips, allAreas, content, loading, offline, error, refresh } = useTrip()
+  const { trips, allAreas, content, loading, offline, error, refresh, placeMeta } = useTrip()
   const needs = useMapNeeds()
   const byTrip = useMemo(() => areasByTrip(allAreas), [allAreas])
   // The city on screen already has its own card above; these are the ones still to come.
@@ -52,6 +54,8 @@ export function More() {
   const warmSlug = content?.trip.slug ?? null
   const [diagLines, setDiagLines] = useState<string[]>(() => readDiag())
   const [diagMsg, setDiagMsg] = useState<string | null>(null)
+  const placeVotes = usePlaceVotes()
+  const tasteLines = useMemo(() => summariseProfile(buildProfile(placeMeta, placeVotes.votes)), [placeMeta, placeVotes.votes])
 
   // "Offline — will sync when connected" is only true until it isn't: drop it the moment
   // the phone says it has signal, rather than leaving a stale excuse on screen.
@@ -212,6 +216,12 @@ export function More() {
           Sign out
         </button>
         <p className="caption more-version">Version {BUILD_ID}</p>
+      </section>
+
+      {/* What the map's "!" filter learned from the itineraries and the owner's votes (spec 2026-09-29). */}
+      <section className="more-section">
+        <h2 className="h5 more-section__heading">Taste</h2>
+        <pre className="more-diag">{tasteLines.join('\n')}</pre>
       </section>
 
       {/* A bug that only happens on the phone cannot be reproduced on a laptop. This is the trail

@@ -114,3 +114,17 @@ export function scorePlace(
   const crowdPenalty = p75 == null || count <= p75 ? 0 : clamp01((count - p75) / (CROWD_MULTIPLE * p75))
   return { score: affinity * ratingTerm * (1 - crowdPenalty), category }
 }
+
+/** What the profile learned, one line per category, for More → Diagnostics. */
+export function summariseProfile(p: TasteProfile): string[] {
+  const line = (c: Category) => {
+    const cat = p[c]
+    if (cat.n === 0) return `${c} · 0 places · thin — using the pre-profile rule`
+    const top = Object.entries(cat.typeWeight).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).slice(0, 5).map(([t]) => t).join(', ')
+    const parts = [`${c} · ${cat.n} places${cat.thin ? ' (thin)' : ''}`, `top: ${top}`]
+    if (cat.countP75 != null) parts.push(`reviews ≤ ${cat.countP75.toLocaleString('en-GB')}`)
+    if (cat.minRating != null) parts.push(`rating ≥ ${cat.minRating}`)
+    return parts.join(' · ')
+  }
+  return [line('eat'), line('shop'), line('see'), `votes · ${p.votes}`]
+}

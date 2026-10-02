@@ -1,5 +1,5 @@
 import fixture from '../fixtures/lisbon-place-meta.json'
-import { buildProfile, scorePlace, categoryOf, THRESHOLD, THIN_WEIGHT } from '../../src/lib/taste'
+import { buildProfile, scorePlace, categoryOf, THRESHOLD, THIN_WEIGHT, summariseProfile } from '../../src/lib/taste'
 import type { PlaceMeta, PlaceVoteRow } from '../../src/lib/types'
 
 const rows = fixture as PlaceMeta[]
@@ -102,5 +102,17 @@ describe('scorePlace', () => {
     expect(scorePlace(place('cafe', ['cafe'], 4.0, 200), E).score).toBe(0)
     expect(scorePlace(place('cafe', ['cafe'], 4.5, 20), E).score).toBe(0)
     expect(scorePlace(place('church', ['church'], null, null), E).score).toBeCloseTo(1, 10)
+  })
+})
+
+describe('summariseProfile', () => {
+  test('summariseProfile prints one line per category and the vote count', () => {
+    const lines = summariseProfile(P)
+    expect(lines).toHaveLength(4)
+    // weight desc, then alphabetical: the three weight-1 types first, then the first two of the 2/3-weight types
+    expect(lines[0]).toBe('eat · 13 places · top: cafe, coffee_shop, restaurant, bakery, bar · reviews ≤ 3,371 · rating ≥ 4.3')
+    expect(lines[2]).toMatch(/^see · 6 places · top: museum, tourist_attraction/)
+    expect(lines[3]).toBe('votes · 0')
+    expect(summariseProfile(buildProfile([]))[0]).toBe('eat · 0 places · thin — using the pre-profile rule')
   })
 })
