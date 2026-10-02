@@ -57,7 +57,7 @@ scorePlace(place: Place, profile: TasteProfile): { score: number; category: Cate
 - `minRating`: nearest-rank 25th percentile of chosen `rating`, floored at 4.0 (eat and shop only).
 - `n`: how many chosen places fed the category. A category with `n < 5` is marked `thin`.
 
-Votes (§4) adjust the profile after it is built: each down-vote on a type multiplies that type's weight by 0.7; each save multiplies by 1.3 (capped at 1). A down-voted `place_id` is stored in `profile.hidden`.
+Votes (§4) adjust the profile after it is built: each down-vote on a type multiplies that type's weight by 0.7; each save multiplies by 1.3 (capped at 1): a type never chosen is first seeded at 1/3, so a save counts as one choice. A down-voted `place_id` is stored in `profile.hidden`.
 
 Rows come from **every trip**, not just the city on screen: `fetchAllPlaceMeta()` in `src/lib/data.ts` selects the five columns from `items` and `parked_venues` across trips (a few hundred short rows), fetched with the trips list and cached in IndexedDB beside `allAreas`, so the profile exists offline.
 
@@ -84,7 +84,7 @@ A discovery earns a "!" when `score ≥ 0.45`. The threshold is one exported con
 
 ### 5. Fallbacks
 
-- No metadata yet for any trip (nothing re-imported): `buildProfile` returns a profile with every category `thin`; `scorePlace` then applies the old rule (rating ≥ 4.2, ≥ 50 reviews, old type list) so behaviour is unchanged until the first re-import.
+- No metadata yet for any trip (nothing re-imported): `buildProfile` returns a profile with every category `thin`; `scorePlace` then applies the old rule (rating ≥ 4.2 with ≥ 50 reviews, or an unrated landmark type) over the widened search list; the only window in which this applies is before the first metadata fetch resolves, and the map re-scores its markers the moment it does.
 - A single `thin` category (e.g. only 3 chosen shops) uses a relaxed affinity: any type in the category's lookup table counts as weight 0.6, so the map still shows shops rather than none.
 - Places API failure, offline, or no key: exactly as today (layer stays as it was).
 
