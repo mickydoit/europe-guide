@@ -510,3 +510,4 @@ button.status-pill::before { content: ''; position: absolute; inset: -12px -6px;
 .place-walks__route { margin: 0; font-size: 14px; color: var(--text-soft); }
 
 .more-diag { font-size: 11px; line-height: 1.45; color: var(--text-soft); white-space: pre-wrap; overflow-wrap: anywhere; margin: 0 0 8px; max-height: 40vh; overflow-y: auto; }
+.more-restore-modes { display: flex; gap: 8px; flex-wrap: wrap; margin: 4px 0 12px; }

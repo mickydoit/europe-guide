@@ -1,6 +1,7 @@
 import { useLayoutEffect } from 'react'
 import { useLocation, useNavigationType } from 'react-router-dom'
 import { diag } from '../lib/diag'
+import { getRestoreMode } from '../lib/restoreMode'
 
 // #root is the scroller (base.css) and React Router keeps its offset across client-side
 // navigations. Tapping into a new screen must land at the top; coming BACK must return to where
@@ -126,7 +127,7 @@ function restoreUntilSettled(root: HTMLElement, y: number, pathname: string): ()
     if (Math.abs(root.scrollTop - y) > 1) { root.scrollTop = y; writes += 1 }
     if (Math.abs(root.scrollTop - y) <= 1) stop('settled')()
   }
-  diag('restore', `start ${pathname} y=${y}`)
+  diag('restore', `start ${pathname} y=${y} mode=${getRestoreMode()}`)
   for (const ev of TAKEOVER) root.addEventListener(ev, onGesture, { passive: true })
   apply()
   if (stopped) return stop('left')
@@ -160,7 +161,19 @@ export function ScrollReset() {
     const back = navType === 'POP' || (navType === 'REPLACE' && (state as { back?: boolean } | null)?.back === true)
     const insidePage = navType === 'POP' && key !== 'default'
     const recent = !!entry && Date.now() - entry.at < LAUNCH_RESTORE_MS
-    const y = entry && back && (insidePage || recent) ? entry.y : 0
+    const mode = getRestoreMode()
+    const y = mode !== 'off' && entry && back && (insidePage || recent) ? entry.y : 0
+    if (mode === 'deferred' && y && root) {
+      // Experiment (6 Oct): every freeze in the phone log followed a restore written in this
+      // layout effect, i.e. in the same commit that swapped the screen. Reset to the top now and
+      // write the offset two frames later, after iOS has laid out and committed the new screen.
+      root.scrollTop = 0
+      window.scrollTo(0, 0)
+      diag('restore', `start ${pathname} y=${y} mode=deferred`)
+      let raf = requestAnimationFrame(() => { raf = requestAnimationFrame(() => { root.scrollTop = y; cleanup = restoreUntilSettled(root, y, pathname) }) })
+      let cleanup: (() => void) | null = null
+      return () => { cancelAnimationFrame(raf); cleanup?.() }
+    }
     if (root) root.scrollTop = y
     // The window call stays for any host where the body scrolls.
     window.scrollTo(0, y)
