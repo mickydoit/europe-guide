@@ -1,7 +1,6 @@
 import { useLayoutEffect } from 'react'
 import { useLocation, useNavigationType } from 'react-router-dom'
 import { diag } from '../lib/diag'
-import { getRestoreMode } from '../lib/restoreMode'
 
 // #root is the scroller (base.css) and React Router keeps its offset across client-side
 // navigations. Tapping into a new screen must land at the top; coming BACK must return to where
@@ -127,7 +126,6 @@ function restoreUntilSettled(root: HTMLElement, y: number, pathname: string): ()
     if (Math.abs(root.scrollTop - y) > 1) { root.scrollTop = y; writes += 1 }
     if (Math.abs(root.scrollTop - y) <= 1) stop('settled')()
   }
-  diag('restore', `start ${pathname} y=${y} mode=${getRestoreMode()}`)
   for (const ev of TAKEOVER) root.addEventListener(ev, onGesture, { passive: true })
   apply()
   if (stopped) return stop('left')
@@ -161,27 +159,37 @@ export function ScrollReset() {
     const back = navType === 'POP' || (navType === 'REPLACE' && (state as { back?: boolean } | null)?.back === true)
     const insidePage = navType === 'POP' && key !== 'default'
     const recent = !!entry && Date.now() - entry.at < LAUNCH_RESTORE_MS
-    const mode = getRestoreMode()
-    const y = mode !== 'off' && entry && back && (insidePage || recent) ? entry.y : 0
-    if (mode === 'deferred' && y && root) {
-      // Experiment (6 Oct): every freeze in the phone log followed a restore written in this
-      // layout effect, i.e. in the same commit that swapped the screen. Reset to the top now and
-      // write the offset two frames later, after iOS has laid out and committed the new screen.
-      root.scrollTop = 0
-      window.scrollTo(0, 0)
-      diag('restore', `start ${pathname} y=${y} mode=deferred`)
-      let raf = requestAnimationFrame(() => { raf = requestAnimationFrame(() => { root.scrollTop = y; cleanup = restoreUntilSettled(root, y, pathname) }) })
-      let cleanup: (() => void) | null = null
-      return () => { cancelAnimationFrame(raf); cleanup?.() }
-    }
-    if (root) root.scrollTop = y
+    const y = entry && back && (insidePage || recent) ? entry.y : 0
+    // Always to the top in this commit. The restore itself is written two frames LATER.
+    //
+    // ROOT CAUSE of the dead-tap spells (owner's phone, 6 Oct 2026, reproduced at will with
+    // Day → open a stop → Back): writing #root.scrollTop here, in the layout effect of the very
+    // commit that swaps one screen's DOM for another, left iOS swallowing every touch afterwards —
+    // none reached the page, not even as touchcancel, while the main thread stayed alive — until
+    // the app was killed. The same write made two animation frames after the commit, once iOS
+    // has laid out and composited the new screen, never did (A/B on the device: "immediate"
+    // froze every time, "deferred" never). #root is an async overflow scroller with the fixed
+    // tab bar inside it; the exact WebKit mechanism is not pinned down, the trigger and its
+    // removal are.
+    if (root) root.scrollTop = 0
     // The window call stays for any host where the body scrolls.
-    window.scrollTo(0, y)
+    window.scrollTo(0, 0)
     if (!y || !root) return
-    // Getting here with an EMPTY screen is the normal case, not the edge case: iOS reloads a
-    // backgrounded PWA, and the itinerary then arrives asynchronously. scrollTop is clamped to
-    // the content that exists, so the write above may have landed short of `y`.
-    return restoreUntilSettled(root, y, pathname)
+    diag('restore', `start ${pathname} y=${y}`)
+    let cleanup: (() => void) | null = null
+    // Declared before the first request: a host that runs frames synchronously (tests) would
+    // otherwise assign `raf` inside the callback before the `let` had initialised it.
+    let raf = 0
+    raf = requestAnimationFrame(() => {
+      raf = requestAnimationFrame(() => {
+        root.scrollTop = y
+        // Getting here with an EMPTY screen is the normal case, not the edge case: iOS reloads a
+        // backgrounded PWA, and the itinerary then arrives asynchronously. scrollTop is clamped to
+        // the content that exists, so the write above may have landed short of `y`.
+        cleanup = restoreUntilSettled(root, y, pathname)
+      })
+    })
+    return () => { cancelAnimationFrame(raf); cleanup?.() }
     // Keyed on pathname, not key: a tap on the tab you are already on is a no-op (see ScrollReset.test).
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pathname])

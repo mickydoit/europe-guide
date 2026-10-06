@@ -3,7 +3,6 @@ import { MemoryRouter, Routes, Route, Outlet, Link, useNavigate } from 'react-ro
 import { vi, beforeEach, afterEach, test, expect } from 'vitest'
 import { ScrollReset } from '../../src/components/ScrollReset'
 import { readDiag, clearDiag } from '../../src/lib/diag'
-import { setRestoreMode, RESTORE_MODE_KEY } from '../../src/lib/restoreMode'
 import type React from 'react'
 import { useLayoutEffect } from 'react'
 
@@ -28,7 +27,13 @@ function mount() {
   return root
 }
 const scrollTo = vi.fn()
-beforeEach(() => { scrollTo.mockClear(); vi.stubGlobal('scrollTo', scrollTo) })
+// The restore is written two animation frames after the commit (see ScrollReset). For every test
+// but the one about that timing, run frames synchronously so the assertions read as before.
+beforeEach(() => {
+  scrollTo.mockClear(); vi.stubGlobal('scrollTo', scrollTo)
+  vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => { cb(16); return 1 })
+  vi.stubGlobal('cancelAnimationFrame', () => {})
+})
 afterEach(() => { vi.unstubAllGlobals(); document.querySelectorAll('#root').forEach(el => el.remove()) })
 
 test('back restores the saved offset; forward goes to the top', () => {
@@ -40,7 +45,7 @@ test('back restores the saved offset; forward goes to the top', () => {
   expect(root.scrollTop).toBe(0)
   fireEvent.click(screen.getByRole('button', { name: 'Back' }))
   expect(screen.getByRole('heading', { name: 'Tickets' })).toBeInTheDocument()
-  expect(scrollTo).toHaveBeenLastCalledWith(0, 480)
+  expect(scrollTo).toHaveBeenLastCalledWith(0, 0)             // the window call only ever resets now
   expect(root.scrollTop).toBe(480)
 })
 
@@ -323,51 +328,23 @@ test('a restore leaves a trace in the diagnostics log: where it started and how 
   expect(lines).toMatch(/restore settled/)
 })
 
-// Dead-tap experiment (6 Oct): the restore mode is switchable from More → Diagnostics.
-test('mode off: Back lands at the top and no restore starts', () => {
-  setRestoreMode('off')
-  try {
-    const root = mount()
-    root.scrollTop = 480; fireEvent.scroll(root)
-    fireEvent.click(screen.getByRole('link', { name: 'Open' }))
-    clearDiag()
-    fireEvent.click(screen.getByRole('button', { name: 'Back' }))
-    expect(root.scrollTop).toBe(0)
-    expect(scrollTo).toHaveBeenLastCalledWith(0, 0)
-    expect(readDiag().filter(l => l.includes('restore start'))).toEqual([])
-  } finally { localStorage.removeItem(RESTORE_MODE_KEY) }
-})
-
-test('mode deferred: Back resets to the top in the commit and writes the offset two frames later', () => {
-  setRestoreMode('deferred')
+// The 6 Oct root cause: the offset must NOT be written in the commit that swaps the screen.
+test('Back resets to the top in the commit and writes the offset two frames later', () => {
   const frames: FrameRequestCallback[] = []
   vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => { frames.push(cb); return frames.length })
-  vi.stubGlobal('cancelAnimationFrame', () => {})
-  try {
-    const root = mount()
-    root.scrollTop = 480; fireEvent.scroll(root)
-    fireEvent.click(screen.getByRole('link', { name: 'Open' }))
-    clearDiag()
-    fireEvent.click(screen.getByRole('button', { name: 'Back' }))
-    expect(root.scrollTop).toBe(0)                               // the commit itself only resets
-    expect(scrollTo).toHaveBeenLastCalledWith(0, 0)
-    expect(readDiag().some(l => /restore start \/tickets y=480 mode=deferred/.test(l))).toBe(true)
-    // Run everything queued for a frame, then whatever that queued for the next — other code may
-    // have asked for frames too, so a blind shift() could run the wrong callback.
-    const flush = () => { for (const cb of frames.splice(0)) cb(16) }
-    flush()                                                       // frame 1 schedules frame 2
-    expect(root.scrollTop).toBe(0)
-    flush()                                                       // frame 2 writes the offset
-    expect(root.scrollTop).toBe(480)
-  } finally { localStorage.removeItem(RESTORE_MODE_KEY) }
-})
-
-test('mode immediate (default): the restore start line carries the mode', () => {
   const root = mount()
   root.scrollTop = 480; fireEvent.scroll(root)
   fireEvent.click(screen.getByRole('link', { name: 'Open' }))
   clearDiag()
   fireEvent.click(screen.getByRole('button', { name: 'Back' }))
+  expect(root.scrollTop).toBe(0)                               // the commit itself only resets
+  expect(scrollTo).toHaveBeenLastCalledWith(0, 0)
+  expect(readDiag().some(l => /restore start \/tickets y=480/.test(l))).toBe(true)
+  // Run everything queued for a frame, then whatever that queued for the next — other code may
+  // have asked for frames too, so a blind shift() could run the wrong callback.
+  const flush = () => { for (const cb of frames.splice(0)) cb(16) }
+  flush()                                                       // frame 1 schedules frame 2
+  expect(root.scrollTop).toBe(0)
+  flush()                                                       // frame 2 writes the offset
   expect(root.scrollTop).toBe(480)
-  expect(readDiag().some(l => /restore start \/tickets y=480 mode=immediate/.test(l))).toBe(true)
 })

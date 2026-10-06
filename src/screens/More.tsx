@@ -14,7 +14,6 @@ import type { OutboxOp } from '../lib/outbox'
 import { buildIcs, downloadIcs } from '../lib/ics'
 import { warmTripAttachments, type WarmResult } from '../lib/attachmentsWarm'
 import { clearDiag, readDiag } from '../lib/diag'
-import { getRestoreMode, setRestoreMode, RESTORE_MODES, type RestoreMode } from '../lib/restoreMode'
 import { usePlaceVotes } from '../lib/state'
 import { buildProfile, summariseProfile } from '../lib/taste'
 
@@ -55,7 +54,6 @@ export function More() {
   const warmSlug = content?.trip.slug ?? null
   const [diagLines, setDiagLines] = useState<string[]>(() => readDiag())
   const [diagMsg, setDiagMsg] = useState<string | null>(null)
-  const [restoreMode, setRestoreModeState] = useState<RestoreMode>(() => getRestoreMode())
   const placeVotes = usePlaceVotes()
   const tasteLines = useMemo(() => summariseProfile(buildProfile(placeMeta, placeVotes.votes)), [placeMeta, placeVotes.votes])
 
@@ -240,14 +238,6 @@ export function More() {
         }}>Copy diagnostics</button>
         <button type="button" className="btn btn--text" onClick={() => { clearDiag(); setDiagLines([]); setDiagMsg(null) }}>Clear</button>
         {diagMsg && <p className="caption">{diagMsg}</p>}
-        {/* Dead-tap experiment (6 Oct): run Day → open a stop → Back → tap a tab under each mode. */}
-        <p className="caption">Scroll restore on Back: <strong>{restoreMode}</strong></p>
-        <div className="more-restore-modes">
-          {RESTORE_MODES.map(m => (
-            <button key={m} type="button" className={`btn ${m === restoreMode ? 'btn--secondary' : 'btn--text'}`} disabled={m === restoreMode}
-              onClick={() => { setRestoreMode(m); setRestoreModeState(m) }}>{m}</button>
-          ))}
-        </div>
         <button type="button" className="btn btn--text" onClick={() => {
           setUpdateMsg('Checking…')
           void checkForUpdate().then(r => setUpdateMsg(r === 'updated' ? 'Update found — reloading…' : r === 'current' ? 'You have the latest version' : 'Updates unavailable in this browser'))
