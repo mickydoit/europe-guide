@@ -1,5 +1,5 @@
 import { describe, test, expect, beforeEach } from 'vitest'
-import { diag, readDiag, clearDiag, DIAG_KEY } from '../../src/lib/diag'
+import { diag, readDiag, clearDiag, DIAG_KEY, MAX_LINES } from '../../src/lib/diag'
 
 /**
  * A field-only bug ("sometimes nothing on the phone responds to a tap") cannot be reproduced on
@@ -19,12 +19,12 @@ describe('diag', () => {
     expect(JSON.parse(localStorage.getItem(DIAG_KEY)!)).toHaveLength(2)
   })
 
-  test('keeps only the most recent sixty lines', () => {
-    for (let i = 0; i < 70; i++) diag('touchcancel', `#${i}`)
+  test('keeps only the most recent MAX_LINES lines', () => {
+    for (let i = 0; i < MAX_LINES + 10; i++) diag('touchcancel', `#${i}`)
     const lines = readDiag()
-    expect(lines).toHaveLength(60)
+    expect(lines).toHaveLength(MAX_LINES)
     expect(lines[0]).toContain('#10')
-    expect(lines[59]).toContain('#69')
+    expect(lines[MAX_LINES - 1]).toContain(`#${MAX_LINES + 9}`)
   })
 
   test('clear empties it', () => {

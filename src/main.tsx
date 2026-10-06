@@ -7,6 +7,7 @@ import { setupAutoReload } from './lib/updates'
 import { supabase } from './lib/supabase'
 import { startSync } from './lib/sync'
 import { diag } from './lib/diag'
+import { installTapProbe } from './lib/tapProbe'
 // Ask for persistent storage up front: without it iOS evicts the Cache API (and with it
 // the downloaded offline maps) after a week or so of the PWA going unused.
 void navigator.storage?.persist?.().catch(() => {})
@@ -28,6 +29,9 @@ document.addEventListener('touchcancel', e => {
   const t = e.target as Element | null
   diag('touchcancel', t ? `${t.tagName}${t.className && typeof t.className === 'string' ? '.' + t.className.split(' ')[0] : ''}` : '')
 }, { passive: true })
+// Every tap that never becomes a click, with what was under the finger and whether the main
+// thread was even running (see tapProbe.ts). This is the evidence the dead-tap spells lacked.
+installTapProbe(diag, { doc: document, win: window })
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <BrowserRouter basename="/europe-guide"><App /></BrowserRouter>

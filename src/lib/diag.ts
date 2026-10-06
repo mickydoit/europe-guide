@@ -8,7 +8,9 @@
  * log must never be the thing that breaks the screen.
  */
 export const DIAG_KEY = 'europe-guide.diag'
-const MAX_LINES = 60
+// 120, not 60: a dead-tap spell writes one line per tap plus lag lines, and the owner may tap a
+// dozen times before giving up — the lines that matter must still be there at More → Diagnostics.
+export const MAX_LINES = 120
 
 function load(): string[] {
   try {
