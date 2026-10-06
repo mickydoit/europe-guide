@@ -161,12 +161,14 @@ export function installTapProbe(log: Log, { doc, win }: { doc: Document; win: Wi
   root()?.addEventListener('scroll', onRootScroll, { passive: true })
 
   // Event-loop lag: a one-second timer that fires late by more than LAG_REPORT_MS means the main
-  // thread was busy or frozen for that long. Written once per late tick, never on time.
+  // thread was busy or frozen for that long. Written once per late tick, never on time — and
+  // never while the page is hidden: iOS throttles a background page's timers, and the 6 Oct log
+  // showed a 1,050 ms "lag" three seconds after the app went to the background. Noise.
   let expected = Date.now() + LAG_SAMPLE_MS
   const lag = setInterval(() => safe(() => {
     const now = Date.now()
     const late = now - expected
-    if (late > LAG_REPORT_MS) log('lag', `${late}ms`)
+    if (late > LAG_REPORT_MS && doc.visibilityState !== 'hidden') log('lag', `${late}ms`)
     expected = now + LAG_SAMPLE_MS
   }), LAG_SAMPLE_MS)
 

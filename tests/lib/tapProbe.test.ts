@@ -81,6 +81,14 @@ describe('dead taps', () => {
 })
 
 describe('event-loop lag', () => {
+  test('a late tick while the page is hidden is iOS throttling, not a freeze — no lag line', () => {
+    Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true })
+    vi.setSystemTime(Date.now() + LAG_SAMPLE_MS + LAG_REPORT_MS + 500)
+    vi.advanceTimersByTime(LAG_SAMPLE_MS)
+    expect(lines.filter(l => l.startsWith('lag'))).toEqual([])
+    Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true })
+  })
+
   test('a timer that fires far later than scheduled logs a lag line; an on-time one does not', () => {
     vi.advanceTimersByTime(LAG_SAMPLE_MS)                 // on time
     expect(lines.filter(l => l.startsWith('lag'))).toEqual([])
