@@ -25,12 +25,9 @@ window.addEventListener('pageshow', e => diag('pageshow', (e as PageTransitionEv
 window.addEventListener('pagehide', () => diag('pagehide'))
 window.addEventListener('online', () => diag('online'))
 window.addEventListener('offline', () => diag('offline'))
-document.addEventListener('touchcancel', e => {
-  const t = e.target as Element | null
-  diag('touchcancel', t ? `${t.tagName}${t.className && typeof t.className === 'string' ? '.' + t.className.split(' ')[0] : ''}` : '')
-}, { passive: true })
-// Every tap that never becomes a click, with what was under the finger and whether the main
-// thread was even running (see tapProbe.ts). This is the evidence the dead-tap spells lacked.
+// Every touch the system cancels (with how long it was down, whether the scroller moved under it
+// and who moved it), every tap that never becomes a click, and whether the main thread was even
+// running (see tapProbe.ts). This is the evidence the dead-tap spells lacked.
 installTapProbe(diag, { doc: document, win: window })
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>

@@ -11,6 +11,7 @@ let lines: string[]
 let uninstall: () => void
 let tab: HTMLAnchorElement
 let overlay: HTMLDivElement
+let root: HTMLDivElement
 
 beforeEach(() => {
   vi.useFakeTimers()
@@ -18,6 +19,7 @@ beforeEach(() => {
   document.body.innerHTML = '<div id="root" style="overflow:auto"><a id="tab" class="tabbar__tab x" href="#">Day</a></div><div id="overlay" class="sheet-root"></div>'
   tab = document.getElementById('tab') as HTMLAnchorElement
   overlay = document.getElementById('overlay') as HTMLDivElement
+  root = document.getElementById('root') as HTMLDivElement
   // jsdom has no layout: elementFromPoint is stubbed per test.
   document.elementFromPoint = () => tab
   uninstall = installTapProbe((event, detail) => { lines.push(`${event} ${detail ?? ''}`.trim()) }, { doc: document, win: window })
@@ -88,6 +90,51 @@ describe('event-loop lag', () => {
     const lag = lines.filter(l => l.startsWith('lag'))
     expect(lag).toHaveLength(1)
     expect(lag[0]).toMatch(/^lag \d+ms/)
+  })
+})
+
+describe('cancelled touches', () => {
+  test('a touch iOS cancels logs how long it was down, how far it moved, what the scroller did and what was under it', () => {
+    document.elementFromPoint = () => overlay
+    touch('touchstart', tab, 40, 800)
+    vi.advanceTimersByTime(120)
+    touch('touchcancel', tab, 40, 800)
+    expect(lines).toHaveLength(1)
+    expect(lines[0]).toMatch(/^touchcancel A\.tabbar__tab under=DIV\.sheet-root after=12\dms moved=0px rootΔ=0 scrolled=no connected=yes /)
+    expect(lines[0]).toMatch(/lastWrite=none$/)
+    vi.advanceTimersByTime(3000)
+    expect(lines).toHaveLength(1)                          // no touchhang after a cancel
+  })
+
+  test('a cancel after the scroller was written underneath the finger names the writer and the delta', () => {
+    touch('touchstart', tab, 40, 800)
+    root.scrollTop = 350                                   // programmatic write while the finger is down
+    root.dispatchEvent(new Event('scroll'))
+    touch('touchcancel', tab, 40, 800)
+    expect(lines[0]).toMatch(/rootΔ=350 scrolled=yes/)
+    expect(lines[0]).toMatch(/lastWrite=\d+ms ago by /)
+    expect(lines[0]).not.toMatch(/lastWrite=none/)
+  })
+
+  test('a cancel whose target was removed from the page says so', () => {
+    touch('touchstart', tab, 40, 800)
+    tab.remove()                                            // the screen re-rendered under the finger
+    touch('touchcancel', root, 40, 800)                     // the cancel arrives via the ancestor that is still in the page
+    expect(lines[0]).toMatch(/connected=NO/)
+  })
+
+  test('a cancel after a drag reports the distance moved', () => {
+    touch('touchstart', tab, 40, 800)
+    touch('touchmove', tab, 40, 760)
+    touch('touchcancel', tab, 40, 760)
+    expect(lines[0]).toMatch(/moved=40px/)
+  })
+
+  test('window.scrollTo is traced as a writer too', () => {
+    touch('touchstart', tab, 40, 800)
+    window.scrollTo(0, 10)
+    touch('touchcancel', tab, 40, 800)
+    expect(lines[0]).toMatch(/lastWrite=\d+ms ago by scrollTo/)
   })
 })
 
